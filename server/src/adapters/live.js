@@ -153,7 +153,7 @@ export function createLiveAdapter({
       const data = await pave({
         currentGrant: {
           id: {},
-          user: { id: {}, name: {}, email: {} },
+          user: { id: {}, name: {}, emailAddress: {} },
         },
         organization: {
           $: { id: organizationId },
@@ -172,7 +172,8 @@ export function createLiveAdapter({
           },
         },
       });
-      const user = data?.currentGrant?.user ?? null;
+      const u = data?.currentGrant?.user ?? null;
+      const user = u ? { id: u.id, name: u.name, email: u.emailAddress ?? '' } : null;
       const jobs = (data?.organization?.jobs?.nodes ?? []).map((j) => ({
         id: j.id,
         name: j.name,
