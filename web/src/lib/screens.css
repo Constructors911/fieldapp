@@ -1,0 +1,189 @@
+/* Agent C screen styles (Log + Week). All classes prefixed `c9-` to avoid
+   colliding with Agent B's component styles. Uses tokens.css variables. */
+
+.c9-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.c9-h2 { margin: 0 0 12px; font-size: 18px; }
+.c9-h3 { margin: 16px 0 8px; font-size: 15px; color: var(--muted); font-weight: 600; }
+
+.c9-field { margin-bottom: 14px; }
+.c9-label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+
+.c9-input,
+.c9-select,
+.c9-textarea {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  font-size: 16px; /* >=16px prevents iOS zoom-on-focus */
+  font-family: inherit;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid #cfd6dd;
+  border-radius: 8px;
+}
+.c9-textarea { min-height: 96px; resize: vertical; }
+.c9-input:focus, .c9-select:focus, .c9-textarea:focus {
+  outline: 2px solid var(--orange);
+  outline-offset: 1px;
+  border-color: var(--orange);
+}
+
+.c9-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--navy);
+  color: #fff;
+}
+.c9-btn:disabled { opacity: 0.55; cursor: default; }
+.c9-btn-primary { background: var(--orange); width: 100%; }
+.c9-btn-ghost {
+  background: #fff;
+  color: var(--navy);
+  border: 1px solid #cfd6dd;
+}
+
+.c9-msg { border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+.c9-msg-ok { background: #e7f5ec; color: var(--green); }
+.c9-msg-queued { background: #fdf0e5; color: #a35315; }
+.c9-msg-err { background: #fbeaea; color: var(--red); }
+
+.c9-empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+
+/* --- photo attach --- */
+.c9-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.c9-thumb { position: relative; width: 72px; height: 72px; }
+.c9-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #dde3e8;
+  display: block;
+}
+.c9-thumb-x {
+  position: absolute;
+  top: -10px; right: -10px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--red);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow);
+  /* visually 28px but with a generous hit area */
+  padding: 0;
+}
+.c9-thumb-x::after { content: ''; position: absolute; inset: -8px; }
+
+/* --- existing logs --- */
+.c9-log-item { border-top: 1px solid #edf0f3; padding: 12px 0; }
+.c9-log-item:first-of-type { border-top: 0; padding-top: 4px; }
+.c9-log-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.c9-log-job { font-weight: 600; font-size: 14px; }
+.c9-log-weather { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.c9-log-notes { font-size: 15px; white-space: pre-wrap; word-break: break-word; margin: 4px 0; }
+.c9-log-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.c9-log-photos img {
+  width: 64px; height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #dde3e8;
+}
+
+/* --- week --- */
+.c9-week-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.c9-week-nav .c9-week-title { text-align: center; flex: 1; min-width: 0; }
+.c9-week-range { font-weight: 700; font-size: 16px; display: block; }
+.c9-week-this {
+  background: none; border: 0; padding: 4px 8px; min-height: 32px;
+  color: var(--orange); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.c9-day { margin-bottom: 10px; }
+.c9-day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.c9-day.is-today .c9-day-head {
+  background: var(--navy);
+  color: #fff;
+}
+.c9-day.is-today .c9-day-head .c9-day-badge {
+  background: var(--orange);
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  margin-left: auto;
+}
+.c9-day-empty { color: var(--muted); font-size: 13px; padding: 2px 10px 0; }
+.c9-task {
+  background: var(--card);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  margin: 6px 0 0;
+  border-left: 3px solid var(--navy);
+}
+.c9-day.is-today .c9-task { border-left-color: var(--orange); }
+.c9-task-job { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+.c9-task-name { font-size: 15px; font-weight: 600; margin: 2px 0; }
+.c9-task.is-done .c9-task-name { text-decoration: line-through; color: var(--muted); }
+.c9-task-time { font-size: 13px; color: var(--muted); }
+.c9-task-todo {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--orange);
+  border: 1px solid var(--orange);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* --- job picker trigger (Log) --- */
+.c9-jobbtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.c9-jobbtn-text { display: flex; flex-direction: column; min-width: 0; }
+.c9-jobbtn-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c9-jobbtn-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c9-jobbtn-placeholder { color: var(--muted); }
+
+.c9-task-donemark { color: var(--green); font-weight: 600; }
