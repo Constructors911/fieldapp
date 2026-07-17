@@ -166,7 +166,12 @@ export function createLiveAdapter({
               location: { id: {}, formattedAddress: {} },
               costItems: {
                 $: { size: 100 },
-                nodes: { id: {}, name: {}, costCode: {}, isTimeTrackable: {} },
+                nodes: {
+                  id: {},
+                  name: {},
+                  costCode: { id: {}, fullName: {} },
+                  costType: { id: {}, isTimeTrackable: {} },
+                },
               },
             },
           },
@@ -181,8 +186,8 @@ export function createLiveAdapter({
         costItems: (j.costItems?.nodes ?? []).map((c) => ({
           id: c.id,
           name: c.name,
-          costCode: c.costCode ?? '',
-          isTimeTrackable: Boolean(c.isTimeTrackable),
+          costCode: c.costCode?.fullName ?? '',
+          isTimeTrackable: Boolean(c.costType?.isTimeTrackable),
         })),
       }));
       return { user, jobs, timeEntryTypes: ['Regular', 'Overtime', 'Travel', 'Shop Time'] };
