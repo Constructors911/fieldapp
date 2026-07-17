@@ -165,12 +165,14 @@ export function createLiveAdapter({
               name: {},
               location: { id: {}, formattedAddress: {} },
               costItems: {
-                $: { size: 100 },
+                // Only time-trackable items: the Clock screen is the sole
+                // consumer, and unfiltered cost items 413 the response on
+                // estimate-heavy orgs.
+                $: { size: 100, where: { and: [[['costType', 'isTimeTrackable'], '=', true]] } },
                 nodes: {
                   id: {},
                   name: {},
                   costCode: { id: {}, fullName: {} },
-                  costType: { id: {}, isTimeTrackable: {} },
                 },
               },
             },
@@ -187,7 +189,7 @@ export function createLiveAdapter({
           id: c.id,
           name: c.name,
           costCode: c.costCode?.fullName ?? '',
-          isTimeTrackable: Boolean(c.costType?.isTimeTrackable),
+          isTimeTrackable: true, // query is pre-filtered to trackable items
         })),
       }));
       return { user, jobs, timeEntryTypes: ['Regular', 'Overtime', 'Travel', 'Shop Time'] };
