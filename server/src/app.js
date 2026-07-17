@@ -24,6 +24,12 @@ export function createApp(adapter) {
     res.json(await adapter.getBootstrap());
   }));
 
+  // Time-trackable cost items for one job (clock-in picker). Fetched lazily
+  // because full per-job cost item lists are too large to ship in bootstrap.
+  app.get('/api/jobs/:jobId/cost-items', wrap(async (req, res) => {
+    res.json({ costItems: await adapter.getJobCostItems(req.params.jobId) });
+  }));
+
   // ---- time tracking ---------------------------------------------------
   app.get('/api/time/current', wrap(async (req, res) => {
     res.json({ entry: await adapter.getCurrentEntry() });

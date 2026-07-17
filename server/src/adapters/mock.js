@@ -170,7 +170,16 @@ export function createMockAdapter() {
     name: 'mock',
 
     async getBootstrap() {
-      return { user: db.user, jobs: db.jobs, timeEntryTypes: db.timeEntryTypes };
+      // Jobs without costItems — the clock-in picker fetches them per job
+      // via getJobCostItems, mirroring the live adapter (see live.js).
+      const jobs = db.jobs.map(({ costItems, ...j }) => j);
+      return { user: db.user, jobs, timeEntryTypes: db.timeEntryTypes };
+    },
+
+    async getJobCostItems(jobId) {
+      const job = findJob(jobId);
+      if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
+      return job.costItems.filter((c) => c.isTimeTrackable);
     },
 
     async getCurrentEntry() {

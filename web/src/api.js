@@ -9,6 +9,7 @@ async function get(path) {
 }
 
 export const getBootstrap = () => get('/api/bootstrap');
+export const getJobCostItems = (jobId) => get(`/api/jobs/${encodeURIComponent(jobId)}/cost-items`);
 export const getCurrentEntry = () => get('/api/time/current');
 export const getTimeEntries = (from, to) => get(`/api/time/entries?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
 export const getTasks = (scope, weekStart) => get(`/api/tasks?scope=${scope}${weekStart ? `&weekStart=${weekStart}` : ''}`);

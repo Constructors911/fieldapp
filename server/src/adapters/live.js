@@ -164,35 +164,42 @@ export function createLiveAdapter({
               id: {},
               name: {},
               location: { id: {}, formattedAddress: {} },
-              costItems: {
-                // Only time-trackable items: the Clock screen is the sole
-                // consumer, and unfiltered cost items 413 the response on
-                // estimate-heavy orgs.
-                $: { size: 100, where: { and: [[['costType', 'isTimeTrackable'], '=', true]] } },
-                nodes: {
-                  id: {},
-                  name: {},
-                  costCode: { id: {}, fullName: {} },
-                },
-              },
             },
           },
         },
       });
       const u = data?.currentGrant?.user ?? null;
       const user = u ? { id: u.id, name: u.name, email: u.emailAddress ?? '' } : null;
+      // No costItems here: 98 open jobs x full cost item lists 413s the Pave
+      // response. The clock-in picker fetches them per job (getJobCostItems).
       const jobs = (data?.organization?.jobs?.nodes ?? []).map((j) => ({
         id: j.id,
         name: j.name,
         location: j.location?.formattedAddress ?? '',
-        costItems: (j.costItems?.nodes ?? []).map((c) => ({
-          id: c.id,
-          name: c.name,
-          costCode: c.costCode?.fullName ?? '',
-          isTimeTrackable: true, // query is pre-filtered to trackable items
-        })),
       }));
       return { user, jobs, timeEntryTypes: ['Regular', 'Overtime', 'Travel', 'Shop Time'] };
+    },
+
+    async getJobCostItems(jobId) {
+      const data = await pave({
+        job: {
+          $: { id: jobId },
+          id: {},
+          costItems: {
+            // Trackable only: this feeds the clock-in cost-code picker, and
+            // unfiltered lists 413 on estimate-heavy jobs.
+            $: { size: 100, where: { and: [[['costType', 'isTimeTrackable'], '=', true]] } },
+            nodes: { id: {}, name: {}, costCode: { id: {}, fullName: {} } },
+          },
+        },
+      });
+      if (!data?.job?.id) throw new HttpError(404, `Unknown job: ${jobId}`);
+      return (data.job.costItems?.nodes ?? []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        costCode: c.costCode?.fullName ?? '',
+        isTimeTrackable: true, // query is pre-filtered to trackable items
+      }));
     },
 
     async getCurrentEntry() {

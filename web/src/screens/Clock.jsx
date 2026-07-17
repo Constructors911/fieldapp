@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentEntry, getTimeEntries, clockIn, clockOut } from '../api.js';
+import { getCurrentEntry, getTimeEntries, getJobCostItems, clockIn, clockOut } from '../api.js';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
@@ -68,9 +68,27 @@ export default function Clock({ boot }) {
   const [step, setStep] = useState(null); // null | 'job' | 'cost' | 'note' | 'out'
   const [selJob, setSelJob] = useState(null);
   const [selCost, setSelCost] = useState(null);
+  const [costItems, setCostItems] = useState(null); // null = loading for selJob
   const [note, setNote] = useState('');
   const [breakMin, setBreakMin] = useState('');
   const gpsPromise = useRef(null);
+  const costCache = useRef(new Map()); // jobId -> costItems[]
+
+  function loadCostItems(jobId) {
+    const cached = costCache.current.get(jobId);
+    if (cached) { setCostItems(cached); return; }
+    setCostItems(null);
+    getJobCostItems(jobId)
+      .then((r) => {
+        const items = (r.costItems || []).filter((ci) => ci.isTimeTrackable);
+        costCache.current.set(jobId, items);
+        setCostItems(items);
+      })
+      .catch((e) => {
+        setActionErr(e.message || 'Could not load cost codes — check your connection and try again.');
+        resetFlow();
+      });
+  }
 
   const load = useCallback(async () => {
     try {
@@ -195,7 +213,7 @@ export default function Clock({ boot }) {
   const runningMins = current ? Math.max(0, (now - new Date(current.startedAt).getTime()) / 60000) : 0;
   const totalMins = completed.reduce((sum, e) => sum + (e.minutes || 0), 0) + runningMins;
 
-  const trackableItems = (selJob?.costItems || []).filter((ci) => ci.isTimeTrackable);
+  const trackableItems = costItems || [];
 
   return (
     <div>
@@ -279,7 +297,7 @@ export default function Clock({ boot }) {
         title="Pick a job"
         onClose={resetFlow}
         options={jobs.map((j) => ({ id: j.id, label: j.name, sub: j.location, _job: j }))}
-        onSelect={(opt) => { setSelJob(opt._job); setStep('cost'); }}
+        onSelect={(opt) => { setSelJob(opt._job); setStep('cost'); loadCostItems(opt._job.id); }}
         emptyText="No jobs available"
       />
 
@@ -290,7 +308,7 @@ export default function Clock({ boot }) {
         onClose={resetFlow}
         options={trackableItems.map((ci) => ({ id: ci.id, label: ci.name, sub: ci.costCode, _ci: ci }))}
         onSelect={(opt) => { setSelCost(opt._ci); setStep('note'); }}
-        emptyText="No time-trackable cost codes on this job"
+        emptyText={costItems === null ? 'Loading cost codes…' : 'No time-trackable cost codes on this job'}
       />
 
       {/* Step 3: optional note + confirm */}

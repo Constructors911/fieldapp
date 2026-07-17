@@ -24,7 +24,8 @@ Mobile-first PWA for field crews. Users are paid JobTread internal users. Mock P
 
 ## REST API (server <-> web) — all JSON under /api
 
-- GET /api/bootstrap -> { user, jobs: [{id, name, location, costItems:[{id, name, costCode, isTimeTrackable}]}], timeEntryTypes: [string] }
+- GET /api/bootstrap -> { user, jobs: [{id, name, location}], timeEntryTypes: [string] } (no costItems — real orgs 413 the Pave response; fetch per job below)
+- GET /api/jobs/:jobId/cost-items -> { costItems: [{id, name, costCode, isTimeTrackable: true}] } (time-trackable only; 404 unknown job)
 - GET /api/time/current -> { entry: TimeEntry | null }
 - POST /api/time/clock-in { jobId, costItemId, notes?, coordinates? {lat,lng} } -> { entry } (409 if already open)
 - POST /api/time/clock-out { breakMinutes?, coordinates? } -> { entry } (409 if none open)

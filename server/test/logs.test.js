@@ -7,21 +7,31 @@ let srv;
 before(async () => { srv = await startServer(); });
 after(async () => { await srv.close(); });
 
-test('bootstrap has user, 3 jobs with cost items (incl. non-trackable), timeEntryTypes', async () => {
+test('bootstrap has user, 3 jobs (no cost items — fetched per job), timeEntryTypes', async () => {
   const { status, json } = await api(srv.base, '/api/bootstrap');
   assert.equal(status, 200);
   assert.ok(json.user?.id && json.user?.name);
   assert.equal(json.jobs.length, 3);
   for (const job of json.jobs) {
     assert.ok(job.id && job.name && job.location);
-    assert.ok(job.costItems.length >= 3);
-    for (const ci of job.costItems) {
-      assert.ok(ci.id && ci.name && ci.costCode);
-      assert.equal(typeof ci.isTimeTrackable, 'boolean');
-    }
-    assert.ok(job.costItems.some((ci) => !ci.isTimeTrackable), 'each job has a non-trackable item');
+    assert.equal(job.costItems, undefined, 'bootstrap jobs must not carry costItems');
   }
   assert.ok(Array.isArray(json.timeEntryTypes) && json.timeEntryTypes.length > 0);
+});
+
+test('GET /api/jobs/:id/cost-items returns only time-trackable items', async () => {
+  const { status, json } = await api(srv.base, '/api/jobs/job_maplewood/cost-items');
+  assert.equal(status, 200);
+  assert.ok(json.costItems.length >= 3);
+  for (const ci of json.costItems) {
+    assert.ok(ci.id && ci.name && ci.costCode);
+    assert.equal(ci.isTimeTrackable, true);
+  }
+});
+
+test('GET /api/jobs/:id/cost-items 404s for an unknown job', async () => {
+  const { status } = await api(srv.base, '/api/jobs/job_nope/cost-items');
+  assert.equal(status, 404);
 });
 
 test('GET /api/logs?date=today returns the seeded log with weather', async () => {
