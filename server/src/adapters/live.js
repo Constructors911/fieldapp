@@ -34,33 +34,33 @@ export function createLiveAdapter({
     id: {},
     startedAt: {},
     endedAt: {},
-    breakDuration: {},
+    minutes: {}, // computed net minutes; timeEntry output has no breakDuration field
     notes: {},
     startCoordinates: {},
+    endCoordinates: {},
     job: { id: {}, name: {} },
     costItem: { id: {}, name: {} },
   };
 
+  // Pave coordinates are objects {latitude, longitude}; our wire shape is {lat, lng}.
+  const toPaveCoords = (c) => ({ latitude: c.lat, longitude: c.lng });
+  const fromPaveCoords = (c) =>
+    (c && typeof c.latitude === 'number' ? { lat: c.latitude, lng: c.longitude } : null);
+
   function mapTimeEntry(e) {
     if (!e) return null;
-    const startedAt = e.startedAt ?? null;
-    const endedAt = e.endedAt ?? null;
-    const breakMin = Math.round((e.breakDuration ?? 0) / 60); // Pave stores seconds
-    const minutes = startedAt && endedAt
-      ? Math.max(0, Math.round((new Date(endedAt) - new Date(startedAt)) / 60000) - breakMin)
-      : 0;
-    const [lat, lng] = Array.isArray(e.startCoordinates) ? e.startCoordinates : [];
     return {
       id: e.id,
       jobId: e.job?.id ?? null,
       jobName: e.job?.name ?? '',
       costItemId: e.costItem?.id ?? null,
       costItemName: e.costItem?.name ?? '',
-      startedAt,
-      endedAt,
-      minutes,
+      startedAt: e.startedAt ?? null,
+      endedAt: e.endedAt ?? null,
+      minutes: e.minutes ?? 0,
       notes: e.notes ?? '',
-      coordinates: lat !== undefined ? { lat, lng } : null,
+      coordinates: fromPaveCoords(e.startCoordinates),
+      endCoordinates: fromPaveCoords(e.endCoordinates),
     };
   }
 
@@ -202,7 +202,7 @@ export function createLiveAdapter({
             userId,
             startedAt: new Date().toISOString(),
             notes: notes ?? '',
-            ...(coordinates ? { startCoordinates: [coordinates.lat, coordinates.lng] } : {}),
+            ...(coordinates ? { startCoordinates: toPaveCoords(coordinates) } : {}),
             // No endedAt => entry is running.
           },
           createdTimeEntry: timeEntryFields,
@@ -212,19 +212,21 @@ export function createLiveAdapter({
     },
 
     async clockOut({ breakMinutes = 0, coordinates } = {}) {
-      void coordinates; // Pave's endNow does not accept end coordinates
       const open = await findOpenEntry();
       if (!open) throw new HttpError(409, 'No open time entry - clock in first');
       const data = await pave({
         updateTimeEntry: {
           $: {
             id: open.id,
-            endNow: breakMinutes > 0 ? { breakDuration: breakMinutes * 60 } : true,
+            // breakDuration is minutes (schema constrains it to 1-1440)
+            endNow: breakMinutes > 0
+              ? { breakDuration: Math.min(1440, Math.round(breakMinutes)) }
+              : true,
+            ...(coordinates ? { endCoordinates: toPaveCoords(coordinates) } : {}),
           },
           timeEntry: timeEntryFields,
         },
       });
-      // breakDuration comes back on the entry, so mapTimeEntry handles it.
       return mapTimeEntry(data?.updateTimeEntry?.timeEntry ?? open);
     },
 
