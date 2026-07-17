@@ -103,20 +103,30 @@ export function createLiveAdapter({
     id: {},
     date: {},
     notes: {},
-    weather: {},
+    // Weather is flat on dailyLog, not a nested object.
+    weatherCondition: {},
+    minTemperature: {},
+    maxTemperature: {},
     job: { id: {}, name: {} },
     files: { nodes: { id: {}, name: {}, url: {} } },
   };
 
+  // Pave stores temperatures in Celsius; crews read Fahrenheit.
+  const toF = (c) => (typeof c === 'number' ? Math.round((c * 9) / 5 + 32) : c);
+  // "mostlyClear" -> "Mostly Clear"
+  const prettyCondition = (s) =>
+    typeof s === 'string' ? s.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (ch) => ch.toUpperCase()) : '';
+
   function mapLog(l) {
+    const hasWeather = l.weatherCondition != null || l.minTemperature != null || l.maxTemperature != null;
     return {
       id: l.id,
       jobId: l.job?.id ?? null,
       jobName: l.job?.name ?? '',
       date: l.date,
       notes: l.notes ?? '',
-      weather: l.weather
-        ? { condition: l.weather.condition, minTemp: l.weather.minTemp, maxTemp: l.weather.maxTemp }
+      weather: hasWeather
+        ? { condition: prettyCondition(l.weatherCondition), minTemp: toF(l.minTemperature), maxTemp: toF(l.maxTemperature) }
         : undefined,
       files: (l.files?.nodes ?? []).map((f) => ({ id: f.id, url: f.url, name: f.name })),
     };
@@ -133,7 +143,7 @@ export function createLiveAdapter({
           $: {
             size: 25,
             sortBy: [{ field: 'startedAt', order: 'desc' }],
-            where: { and: [['userId', '=', userId]] },
+            where: { and: [[['user', 'id'], '=', userId]] },
           },
           nodes: timeEntryFields,
         },
@@ -246,7 +256,7 @@ export function createLiveAdapter({
     },
 
     async listTimeEntries({ from, to } = {}) {
-      const where = { and: [['userId', '=', userId]] };
+      const where = { and: [[['user', 'id'], '=', userId]] };
       if (from) where.and.push(['startedAt', '>=', from]);
       if (to) where.and.push(['startedAt', '<=', to]);
       const data = await pave({
@@ -269,7 +279,8 @@ export function createLiveAdapter({
       const rangeStart = scope === 'week' ? (weekStart || mondayOf()) : addDays(today, -14);
       const rangeEnd = scope === 'week' ? addDays(rangeStart, 6) : today;
 
-      // Paginate the tasks connection (size <= 100) via nextPage cursors.
+      // Tasks assigned to the user hang off their org membership
+      // (task has no assigneeUserIds field). Paginate via nextPage cursors.
       const nodes = [];
       let page = null;
       do {
@@ -277,25 +288,30 @@ export function createLiveAdapter({
           organization: {
             $: { id: organizationId },
             id: {},
-            tasks: {
-              $: {
-                size: 100,
-                ...(page ? { page } : {}),
-                where: {
-                  and: [
-                    ['assigneeUserIds', '@', userId],
-                    ['startDate', '<=', rangeEnd],
-                    ['endDate', '>=', rangeStart],
-                  ],
+            memberships: {
+              $: { size: 1, where: { and: [[['user', 'id'], '=', userId]] } },
+              nodes: {
+                id: {},
+                assignedTasks: {
+                  $: {
+                    size: 100,
+                    ...(page ? { page } : {}),
+                    where: {
+                      and: [
+                        ['startDate', '<=', rangeEnd],
+                        ['endDate', '>=', rangeStart],
+                      ],
+                    },
+                    sortBy: [{ field: 'startDate' }, { field: 'startTime' }],
+                  },
+                  nextPage: {},
+                  nodes: taskFields,
                 },
-                sortBy: [{ field: 'startDate' }, { field: 'startTime' }],
               },
-              nextPage: {},
-              nodes: taskFields,
             },
           },
         });
-        const conn = data?.organization?.tasks ?? {};
+        const conn = data?.organization?.memberships?.nodes?.[0]?.assignedTasks ?? {};
         nodes.push(...(conn.nodes ?? []));
         page = conn.nextPage ?? null;
       } while (page);
@@ -328,7 +344,7 @@ export function createLiveAdapter({
     async listLogs({ date, jobId } = {}) {
       const where = { and: [] };
       if (date) where.and.push(['date', '=', date]);
-      if (jobId) where.and.push(['jobId', '=', jobId]);
+      if (jobId) where.and.push([['job', 'id'], '=', jobId]);
       const data = await pave({
         organization: {
           $: { id: organizationId },
