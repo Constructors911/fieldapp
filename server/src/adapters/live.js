@@ -108,7 +108,9 @@ export function createLiveAdapter({
     minTemperature: {},
     maxTemperature: {},
     job: { id: {}, name: {} },
-    files: { nodes: { id: {}, name: {}, url: {} } },
+    // files size must be capped: Pave rejects queries whose worst-case
+    // response is too large (413), based on requested sizes, not actual data.
+    files: { $: { size: 25 }, nodes: { id: {}, name: {}, url: {} } },
   };
 
   // Pave stores temperatures in Celsius; crews read Fahrenheit.
@@ -350,7 +352,9 @@ export function createLiveAdapter({
           $: { id: organizationId },
           id: {},
           dailyLogs: {
-            $: { size: 100, where, sortBy: [{ field: 'date', order: 'desc' }] },
+            // 25, not 100: combined with nested files the worst-case response
+            // size trips Pave's 413 (see logFields note).
+            $: { size: 25, where, sortBy: [{ field: 'date', order: 'desc' }] },
             nodes: logFields,
           },
         },
