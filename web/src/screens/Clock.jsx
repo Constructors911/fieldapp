@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentEntry, getTimeEntries, getJobCostItems, clockIn, clockOut } from '../api.js';
+import { getCurrentEntry, getTimeEntries, getActivities, clockIn, clockOut } from '../api.js';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
@@ -65,27 +65,20 @@ export default function Clock({ boot }) {
   const [now, setNow] = useState(Date.now());
 
   // Clock-in flow state
-  const [step, setStep] = useState(null); // null | 'job' | 'cost' | 'note' | 'out'
+  const [step, setStep] = useState(null); // null | 'job' | 'activity' | 'note' | 'out'
   const [selJob, setSelJob] = useState(null);
-  const [selCost, setSelCost] = useState(null);
-  const [costItems, setCostItems] = useState(null); // null = loading for selJob
+  const [selActivity, setSelActivity] = useState(null);
+  const [activities, setActivities] = useState(null); // null = loading
   const [note, setNote] = useState('');
   const [breakMin, setBreakMin] = useState('');
   const gpsPromise = useRef(null);
-  const costCache = useRef(new Map()); // jobId -> costItems[]
 
-  function loadCostItems(jobId) {
-    const cached = costCache.current.get(jobId);
-    if (cached) { setCostItems(cached); return; }
-    setCostItems(null);
-    getJobCostItems(jobId)
-      .then((r) => {
-        const items = (r.costItems || []).filter((ci) => ci.isTimeTrackable);
-        costCache.current.set(jobId, items);
-        setCostItems(items);
-      })
+  function loadActivities() {
+    if (activities?.length) return;
+    getActivities()
+      .then((r) => setActivities(r.activities || []))
       .catch((e) => {
-        setActionErr(e.message || 'Could not load cost codes — check your connection and try again.');
+        setActionErr(e.message || 'Could not load activities — check your connection and try again.');
         resetFlow();
       });
   }
@@ -118,7 +111,7 @@ export default function Clock({ boot }) {
   function resetFlow() {
     setStep(null);
     setSelJob(null);
-    setSelCost(null);
+    setSelActivity(null);
     setNote('');
     setBreakMin('');
   }
@@ -130,16 +123,18 @@ export default function Clock({ boot }) {
   }
 
   async function submitClockIn() {
-    if (busy || !selJob || !selCost) return;
+    if (busy || !selJob || !selActivity) return;
     setBusy(true);
     setActionErr(null);
+    const at = new Date().toISOString(); // tap time — survives the offline queue
     try {
       const coordinates = await (gpsPromise.current || getGps());
       const res = await clockIn({
         jobId: selJob.id,
-        costItemId: selCost.id,
+        activity: selActivity,
         notes: note.trim() || undefined,
-        coordinates: coordinates || undefined
+        coordinates: coordinates || undefined,
+        at
       });
       if (res.queued) {
         // Optimistic local entry while offline
@@ -147,9 +142,9 @@ export default function Clock({ boot }) {
           id: `local-${Date.now()}`,
           jobId: selJob.id,
           jobName: selJob.name,
-          costItemId: selCost.id,
-          costItemName: selCost.name,
-          startedAt: new Date().toISOString(),
+          activity: selActivity,
+          costItemName: selActivity,
+          startedAt: at,
           endedAt: null,
           minutes: 0,
           notes: note.trim(),
@@ -178,15 +173,17 @@ export default function Clock({ boot }) {
     setBusy(true);
     setActionErr(null);
     const prev = current;
+    const at = new Date().toISOString(); // tap time — survives the offline queue
     try {
       const coordinates = await getGps();
       const breakMinutes = parseInt(breakMin, 10);
       const res = await clockOut({
         breakMinutes: Number.isFinite(breakMinutes) && breakMinutes > 0 ? breakMinutes : undefined,
-        coordinates: coordinates || undefined
+        coordinates: coordinates || undefined,
+        at
       });
       if (res.queued) {
-        const endedAt = new Date().toISOString();
+        const endedAt = at;
         const gross = (new Date(endedAt) - new Date(prev.startedAt)) / 60000;
         const mins = Math.max(0, Math.round(gross - (Number.isFinite(breakMinutes) ? breakMinutes : 0)));
         setEntries((list) => [...list, { ...prev, endedAt, minutes: mins, _queued: true }]);
@@ -213,7 +210,7 @@ export default function Clock({ boot }) {
   const runningMins = current ? Math.max(0, (now - new Date(current.startedAt).getTime()) / 60000) : 0;
   const totalMins = completed.reduce((sum, e) => sum + (e.minutes || 0), 0) + runningMins;
 
-  const trackableItems = costItems || [];
+  const activityOptions = activities || [];
 
   return (
     <div>
@@ -297,25 +294,25 @@ export default function Clock({ boot }) {
         title="Pick a job"
         onClose={resetFlow}
         options={jobs.map((j) => ({ id: j.id, label: j.name, sub: j.location, _job: j }))}
-        onSelect={(opt) => { setSelJob(opt._job); setStep('cost'); loadCostItems(opt._job.id); }}
+        onSelect={(opt) => { setSelJob(opt._job); setStep('activity'); loadActivities(); }}
         emptyText="No jobs available"
       />
 
-      {/* Step 2: pick cost code (time-trackable only) */}
+      {/* Step 2: pick what you're doing (standard labor activities) */}
       <PickerSheet
-        open={step === 'cost'}
-        title={`Cost code — ${selJob?.name || ''}`}
+        open={step === 'activity'}
+        title={`What are you doing? — ${selJob?.name || ''}`}
         onClose={resetFlow}
-        options={trackableItems.map((ci) => ({ id: ci.id, label: ci.name, sub: ci.costCode, _ci: ci }))}
-        onSelect={(opt) => { setSelCost(opt._ci); setStep('note'); }}
-        emptyText={costItems === null ? 'Loading cost codes…' : 'No time-trackable cost codes on this job'}
+        options={activityOptions.map((a) => ({ id: a, label: a }))}
+        onSelect={(opt) => { setSelActivity(opt.id); setStep('note'); }}
+        emptyText={activities === null ? 'Loading activities…' : 'No activities configured'}
       />
 
       {/* Step 3: optional note + confirm */}
       <Sheet open={step === 'note'} title="Ready to clock in" onClose={resetFlow}>
         <div className="clk-review">
           <p><strong>{selJob?.name}</strong></p>
-          <p className="muted">{selCost?.name}{selCost?.costCode ? ` · ${selCost.costCode}` : ''}</p>
+          <p className="muted">{selActivity}</p>
         </div>
         <label className="c-label" htmlFor="clk-note">Note (optional)</label>
         <textarea

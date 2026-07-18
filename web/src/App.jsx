@@ -3,6 +3,7 @@ import Clock from './screens/Clock.jsx';
 import Today from './screens/Today.jsx';
 import Log from './screens/Log.jsx';
 import Week from './screens/Week.jsx';
+import Admin from './screens/Admin.jsx';
 import { getBootstrap } from './api.js';
 import { pendingCount, subscribePending, flushQueue } from './lib/offlineQueue.js';
 
@@ -18,6 +19,13 @@ export default function App() {
   const [boot, setBoot] = useState(null);
   const [err, setErr] = useState(null);
   const [pending, setPending] = useState(0);
+  const [route, setRoute] = useState(() => window.location.hash);
+
+  useEffect(() => {
+    const onHash = () => setRoute(window.location.hash);
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   useEffect(() => {
     getBootstrap().then(setBoot).catch(e => setErr(e.message));
@@ -28,6 +36,20 @@ export default function App() {
     flushQueue();
     return () => { un(); window.removeEventListener('online', onOnline); };
   }, []);
+
+  // Manager dashboard: /#/admin (no bottom tabs, own auth via admin key)
+  if (route.startsWith('#/admin')) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <img className="brand-logo" src="/logo-white.png" alt="Constructors911 Field" />
+        </header>
+        <main className="screen" style={{ maxWidth: 'none', padding: 0 }}>
+          <Admin />
+        </main>
+      </div>
+    );
+  }
 
   if (err) return <div className="center-msg">Could not load: {err}</div>;
   if (!boot) return <div className="center-msg">Loading…</div>;

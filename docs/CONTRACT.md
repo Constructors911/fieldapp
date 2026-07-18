@@ -26,10 +26,19 @@ Mobile-first PWA for field crews. Users are paid JobTread internal users. Mock P
 
 - GET /api/bootstrap -> { user, jobs: [{id, name, location}], timeEntryTypes: [string] } (no costItems — real orgs 413 the Pave response; fetch per job below)
 - GET /api/jobs/:jobId/cost-items -> { costItems: [{id, name, costCode, isTimeTrackable: true}] } (time-trackable only; 404 unknown job)
+- GET /api/activities -> { activities: [string] } (standard labor list crews punch against)
 - GET /api/time/current -> { entry: TimeEntry | null }
-- POST /api/time/clock-in { jobId, costItemId, notes?, coordinates? {lat,lng} } -> { entry } (409 if already open)
-- POST /api/time/clock-out { breakMinutes?, coordinates? } -> { entry } (409 if none open)
+- POST /api/time/clock-in { jobId, activity, notes?, coordinates? {lat,lng}, at? ISO } -> { entry } (409 if already open; at = tap time, sanity-bounded)
+- POST /api/time/clock-out { breakMinutes?, coordinates?, at? } -> { entry } (409 if none open)
 - GET /api/time/entries?from=ISO&to=ISO -> { entries: [] }
+
+### Buffered time architecture
+
+Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_URL; in-memory fallback for dev/tests — see server/src/store/) with status open -> pending -> approved/pushed|error. A manager reviews at /#/admin (x-admin-key header = ADMIN_KEY env), maps the crew's activity to a budget cost item, then pushes: adapter.pushTimeEntry creates a backdated, approved JT time entry with GPS; break minutes are netted out of endedAt (createTimeEntry has no break field) and noted in the entry notes. Daily logs/photos still write to JobTread live.
+
+- GET /api/admin/punches?status=open|pending|pushed|error -> { punches } (admin)
+- PATCH /api/admin/punches/:id { costItemId?, costItemName?, activity?, entryType?, startedAt?, endedAt?, breakMinutes?, notes? } -> { punch } (admin; pushed punches immutable)
+- POST /api/admin/punches/push { ids: [] } -> { results: [{id, ok, jtTimeEntryId? | error?}] } (admin)
 - GET /api/tasks?scope=today|week&weekStart=YYYY-MM-DD -> { tasks: [Task] }
 - PATCH /api/tasks/:id { progress?, subtasks? } -> { task }
 - GET /api/logs?date=YYYY-MM-DD&jobId= -> { logs: [] }

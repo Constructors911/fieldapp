@@ -4,9 +4,10 @@ Mobile-first PWA giving field crews a simple front end for JobTread (time tracki
 
 ## Architecture
 
+- **Buffered time tracking**: punches do NOT write to JobTread live. They buffer in Neon Postgres (`server/src/store/`, DATABASE_URL env; in-memory fallback for dev/tests). Crews punch against a standard activity list (`store/activities.js`), a manager reviews at `/#/admin` (ADMIN_KEY env), maps activity -> budget cost item, and pushes to JobTread (backdated, approved, GPS; break netted out of endedAt). Daily logs/photos still write to JobTread live.
 - `server/` — Express (Node 22, ESM), port 4911. Adapter pattern for JobTread's Pave API:
   - `src/adapters/mock.js` — default; realistic seeded data, dates computed relative to now
-  - `src/adapters/live.js` — real Pave queries (POST https://api.jobtread.com/pave); activated when `JT_GRANT_KEY` env var is set. **Not yet tested against a real org.**
+  - `src/adapters/live.js` — real Pave queries (POST https://api.jobtread.com/pave); activated when `JT_GRANT_KEY` env var is set. Verified against the real org 2026-07-17/18 via the JobTread MCP; Pave gotchas: filters on relations use path arrays ([["user","id"],"=",id]), 413s are based on worst-case requested sizes (cap nested connection sizes), coordinates are {latitude,longitude} objects, temperatures are Celsius.
 - `web/` — Vite + React 18, no UI framework, plain CSS via `src/styles/tokens.css` variables. 4 tabs: Clock, Today, Log, Week.
 - Offline: `web/src/lib/offlineQueue.js` (IndexedDB FIFO, replays on reconnect); service worker in `web/public/sw.js` (network-first navigation — do NOT make it cache-first, users get pinned to stale deploys).
 

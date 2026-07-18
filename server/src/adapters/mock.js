@@ -224,6 +224,19 @@ export function createMockAdapter() {
       return entry;
     },
 
+    /** Mock push: validates like the live adapter, returns a fake JT id. */
+    async pushTimeEntry(p) {
+      const job = findJob(p.jobId);
+      if (!job) throw new HttpError(404, `Unknown job: ${p.jobId}`);
+      const costItem = job.costItems.find((c) => c.id === p.costItemId);
+      if (!costItem) throw new HttpError(404, `Unknown cost item for job: ${p.costItemId}`);
+      if (!costItem.isTimeTrackable) {
+        throw new HttpError(400, `Cost item is not time-trackable: ${costItem.name}`);
+      }
+      if (!p.endedAt) throw new HttpError(400, 'Punch is still open');
+      return uid('te');
+    },
+
     async listTimeEntries({ from, to } = {}) {
       let entries = db.timeEntries.slice();
       if (from) entries = entries.filter((e) => new Date(e.startedAt) >= new Date(from));

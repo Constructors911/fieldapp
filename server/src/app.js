@@ -4,15 +4,65 @@ import express from 'express';
 import multer from 'multer';
 import { HttpError } from './util/httpError.js';
 import { isValidDateString, isValidISO } from './util/dates.js';
+import { createStore } from './store/index.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 
 // Query params arrive as '' when the client sends `?date=`; treat as absent.
 const qp = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
 
-export function createApp(adapter) {
+function validateCoordinates(coordinates) {
+  if (coordinates === undefined || coordinates === null) return;
+  const { lat, lng } = coordinates;
+  if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new HttpError(400, 'coordinates must be {lat, lng} numbers');
+  }
+}
+
+// Tap-time from the client ('at'): trusted within sanity bounds so offline
+// replays record when the tap happened, not when the queue flushed.
+function validatePunchTime(at) {
+  if (at === undefined || at === null || at === '') return new Date().toISOString();
+  if (!isValidISO(at)) throw new HttpError(400, 'at must be an ISO timestamp');
+  const t = new Date(at).getTime();
+  const now = Date.now();
+  if (t > now + 2 * 60_000) throw new HttpError(400, 'at cannot be in the future');
+  if (t < now - 7 * 24 * 3600_000) throw new HttpError(400, 'at is too far in the past');
+  return new Date(t).toISOString();
+}
+
+/** Wire shape the web app renders; punches masquerade as time entries. */
+function punchToEntry(p) {
+  const gross = p.endedAt ? Math.round((new Date(p.endedAt) - new Date(p.startedAt)) / 60000) : 0;
+  return {
+    id: p.id,
+    jobId: p.jobId,
+    jobName: p.jobName,
+    activity: p.activity,
+    costItemId: p.costItemId,
+    costItemName: p.costItemName || p.activity, // show the activity until a manager maps it
+    startedAt: p.startedAt,
+    endedAt: p.endedAt,
+    minutes: p.endedAt ? Math.max(0, gross - (p.breakMinutes || 0)) : 0,
+    notes: p.notes,
+    coordinates: p.coordinates,
+    status: p.status,
+  };
+}
+
+export function createApp(adapter, store = createStore()) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+
+  // v1 single-crew identity: the grant's user. Bootstrap is cached briefly so
+  // punch endpoints don't hit JobTread on every request.
+  let bootCache = { at: 0, data: null };
+  async function boot() {
+    if (!bootCache.data || Date.now() - bootCache.at > 5 * 60_000) {
+      bootCache = { at: Date.now(), data: await adapter.getBootstrap() };
+    }
+    return bootCache.data;
+  }
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -30,35 +80,57 @@ export function createApp(adapter) {
     res.json({ costItems: await adapter.getJobCostItems(req.params.jobId) });
   }));
 
-  // ---- time tracking ---------------------------------------------------
+  // ---- time tracking (buffered: punches live in our store, pushed to
+  // JobTread by a manager from the review dashboard) ----------------------
+  app.get('/api/activities', wrap(async (req, res) => {
+    res.json({ activities: await store.listActivities() });
+  }));
+
   app.get('/api/time/current', wrap(async (req, res) => {
-    res.json({ entry: await adapter.getCurrentEntry() });
+    const { user } = await boot();
+    const punch = await store.getOpenPunch(user?.id ?? '');
+    res.json({ entry: punch ? punchToEntry(punch) : null });
   }));
 
   app.post('/api/time/clock-in', wrap(async (req, res) => {
-    const { jobId, costItemId, notes, coordinates } = req.body ?? {};
+    const { jobId, activity, notes, coordinates, at } = req.body ?? {};
     if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'jobId is required');
-    if (typeof costItemId !== 'string' || !costItemId) throw new HttpError(400, 'costItemId is required');
+    if (typeof activity !== 'string' || !activity.trim()) throw new HttpError(400, 'activity is required');
     if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
-    if (coordinates !== undefined && coordinates !== null) {
-      const { lat, lng } = coordinates;
-      if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-        throw new HttpError(400, 'coordinates must be {lat, lng} numbers');
-      }
-    }
-    const entry = await adapter.clockIn({ jobId, costItemId, notes, coordinates });
-    res.json({ entry });
+    validateCoordinates(coordinates);
+    const startedAt = validatePunchTime(at);
+    const { user, jobs } = await boot();
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
+    const punch = await store.createPunch({
+      userId: user?.id ?? 'user_unknown',
+      userName: user?.name ?? '',
+      jobId,
+      jobName: job.name,
+      activity: activity.trim(),
+      startedAt,
+      notes,
+      coordinates: coordinates ?? null,
+    });
+    res.json({ entry: punchToEntry(punch) });
   }));
 
   app.post('/api/time/clock-out', wrap(async (req, res) => {
-    const { breakMinutes, coordinates } = req.body ?? {};
+    const { breakMinutes, coordinates, at } = req.body ?? {};
     if (breakMinutes !== undefined) {
       if (typeof breakMinutes !== 'number' || !Number.isFinite(breakMinutes) || breakMinutes < 0) {
         throw new HttpError(400, 'breakMinutes must be a non-negative number');
       }
     }
-    const entry = await adapter.clockOut({ breakMinutes: breakMinutes ?? 0, coordinates });
-    res.json({ entry });
+    validateCoordinates(coordinates);
+    const endedAt = validatePunchTime(at);
+    const { user } = await boot();
+    const punch = await store.closePunch(user?.id ?? '', {
+      endedAt,
+      breakMinutes: breakMinutes ?? 0,
+      endCoordinates: coordinates ?? null,
+    });
+    res.json({ entry: punchToEntry(punch) });
   }));
 
   app.get('/api/time/entries', wrap(async (req, res) => {
@@ -66,7 +138,74 @@ export function createApp(adapter) {
     const to = qp(req.query.to);
     if (from !== undefined && !isValidISO(from)) throw new HttpError(400, 'from must be an ISO timestamp');
     if (to !== undefined && !isValidISO(to)) throw new HttpError(400, 'to must be an ISO timestamp');
-    res.json({ entries: await adapter.listTimeEntries({ from, to }) });
+    const { user } = await boot();
+    const punches = await store.listPunches({ from, to, userId: user?.id });
+    res.json({ entries: punches.map(punchToEntry) });
+  }));
+
+  // ---- admin: punch review + push to JobTread ---------------------------
+  const requireAdmin = (req, res, next) => {
+    const expected = process.env.ADMIN_KEY;
+    if (!expected) {
+      // Refuse in hosted environments; allow for local dev/tests.
+      if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+        res.status(503).json({ error: 'ADMIN_KEY not configured' });
+        return;
+      }
+      next();
+      return;
+    }
+    if (req.get('x-admin-key') !== expected) {
+      res.status(401).json({ error: 'Invalid admin key' });
+      return;
+    }
+    next();
+  };
+
+  app.get('/api/admin/punches', requireAdmin, wrap(async (req, res) => {
+    const status = qp(req.query.status);
+    res.json({ punches: await store.adminListPunches({ status }) });
+  }));
+
+  app.patch('/api/admin/punches/:id', requireAdmin, wrap(async (req, res) => {
+    const allowed = ['activity', 'costItemId', 'costItemName', 'entryType', 'startedAt', 'endedAt', 'breakMinutes', 'notes'];
+    const patch = {};
+    for (const k of allowed) if (req.body?.[k] !== undefined) patch[k] = req.body[k];
+    if (Object.keys(patch).length === 0) throw new HttpError(400, 'Nothing to update');
+    if (patch.startedAt !== undefined && !isValidISO(patch.startedAt)) throw new HttpError(400, 'startedAt must be an ISO timestamp');
+    if (patch.endedAt !== undefined && !isValidISO(patch.endedAt)) throw new HttpError(400, 'endedAt must be an ISO timestamp');
+    if (patch.breakMinutes !== undefined && (typeof patch.breakMinutes !== 'number' || patch.breakMinutes < 0)) {
+      throw new HttpError(400, 'breakMinutes must be a non-negative number');
+    }
+    res.json({ punch: await store.updatePunch(req.params.id, patch) });
+  }));
+
+  app.post('/api/admin/punches/push', requireAdmin, wrap(async (req, res) => {
+    const { ids } = req.body ?? {};
+    if (!Array.isArray(ids) || ids.length === 0 || ids.some((i) => typeof i !== 'string')) {
+      throw new HttpError(400, 'ids must be a non-empty array of punch ids');
+    }
+    const results = [];
+    for (const id of ids) {
+      const punch = await store.getPunch(id);
+      try {
+        if (!punch) throw new HttpError(404, 'Punch not found');
+        if (!['pending', 'error'].includes(punch.status)) throw new HttpError(400, `Punch status is ${punch.status}`);
+        if (!punch.endedAt) throw new HttpError(400, 'Punch is still open');
+        if (!punch.costItemId) throw new HttpError(400, 'Map a budget cost item before pushing');
+        const jtTimeEntryId = await adapter.pushTimeEntry(punch);
+        await store.markPushed(punch.id, jtTimeEntryId);
+        results.push({ id, ok: true, jtTimeEntryId });
+      } catch (e) {
+        // Only flag punches that were actually eligible — never clobber a
+        // punch that is already pushed (or still open) with an error status.
+        if (punch && ['pending', 'error'].includes(punch.status)) {
+          await store.markError(punch.id, e.message);
+        }
+        results.push({ id, ok: false, error: e.message });
+      }
+    }
+    res.json({ results });
   }));
 
   // ---- tasks -----------------------------------------------------------

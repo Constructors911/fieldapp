@@ -281,6 +281,43 @@ export function createLiveAdapter({
       return mapTimeEntry(data?.updateTimeEntry?.timeEntry ?? open);
     },
 
+    /**
+     * Push one reviewed punch into JobTread as a completed, approved time
+     * entry. Backdated to tap times; break is netted out of endedAt because
+     * createTimeEntry has no break field (noted in the entry notes instead).
+     */
+    async pushTimeEntry(p) {
+      const started = new Date(p.startedAt);
+      const netEnded = new Date(new Date(p.endedAt).getTime() - (p.breakMinutes || 0) * 60_000);
+      if (netEnded <= started) throw new HttpError(400, 'Break exceeds punch duration');
+      const notes = [
+        p.notes,
+        p.breakMinutes ? `(${p.breakMinutes} min break deducted)` : '',
+        p.activity ? `Activity: ${p.activity}` : '',
+      ].filter(Boolean).join(' · ');
+      const [defaultType] = await timeEntryTypeNames();
+      const data = await pave({
+        createTimeEntry: {
+          $: {
+            jobId: p.jobId,
+            costItemId: p.costItemId,
+            userId,
+            type: p.entryType || defaultType || 'Standard',
+            startedAt: started.toISOString(),
+            endedAt: netEnded.toISOString(),
+            notes,
+            isApproved: true,
+            ...(p.coordinates ? { startCoordinates: toPaveCoords(p.coordinates) } : {}),
+            ...(p.endCoordinates ? { endCoordinates: toPaveCoords(p.endCoordinates) } : {}),
+          },
+          createdTimeEntry: { id: {} },
+        },
+      });
+      const id = data?.createTimeEntry?.createdTimeEntry?.id;
+      if (!id) throw new HttpError(502, 'Pave did not return the created time entry');
+      return id;
+    },
+
     async listTimeEntries({ from, to } = {}) {
       const where = { and: [[['user', 'id'], '=', userId]] };
       if (from) where.and.push(['startedAt', '>=', from]);

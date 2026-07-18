@@ -1,0 +1,38 @@
+/* Manager review dashboard (#/admin). Desktop-leaning but works on mobile. */
+.adm-wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
+.adm-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.adm-title { font-size: 20px; font-weight: 800; color: var(--navy); margin: 0; flex: 1; }
+.adm-tabs { display: flex; gap: 4px; }
+.adm-tab {
+  min-height: 36px; padding: 0 14px; border: 1px solid #cfd6dd; background: var(--card);
+  color: var(--muted); border-radius: 999px; font-size: 13px; font-weight: 600;
+  cursor: pointer; text-transform: capitalize;
+}
+.adm-tab.active { background: var(--navy); border-color: var(--navy); color: #fff; }
+
+.adm-punch-head { display: flex; gap: 10px; align-items: flex-start; }
+.adm-check { width: 22px; height: 22px; margin-top: 4px; flex: none; accent-color: var(--green); }
+.adm-punch-main { min-width: 0; flex: 1; }
+.adm-punch-title { margin: 0; font-size: 15px; }
+.adm-punch-meta { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.adm-punch-notes { margin: 4px 0 0; font-size: 13px; white-space: pre-wrap; }
+.adm-punch-links { margin: 6px 0 0; font-size: 13px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.adm-punch-links a { color: var(--navy); font-weight: 600; text-decoration: none; }
+.adm-punch-links .muted { color: var(--muted); }
+
+.adm-map-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.adm-select {
+  flex: 1; min-width: 220px; min-height: var(--tap); padding: 8px 10px;
+  border: 1px solid #cfd6dd; border-radius: 8px; font-size: 14px; background: #fff; color: var(--text);
+}
+.adm-ok { color: var(--green); font-weight: 600; font-size: 13px; }
+.adm-err { color: var(--red); font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.adm-result { margin: 4px 0; font-size: 14px; }
+.adm-result.ok { color: var(--green); }
+.adm-result.bad { color: var(--red); }
+
+.adm-pushbar {
+  position: sticky; bottom: 0; padding: 12px 0 max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--bg) 30%);
+}
+.adm-pushbar .c-btn { width: 100%; }
