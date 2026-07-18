@@ -4,7 +4,8 @@ import Today from './screens/Today.jsx';
 import Log from './screens/Log.jsx';
 import Week from './screens/Week.jsx';
 import Admin from './screens/Admin.jsx';
-import { getBootstrap } from './api.js';
+import Login from './screens/Login.jsx';
+import { getBootstrap, authMe, getToken } from './api.js';
 import { pendingCount, subscribePending, flushQueue } from './lib/offlineQueue.js';
 
 const TABS = [
@@ -20,6 +21,7 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [pending, setPending] = useState(0);
   const [route, setRoute] = useState(() => window.location.hash);
+  const [me, setMe] = useState(undefined); // undefined = checking, null = signed out
 
   useEffect(() => {
     const onHash = () => setRoute(window.location.hash);
@@ -28,6 +30,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!getToken()) { setMe(null); return; }
+    authMe().then((r) => setMe(r.employee)).catch(() => setMe(null));
+  }, []);
+
+  useEffect(() => {
+    if (!me) return undefined;
     getBootstrap().then(setBoot).catch(e => setErr(e.message));
     pendingCount().then(setPending);
     const un = subscribePending(setPending);
@@ -35,7 +43,7 @@ export default function App() {
     window.addEventListener('online', onOnline);
     flushQueue();
     return () => { un(); window.removeEventListener('online', onOnline); };
-  }, []);
+  }, [me]);
 
   // Manager dashboard: /#/admin (no bottom tabs, own auth via admin key)
   if (route.startsWith('#/admin')) {
@@ -51,6 +59,17 @@ export default function App() {
     );
   }
 
+  if (me === undefined) return <div className="center-msg">Loading…</div>;
+  if (me === null) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <img className="brand-logo" src="/logo-white.png" alt="Constructors911 Field" />
+        </header>
+        <Login onSuccess={setMe} />
+      </div>
+    );
+  }
   if (err) return <div className="center-msg">Could not load: {err}</div>;
   if (!boot) return <div className="center-msg">Loading…</div>;
 

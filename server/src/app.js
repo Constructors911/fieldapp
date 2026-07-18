@@ -5,6 +5,8 @@ import multer from 'multer';
 import { HttpError } from './util/httpError.js';
 import { isValidDateString, isValidISO } from './util/dates.js';
 import { createStore } from './store/index.js';
+import { hashPin, verifyPin, isValidPin, normalizeEmail, isValidEmail } from './auth.js';
+import { createCompanyCam } from './connectors/companycam.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 
@@ -54,14 +56,101 @@ export function createApp(adapter, store = createStore()) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
-  // v1 single-crew identity: the grant's user. Bootstrap is cached briefly so
-  // punch endpoints don't hit JobTread on every request.
+  // Bootstrap is cached briefly so punch endpoints don't hit JobTread on
+  // every request (jobs list + fallback identity).
   let bootCache = { at: 0, data: null };
   async function boot() {
     if (!bootCache.data || Date.now() - bootCache.at > 5 * 60_000) {
       bootCache = { at: Date.now(), data: await adapter.getBootstrap() };
     }
     return bootCache.data;
+  }
+
+  const companycam = createCompanyCam();
+
+  // ---- employee sessions -------------------------------------------------
+  // x-session-token header -> req.employee. requireSession gates punch routes.
+  async function sessionEmployee(req) {
+    const token = req.get('x-session-token');
+    if (!token) return null;
+    try {
+      return await store.getSessionEmployee(token);
+    } catch {
+      return null;
+    }
+  }
+
+  const requireSession = (req, res, next) => {
+    sessionEmployee(req)
+      .then((employee) => {
+        if (!employee) {
+          res.status(401).json({ error: 'Sign in to continue' });
+          return;
+        }
+        req.employee = employee;
+        next();
+      })
+      .catch(next);
+  };
+
+  app.post('/api/auth/register', wrap(async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const { pin, name } = req.body ?? {};
+    if (!isValidEmail(email)) throw new HttpError(400, 'A valid email is required');
+    if (!isValidPin(pin)) throw new HttpError(400, 'PIN must be 4-8 digits');
+    if (await store.getEmployeeByEmail(email)) {
+      throw new HttpError(409, 'Already registered — sign in instead');
+    }
+    // The JT link is the point of registration: no JT membership, no account.
+    const membership = await adapter.findMembershipByEmail(email);
+    if (!membership) {
+      throw new HttpError(404, 'No JobTread user found with this email — ask the office to add you to JobTread first');
+    }
+    // CompanyCam link is best-effort; photos filter by this id later.
+    let cc = null;
+    if (companycam) {
+      try { cc = await companycam.findUserByEmail(email); } catch { /* optional */ }
+    }
+    const employee = await store.createEmployee({
+      email,
+      name: (typeof name === 'string' && name.trim()) || membership.name,
+      pinHash: hashPin(pin),
+      jtUserId: membership.userId,
+      jtUserName: membership.name,
+      ccUserId: cc?.id ?? null,
+      ccUserName: cc?.name ?? null,
+    });
+    const token = await store.createSession(employee.id);
+    res.json({ token, employee: publicEmployee(employee) });
+  }));
+
+  app.post('/api/auth/login', wrap(async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const { pin } = req.body ?? {};
+    const employee = await store.getEmployeeByEmail(email);
+    if (!employee || !employee.isActive || !verifyPin(pin, employee.pinHash)) {
+      throw new HttpError(401, 'Wrong email or PIN');
+    }
+    const token = await store.createSession(employee.id);
+    res.json({ token, employee: publicEmployee(employee) });
+  }));
+
+  app.get('/api/auth/me', wrap(async (req, res) => {
+    const employee = await sessionEmployee(req);
+    if (!employee) throw new HttpError(401, 'Sign in to continue');
+    res.json({ employee: publicEmployee(employee) });
+  }));
+
+  function publicEmployee(e) {
+    return {
+      id: e.id,
+      email: e.email,
+      name: e.name,
+      role: e.role,
+      jtUserId: e.jtUserId,
+      jtLinked: Boolean(e.jtUserId),
+      ccLinked: Boolean(e.ccUserId),
+    };
   }
 
   const upload = multer({
@@ -71,7 +160,12 @@ export function createApp(adapter, store = createStore()) {
 
   // ---- bootstrap -------------------------------------------------------
   app.get('/api/bootstrap', wrap(async (req, res) => {
-    res.json(await adapter.getBootstrap());
+    const data = await boot();
+    const employee = await sessionEmployee(req);
+    const user = employee
+      ? { id: employee.jtUserId, name: employee.name, email: employee.email }
+      : data.user;
+    res.json({ ...data, user });
   }));
 
   // Time-trackable cost items for one job (clock-in picker). Fetched lazily
@@ -86,25 +180,24 @@ export function createApp(adapter, store = createStore()) {
     res.json({ activities: await store.listActivities() });
   }));
 
-  app.get('/api/time/current', wrap(async (req, res) => {
-    const { user } = await boot();
-    const punch = await store.getOpenPunch(user?.id ?? '');
+  app.get('/api/time/current', requireSession, wrap(async (req, res) => {
+    const punch = await store.getOpenPunch(req.employee.jtUserId);
     res.json({ entry: punch ? punchToEntry(punch) : null });
   }));
 
-  app.post('/api/time/clock-in', wrap(async (req, res) => {
+  app.post('/api/time/clock-in', requireSession, wrap(async (req, res) => {
     const { jobId, activity, notes, coordinates, at } = req.body ?? {};
     if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'jobId is required');
     if (typeof activity !== 'string' || !activity.trim()) throw new HttpError(400, 'activity is required');
     if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
     validateCoordinates(coordinates);
     const startedAt = validatePunchTime(at);
-    const { user, jobs } = await boot();
+    const { jobs } = await boot();
     const job = jobs.find((j) => j.id === jobId);
     if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
     const punch = await store.createPunch({
-      userId: user?.id ?? 'user_unknown',
-      userName: user?.name ?? '',
+      userId: req.employee.jtUserId,
+      userName: req.employee.name,
       jobId,
       jobName: job.name,
       activity: activity.trim(),
@@ -115,7 +208,7 @@ export function createApp(adapter, store = createStore()) {
     res.json({ entry: punchToEntry(punch) });
   }));
 
-  app.post('/api/time/clock-out', wrap(async (req, res) => {
+  app.post('/api/time/clock-out', requireSession, wrap(async (req, res) => {
     const { breakMinutes, coordinates, at } = req.body ?? {};
     if (breakMinutes !== undefined) {
       if (typeof breakMinutes !== 'number' || !Number.isFinite(breakMinutes) || breakMinutes < 0) {
@@ -124,8 +217,7 @@ export function createApp(adapter, store = createStore()) {
     }
     validateCoordinates(coordinates);
     const endedAt = validatePunchTime(at);
-    const { user } = await boot();
-    const punch = await store.closePunch(user?.id ?? '', {
+    const punch = await store.closePunch(req.employee.jtUserId, {
       endedAt,
       breakMinutes: breakMinutes ?? 0,
       endCoordinates: coordinates ?? null,
@@ -133,13 +225,12 @@ export function createApp(adapter, store = createStore()) {
     res.json({ entry: punchToEntry(punch) });
   }));
 
-  app.get('/api/time/entries', wrap(async (req, res) => {
+  app.get('/api/time/entries', requireSession, wrap(async (req, res) => {
     const from = qp(req.query.from);
     const to = qp(req.query.to);
     if (from !== undefined && !isValidISO(from)) throw new HttpError(400, 'from must be an ISO timestamp');
     if (to !== undefined && !isValidISO(to)) throw new HttpError(400, 'to must be an ISO timestamp');
-    const { user } = await boot();
-    const punches = await store.listPunches({ from, to, userId: user?.id });
+    const punches = await store.listPunches({ from, to, userId: req.employee.jtUserId });
     res.json({ entries: punches.map(punchToEntry) });
   }));
 
@@ -218,7 +309,9 @@ export function createApp(adapter, store = createStore()) {
     if (weekStart !== undefined && !isValidDateString(weekStart)) {
       throw new HttpError(400, 'weekStart must be YYYY-MM-DD');
     }
-    res.json({ tasks: await adapter.listTasks({ scope, weekStart }) });
+    // Signed-in crew see their own JT-assigned tasks; fallback is the grant user.
+    const employee = await sessionEmployee(req);
+    res.json({ tasks: await adapter.listTasks({ scope, weekStart, jtUserId: employee?.jtUserId }) });
   }));
 
   app.patch('/api/tasks/:id', wrap(async (req, res) => {

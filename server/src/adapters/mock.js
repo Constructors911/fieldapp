@@ -182,6 +182,15 @@ export function createMockAdapter() {
       return job.costItems.filter((c) => c.isTimeTrackable);
     },
 
+    /** Mock membership lookup: the seeded user, plus a second crew member. */
+    async findMembershipByEmail(email) {
+      const roster = {
+        [db.user.email]: { userId: db.user.id, name: db.user.name },
+        'crew@constructors911.com': { userId: 'user_crew', name: 'Casey Crew' },
+      };
+      return roster[email] ?? null;
+    },
+
     async getCurrentEntry() {
       return db.timeEntries.find((e) => e.endedAt === null) ?? null;
     },

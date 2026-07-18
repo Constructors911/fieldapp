@@ -214,6 +214,22 @@ export function createLiveAdapter({
       return { user, jobs, timeEntryTypes: types.length ? types : ['Standard'] };
     },
 
+    /** Find an org member by email for sign-in linking. {userId, name} | null. */
+    async findMembershipByEmail(email) {
+      const data = await pave({
+        organization: {
+          $: { id: organizationId },
+          id: {},
+          memberships: {
+            $: { size: 1, where: { and: [[['user', 'emailAddress'], '=', email]] } },
+            nodes: { id: {}, isInternal: {}, user: { id: {}, name: {}, emailAddress: {} } },
+          },
+        },
+      });
+      const m = data?.organization?.memberships?.nodes?.[0];
+      return m?.user ? { userId: m.user.id, name: m.user.name } : null;
+    },
+
     async getJobCostItems(jobId) {
       const data = await pave({
         job: {
@@ -301,7 +317,7 @@ export function createLiveAdapter({
           $: {
             jobId: p.jobId,
             costItemId: p.costItemId,
-            userId,
+            userId: p.userId || userId, // attribute to the punching employee's JT user
             type: p.entryType || defaultType || 'Standard',
             startedAt: started.toISOString(),
             endedAt: netEnded.toISOString(),
@@ -335,7 +351,8 @@ export function createLiveAdapter({
       return (data?.organization?.timeEntries?.nodes ?? []).map(mapTimeEntry);
     },
 
-    async listTasks({ scope = 'today', weekStart } = {}) {
+    async listTasks({ scope = 'today', weekStart, jtUserId } = {}) {
+      const taskUserId = jtUserId || userId;
       const today = todayString();
       // today scope: pull a trailing window so overdue tasks are included,
       // then filter; week scope: exact Mon-Sun range.
@@ -352,7 +369,7 @@ export function createLiveAdapter({
             $: { id: organizationId },
             id: {},
             memberships: {
-              $: { size: 1, where: { and: [[['user', 'id'], '=', userId]] } },
+              $: { size: 1, where: { and: [[['user', 'id'], '=', taskUserId]] } },
               nodes: {
                 id: {},
                 assignedTasks: {

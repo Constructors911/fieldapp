@@ -74,9 +74,14 @@ async function addItem(method, path, body) {
 }
 
 function send(method, path, body) {
+  // Session header read directly (api.js imports this module, so no circular import).
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('c911_session') : null;
   return fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'x-session-token': token } : {})
+    },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
 }

@@ -26,6 +26,14 @@ Mobile-first PWA for field crews. Users are paid JobTread internal users. Mock P
 
 - GET /api/bootstrap -> { user, jobs: [{id, name, location}], timeEntryTypes: [string] } (no costItems — real orgs 413 the Pave response; fetch per job below)
 - GET /api/jobs/:jobId/cost-items -> { costItems: [{id, name, costCode, isTimeTrackable: true}] } (time-trackable only; 404 unknown job)
+### Employee auth (sessions)
+
+Registration links the employee to JobTread (required: org membership matched by email -> jt_user_id) and CompanyCam (best-effort: cc_user_id for per-user photo filtering later). Sessions are 30-day tokens sent as x-session-token; punch endpoints require one. PIN is 4-8 digits, scrypt-hashed. No PIN reset flow yet (manager deletes the employees row to re-register).
+
+- POST /api/auth/register { email, pin, name? } -> { token, employee } (404 if email not in JT org; 409 if already registered)
+- POST /api/auth/login { email, pin } -> { token, employee }
+- GET /api/auth/me -> { employee } (401 without valid session)
+
 - GET /api/activities -> { activities: [string] } (standard labor list crews punch against)
 - GET /api/time/current -> { entry: TimeEntry | null }
 - POST /api/time/clock-in { jobId, activity, notes?, coordinates? {lat,lng}, at? ISO } -> { entry } (409 if already open; at = tap time, sanity-bounded)

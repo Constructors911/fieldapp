@@ -79,6 +79,26 @@ export function createNeonStore(databaseUrl) {
           detail jsonb,
           created_at timestamptz not null default now()
         )`;
+        await sql`create table if not exists employees (
+          id uuid primary key default gen_random_uuid(),
+          email text not null unique,
+          name text not null default '',
+          pin_hash text not null,
+          jt_user_id text,
+          jt_user_name text,
+          cc_user_id text,
+          cc_user_name text,
+          role text not null default 'crew',
+          is_active boolean not null default true,
+          created_at timestamptz not null default now(),
+          last_login_at timestamptz
+        )`;
+        await sql`create table if not exists sessions (
+          token uuid primary key default gen_random_uuid(),
+          employee_id uuid not null,
+          created_at timestamptz not null default now(),
+          last_seen_at timestamptz not null default now()
+        )`;
         const [{ count }] = await sql`select count(*)::int as count from activities`;
         if (count === 0) {
           for (let i = 0; i < DEFAULT_ACTIVITIES.length; i++) {
@@ -188,5 +208,56 @@ export function createNeonStore(databaseUrl) {
       await sql`update punches set status = 'error', sync_error = ${String(message).slice(0, 1000)}, updated_at = now() where id = ${id}`;
       await sql`insert into sync_log (punch_id, action, detail) values (${id}, 'error', ${JSON.stringify({ message: String(message).slice(0, 1000) })}::jsonb)`;
     },
+
+    // ---- employees & sessions -------------------------------------------
+    async getEmployeeByEmail(email) {
+      await migrate();
+      const rows = await sql`select * from employees where email = ${email} limit 1`;
+      return employeeRow(rows[0]);
+    },
+
+    async createEmployee(e) {
+      await migrate();
+      const rows = await sql`insert into employees
+        (email, name, pin_hash, jt_user_id, jt_user_name, cc_user_id, cc_user_name, role)
+        values (${e.email}, ${e.name ?? ''}, ${e.pinHash}, ${e.jtUserId ?? null}, ${e.jtUserName ?? null},
+                ${e.ccUserId ?? null}, ${e.ccUserName ?? null}, ${e.role ?? 'crew'})
+        returning *`;
+      return employeeRow(rows[0]);
+    },
+
+    async createSession(employeeId) {
+      await migrate();
+      const rows = await sql`insert into sessions (employee_id) values (${employeeId}) returning token`;
+      await sql`update employees set last_login_at = now() where id = ${employeeId}`;
+      return rows[0].token;
+    },
+
+    async getSessionEmployee(token) {
+      await migrate();
+      const rows = await sql`select e.*, e.pin_hash as pin_hash, s.token from sessions s
+        join employees e on e.id = s.employee_id
+        where s.token = ${token} and s.last_seen_at > now() - interval '30 days' and e.is_active
+        limit 1`;
+      if (!rows[0]) return null;
+      await sql`update sessions set last_seen_at = now() where token = ${token}`;
+      return employeeRow(rows[0]);
+    },
+  };
+}
+
+function employeeRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    email: r.email,
+    name: r.name,
+    pinHash: r.pin_hash,
+    jtUserId: r.jt_user_id,
+    jtUserName: r.jt_user_name,
+    ccUserId: r.cc_user_id,
+    ccUserName: r.cc_user_name,
+    role: r.role,
+    isActive: r.is_active,
   };
 }

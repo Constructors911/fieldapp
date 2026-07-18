@@ -3,7 +3,20 @@ import assert from 'node:assert/strict';
 import { startServer, api } from './helpers.js';
 
 let srv;
-before(async () => { srv = await startServer(); });
+let token;
+before(async () => {
+  srv = await startServer();
+  const reg = await api(srv.base, '/api/auth/register', {
+    method: 'POST',
+    body: { email: 'david@constructors911.com', pin: '1234' },
+  });
+  token = reg.json.token;
+});
+// Authenticated calls: same as api() but with the employee session header.
+const authed = (path, options = {}) => api(srv.base, path, {
+  ...options,
+  headers: { 'Content-Type': 'application/json', 'x-session-token': token },
+});
 after(async () => { await srv.close(); });
 
 test('GET /api/activities returns the standard labor list', async () => {
@@ -14,13 +27,13 @@ test('GET /api/activities returns the standard labor list', async () => {
 });
 
 test('GET /api/time/current is null before clocking in', async () => {
-  const { status, json } = await api(srv.base, '/api/time/current');
+  const { status, json } = await authed('/api/time/current');
   assert.equal(status, 200);
   assert.equal(json.entry, null);
 });
 
 test('clock-in creates an open buffered punch with activity + GPS', async () => {
-  const { status, json } = await api(srv.base, '/api/time/clock-in', {
+  const { status, json } = await authed('/api/time/clock-in', {
     method: 'POST',
     body: {
       jobId: 'job_maplewood',
@@ -41,12 +54,12 @@ test('clock-in creates an open buffered punch with activity + GPS', async () => 
   assert.deepEqual(e.coordinates, { lat: 30.2915, lng: -97.7205 });
   assert.equal(e.status, 'open');
 
-  const cur = await api(srv.base, '/api/time/current');
+  const cur = await authed('/api/time/current');
   assert.equal(cur.json.entry.id, e.id);
 });
 
 test('second clock-in while open returns 409', async () => {
-  const { status, json } = await api(srv.base, '/api/time/clock-in', {
+  const { status, json } = await authed('/api/time/clock-in', {
     method: 'POST',
     body: { jobId: 'job_riverside', activity: 'General Framer' },
   });
@@ -55,7 +68,7 @@ test('second clock-in while open returns 409', async () => {
 });
 
 test('clock-out closes the punch (status pending) and subtracts break minutes', async () => {
-  const { status, json } = await api(srv.base, '/api/time/clock-out', {
+  const { status, json } = await authed('/api/time/clock-out', {
     method: 'POST',
     body: { breakMinutes: 0 },
   });
@@ -64,21 +77,21 @@ test('clock-out closes the punch (status pending) and subtracts break minutes', 
   assert.equal(json.entry.status, 'pending');
   assert.equal(typeof json.entry.minutes, 'number');
 
-  const cur = await api(srv.base, '/api/time/current');
+  const cur = await authed('/api/time/current');
   assert.equal(cur.json.entry, null);
 });
 
 test('tap-time (at) is honored on both punches and breaks deduct', async () => {
   const inAt = new Date(Date.now() - 3 * 3600_000).toISOString(); // 3h ago
   const outAt = new Date(Date.now() - 30 * 60_000).toISOString(); // 30m ago
-  const cin = await api(srv.base, '/api/time/clock-in', {
+  const cin = await authed('/api/time/clock-in', {
     method: 'POST',
     body: { jobId: 'job_riverside', activity: 'Concrete Labor', at: inAt },
   });
   assert.equal(cin.status, 200);
   assert.equal(cin.json.entry.startedAt, inAt);
 
-  const cout = await api(srv.base, '/api/time/clock-out', {
+  const cout = await authed('/api/time/clock-out', {
     method: 'POST',
     body: { breakMinutes: 30, at: outAt },
   });
@@ -88,12 +101,12 @@ test('tap-time (at) is honored on both punches and breaks deduct', async () => {
 });
 
 test('future or ancient tap-times are rejected', async () => {
-  const future = await api(srv.base, '/api/time/clock-in', {
+  const future = await authed('/api/time/clock-in', {
     method: 'POST',
     body: { jobId: 'job_riverside', activity: 'Mason', at: new Date(Date.now() + 3600_000).toISOString() },
   });
   assert.equal(future.status, 400);
-  const ancient = await api(srv.base, '/api/time/clock-in', {
+  const ancient = await authed('/api/time/clock-in', {
     method: 'POST',
     body: { jobId: 'job_riverside', activity: 'Mason', at: new Date(Date.now() - 8 * 24 * 3600_000).toISOString() },
   });
@@ -101,25 +114,24 @@ test('future or ancient tap-times are rejected', async () => {
 });
 
 test('clock-out with no open punch returns 409', async () => {
-  const { status } = await api(srv.base, '/api/time/clock-out', { method: 'POST', body: {} });
+  const { status } = await authed('/api/time/clock-out', { method: 'POST', body: {} });
   assert.equal(status, 409);
 });
 
 test('clock-in with unknown job returns 404, missing fields 400', async () => {
-  const bad = await api(srv.base, '/api/time/clock-in', {
+  const bad = await authed('/api/time/clock-in', {
     method: 'POST',
     body: { jobId: 'job_nope', activity: 'Mason' },
   });
   assert.equal(bad.status, 404);
-  const missing = await api(srv.base, '/api/time/clock-in', { method: 'POST', body: { jobId: 'job_maplewood' } });
+  const missing = await authed('/api/time/clock-in', { method: 'POST', body: { jobId: 'job_maplewood' } });
   assert.equal(missing.status, 400);
 });
 
 test('GET /api/time/entries filters by from/to', async () => {
   const start = new Date(); start.setHours(0, 0, 0, 0);
   const end = new Date(); end.setHours(23, 59, 59, 999);
-  const { status, json } = await api(
-    srv.base,
+  const { status, json } = await authed(
     `/api/time/entries?from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}`
   );
   assert.equal(status, 200);
@@ -127,19 +139,19 @@ test('GET /api/time/entries filters by from/to', async () => {
   for (const e of json.entries) {
     assert.ok(new Date(e.startedAt) >= start && new Date(e.startedAt) <= end);
   }
-  const all = await api(srv.base, '/api/time/entries?from=&to=');
+  const all = await authed('/api/time/entries?from=&to=');
   assert.equal(all.status, 200);
-  const bad = await api(srv.base, '/api/time/entries?from=not-a-date');
+  const bad = await authed('/api/time/entries?from=not-a-date');
   assert.equal(bad.status, 400);
 });
 
 test('clock-out rejects negative or non-numeric breakMinutes with 400', async () => {
   assert.equal(
-    (await api(srv.base, '/api/time/clock-out', { method: 'POST', body: { breakMinutes: -5 } })).status,
+    (await authed('/api/time/clock-out', { method: 'POST', body: { breakMinutes: -5 } })).status,
     400
   );
   assert.equal(
-    (await api(srv.base, '/api/time/clock-out', { method: 'POST', body: { breakMinutes: '15' } })).status,
+    (await authed('/api/time/clock-out', { method: 'POST', body: { breakMinutes: '15' } })).status,
     400
   );
 });

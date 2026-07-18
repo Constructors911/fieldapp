@@ -29,3 +29,6 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
 .tab.active { color: var(--orange); font-weight: 600; }
 .tab-icon { font-size: 20px; line-height: 1; }
 .center-msg { display: flex; align-items: center; justify-content: center; min-height: 100dvh; color: var(--muted); padding: 24px; text-align: center; }
+.login-wrap { max-width: 420px; margin: 8vh auto 0; padding: 16px; }
+.login-err { color: var(--red); font-size: 14px; font-weight: 600; margin: 10px 0 0; }
+.login-hint { color: var(--muted); font-size: 13px; margin: 12px 0 0; }

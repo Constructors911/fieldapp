@@ -6,6 +6,8 @@ import { DEFAULT_ACTIVITIES } from './activities.js';
 
 export function createMemoryStore() {
   const punches = [];
+  const employees = [];
+  const sessions = new Map(); // token -> {employeeId, lastSeenAt}
 
   return {
     name: 'memory',
@@ -92,6 +94,43 @@ export function createMemoryStore() {
     async markError(id, message) {
       const punch = punches.find((p) => p.id === id);
       if (punch) Object.assign(punch, { status: 'error', syncError: String(message) });
+    },
+
+    // ---- employees & sessions -------------------------------------------
+    async getEmployeeByEmail(email) {
+      const e = employees.find((x) => x.email === email);
+      return e ? { ...e } : null;
+    },
+
+    async createEmployee(e) {
+      const employee = {
+        id: randomUUID(),
+        email: e.email,
+        name: e.name ?? '',
+        pinHash: e.pinHash,
+        jtUserId: e.jtUserId ?? null,
+        jtUserName: e.jtUserName ?? null,
+        ccUserId: e.ccUserId ?? null,
+        ccUserName: e.ccUserName ?? null,
+        role: e.role ?? 'crew',
+        isActive: true,
+      };
+      employees.push(employee);
+      return { ...employee };
+    },
+
+    async createSession(employeeId) {
+      const token = randomUUID();
+      sessions.set(token, { employeeId, lastSeenAt: Date.now() });
+      return token;
+    },
+
+    async getSessionEmployee(token) {
+      const s = sessions.get(token);
+      if (!s || Date.now() - s.lastSeenAt > 30 * 24 * 3600_000) return null;
+      s.lastSeenAt = Date.now();
+      const e = employees.find((x) => x.id === s.employeeId && x.isActive);
+      return e ? { ...e } : null;
     },
   };
 }
