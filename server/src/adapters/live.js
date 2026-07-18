@@ -158,6 +158,27 @@ export function createLiveAdapter({
   // Remembers upload URLs so GET /uploads/:id can redirect to hosted files.
   const uploadIndex = new Map();
 
+  // createTimeEntry requires a non-null `type` matching one of the user's
+  // membership timeEntryTypes (e.g. "Standard", "Overtime"). Cached per instance.
+  let cachedTypeNames = null;
+  async function timeEntryTypeNames() {
+    if (cachedTypeNames?.length) return cachedTypeNames;
+    const data = await pave({
+      organization: {
+        $: { id: organizationId },
+        id: {},
+        memberships: {
+          $: { size: 1, where: { and: [[['user', 'id'], '=', userId]] } },
+          nodes: { id: {}, timeEntryTypes: { name: {}, hourlyRate: {} } },
+        },
+      },
+    });
+    cachedTypeNames = (data?.organization?.memberships?.nodes?.[0]?.timeEntryTypes ?? [])
+      .map((t) => t.name)
+      .filter(Boolean);
+    return cachedTypeNames;
+  }
+
   return {
     name: 'live',
 
@@ -189,7 +210,8 @@ export function createLiveAdapter({
         name: j.name,
         location: j.location?.formattedAddress ?? '',
       }));
-      return { user, jobs, timeEntryTypes: ['Regular', 'Overtime', 'Travel', 'Shop Time'] };
+      const types = await timeEntryTypeNames();
+      return { user, jobs, timeEntryTypes: types.length ? types : ['Standard'] };
     },
 
     async getJobCostItems(jobId) {
@@ -221,12 +243,14 @@ export function createLiveAdapter({
     async clockIn({ jobId, costItemId, notes, coordinates }) {
       const open = await findOpenEntry();
       if (open) throw new HttpError(409, 'Already clocked in - clock out first');
+      const [defaultType] = await timeEntryTypeNames();
       const data = await pave({
         createTimeEntry: {
           $: {
             jobId,
             costItemId,
             userId,
+            type: defaultType ?? 'Standard',
             startedAt: new Date().toISOString(),
             notes: notes ?? '',
             ...(coordinates ? { startCoordinates: toPaveCoords(coordinates) } : {}),
