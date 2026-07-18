@@ -255,19 +255,26 @@ export function createLiveAdapter({
       return [...byCode.values()].map((v) => v.name).sort((a, b) => a.localeCompare(b));
     },
 
-    /** Find an org member by email for sign-in linking. {userId, name} | null. */
+    /**
+     * Find an org member by email for sign-in linking. {userId, name} | null.
+     * Fetches internal memberships and matches case-insensitively client-side
+     * (JT stores emails with their original casing, e.g. "Sierra@...").
+     */
     async findMembershipByEmail(email) {
+      const target = String(email).toLowerCase();
       const data = await pave({
         organization: {
           $: { id: organizationId },
           id: {},
           memberships: {
-            $: { size: 1, where: { and: [[['user', 'emailAddress'], '=', email]] } },
-            nodes: { id: {}, isInternal: {}, user: { id: {}, name: {}, emailAddress: {} } },
+            $: { size: 100, where: { and: [['isInternal', '=', true]] } },
+            nodes: { id: {}, user: { id: {}, name: {}, emailAddress: {} } },
           },
         },
       });
-      const m = data?.organization?.memberships?.nodes?.[0];
+      const m = (data?.organization?.memberships?.nodes ?? []).find(
+        (n) => String(n.user?.emailAddress ?? '').toLowerCase() === target
+      );
       return m?.user ? { userId: m.user.id, name: m.user.name } : null;
     },
 
