@@ -21,7 +21,8 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
 .brand-logo { height: 36px; width: auto; display: block; }
 .badge { background: var(--orange); color: #fff; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
   position: absolute; right: 16px; top: 50%; transform: translateY(-50%); }
-.screen { flex: 1; padding: 16px; padding-bottom: 84px; max-width: 560px; width: 100%; margin: 0 auto; }
+/* Crew app is phone/tablet-first: fills small screens, centered column on desktop. */
+.screen { flex: 1; padding: 16px; padding-bottom: 84px; max-width: 768px; width: 100%; margin: 0 auto; }
 .tabbar { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: var(--card);
   border-top: 1px solid #e2e6ea; padding-bottom: env(safe-area-inset-bottom); z-index: 10; }
 .tab { flex: 1; min-height: 56px; border: 0; background: none; color: var(--muted);

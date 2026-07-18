@@ -1,6 +1,7 @@
 /* Manager review dashboard (#/admin). Desktop-leaning but works on mobile. */
 .adm-wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
-.adm-wide { max-width: 1200px; }
+/* The review dashboard is a desktop tool: use the whole screen. */
+.adm-wide { max-width: none; padding: 20px 32px; }
 
 /* Spreadsheet table */
 .adm-tablewrap { overflow-x: auto; background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); }
