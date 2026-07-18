@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentEntry, getTimeEntries, getActivities, clockIn, clockOut } from '../api.js';
+import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, clockIn, clockOut } from '../api.js';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
@@ -68,19 +68,30 @@ export default function Clock({ boot }) {
   const [step, setStep] = useState(null); // null | 'job' | 'activity' | 'note' | 'out'
   const [selJob, setSelJob] = useState(null);
   const [selActivity, setSelActivity] = useState(null);
-  const [activities, setActivities] = useState(null); // null = loading
+  const [selCostItem, setSelCostItem] = useState(null); // budget item => auto-approves
+  const [activities, setActivities] = useState(null); // standard catalog, null = loading
+  const [budgetItems, setBudgetItems] = useState(null); // this job's labor items, null = loading
   const [note, setNote] = useState('');
   const [breakMin, setBreakMin] = useState('');
   const gpsPromise = useRef(null);
+  const budgetCache = useRef(new Map()); // jobId -> items
 
-  function loadActivities() {
-    if (activities?.length) return;
-    getActivities()
-      .then((r) => setActivities(r.activities || []))
-      .catch((e) => {
-        setActionErr(e.message || 'Could not load activities — check your connection and try again.');
-        resetFlow();
-      });
+  function loadPickerOptions(jobId) {
+    if (!activities?.length) {
+      getActivities()
+        .then((r) => setActivities(r.activities || []))
+        .catch(() => setActivities([]));
+    }
+    const cached = budgetCache.current.get(jobId);
+    if (cached) { setBudgetItems(cached); return; }
+    setBudgetItems(null);
+    getJobCostItems(jobId)
+      .then((r) => {
+        const items = r.costItems || [];
+        budgetCache.current.set(jobId, items);
+        setBudgetItems(items);
+      })
+      .catch(() => setBudgetItems([])); // budget list is a bonus — the catalog still works
   }
 
   const load = useCallback(async () => {
@@ -112,6 +123,7 @@ export default function Clock({ boot }) {
     setStep(null);
     setSelJob(null);
     setSelActivity(null);
+    setSelCostItem(null);
     setNote('');
     setBreakMin('');
   }
@@ -132,6 +144,7 @@ export default function Clock({ boot }) {
       const res = await clockIn({
         jobId: selJob.id,
         activity: selActivity,
+        costItemId: selCostItem?.id || undefined,
         notes: note.trim() || undefined,
         coordinates: coordinates || undefined,
         at
@@ -210,7 +223,18 @@ export default function Clock({ boot }) {
   const runningMins = current ? Math.max(0, (now - new Date(current.startedAt).getTime()) / 60000) : 0;
   const totalMins = completed.reduce((sum, e) => sum + (e.minutes || 0), 0) + runningMins;
 
-  const activityOptions = activities || [];
+  // Picker: this job's budget labor items first (auto-approve), then the
+  // standard Employee Labor catalog (manager maps those later).
+  const activityOptions = [
+    ...(budgetItems || []).map((ci) => ({
+      id: `ci:${ci.id}`,
+      label: ci.name,
+      sub: `✓ In budget — auto-approves${ci.costCode ? ` · ${ci.costCode}` : ''}`,
+      _ci: ci,
+    })),
+    ...(activities || []).map((a) => ({ id: `act:${a}`, label: a, sub: 'Standard labor' })),
+  ];
+  const pickerLoading = budgetItems === null && activities === null;
 
   return (
     <div>
@@ -294,25 +318,32 @@ export default function Clock({ boot }) {
         title="Pick a job"
         onClose={resetFlow}
         options={jobs.map((j) => ({ id: j.id, label: j.name, sub: j.location, _job: j }))}
-        onSelect={(opt) => { setSelJob(opt._job); setStep('activity'); loadActivities(); }}
+        onSelect={(opt) => { setSelJob(opt._job); setStep('activity'); loadPickerOptions(opt._job.id); }}
         emptyText="No jobs available"
       />
 
-      {/* Step 2: pick what you're doing (standard labor activities) */}
+      {/* Step 2: budget labor items (auto-approve) + standard labor catalog */}
       <PickerSheet
         open={step === 'activity'}
         title={`What are you doing? — ${selJob?.name || ''}`}
         onClose={resetFlow}
-        options={activityOptions.map((a) => ({ id: a, label: a }))}
-        onSelect={(opt) => { setSelActivity(opt.id); setStep('note'); }}
-        emptyText={activities === null ? 'Loading activities…' : 'No activities configured'}
+        options={activityOptions}
+        onSelect={(opt) => {
+          setSelActivity(opt._ci ? opt._ci.name : opt.label);
+          setSelCostItem(opt._ci || null);
+          setStep('note');
+        }}
+        emptyText={pickerLoading ? 'Loading…' : 'No labor items configured'}
       />
 
       {/* Step 3: optional note + confirm */}
       <Sheet open={step === 'note'} title="Ready to clock in" onClose={resetFlow}>
         <div className="clk-review">
           <p><strong>{selJob?.name}</strong></p>
-          <p className="muted">{selActivity}</p>
+          <p className="muted">
+            {selActivity}
+            {selCostItem && <span className="c-pill c-pill-orange" style={{ marginLeft: 6 }}>auto-approves</span>}
+          </p>
         </div>
         <label className="c-label" htmlFor="clk-note">Note (optional)</label>
         <textarea

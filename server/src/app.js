@@ -192,14 +192,40 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   // Time-trackable cost items for one job (clock-in picker). Fetched lazily
   // because full per-job cost item lists are too large to ship in bootstrap.
   app.get('/api/jobs/:jobId/cost-items', wrap(async (req, res) => {
-    res.json({ costItems: await adapter.getJobCostItems(req.params.jobId) });
+    res.json({ costItems: await jobCostItems(req.params.jobId) });
   }));
 
   // ---- time tracking (buffered: punches live in our store, pushed to
   // JobTread by a manager from the review dashboard) ----------------------
+  // Standard labor list: JobTread's org-level "Employee Labor" catalog when
+  // available (live adapter), falling back to the seeded store list.
+  let activityCache = { at: 0, data: null };
   app.get('/api/activities', wrap(async (req, res) => {
+    if (adapter.listActivityCatalog) {
+      if (!activityCache.data || Date.now() - activityCache.at > 5 * 60_000) {
+        try {
+          const data = await adapter.listActivityCatalog();
+          if (data?.length) activityCache = { at: Date.now(), data };
+        } catch { /* fall back below */ }
+      }
+      if (activityCache.data?.length) {
+        res.json({ activities: activityCache.data });
+        return;
+      }
+    }
     res.json({ activities: await store.listActivities() });
   }));
+
+  // Per-job budget cost items, cached briefly (also used to validate
+  // budget-item clock-ins server-side).
+  const jobItemsCache = new Map(); // jobId -> {at, items}
+  async function jobCostItems(jobId) {
+    const cached = jobItemsCache.get(jobId);
+    if (cached && Date.now() - cached.at < 5 * 60_000) return cached.items;
+    const items = await adapter.getJobCostItems(jobId);
+    jobItemsCache.set(jobId, { at: Date.now(), items });
+    return items;
+  }
 
   app.get('/api/time/current', requireSession, wrap(async (req, res) => {
     const punch = await store.getOpenPunch(req.employee.jtUserId);
@@ -207,7 +233,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   }));
 
   app.post('/api/time/clock-in', requireSession, wrap(async (req, res) => {
-    const { jobId, activity, notes, coordinates, at } = req.body ?? {};
+    const { jobId, activity, costItemId, notes, coordinates, at } = req.body ?? {};
     if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'jobId is required');
     if (typeof activity !== 'string' || !activity.trim()) throw new HttpError(400, 'activity is required');
     if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
@@ -216,12 +242,21 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const { jobs } = await boot();
     const job = jobs.find((j) => j.id === jobId);
     if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
+    // Optional budget cost item (auto-approval path): must really be on the job.
+    let costItem = null;
+    if (costItemId !== undefined && costItemId !== null && costItemId !== '') {
+      if (typeof costItemId !== 'string') throw new HttpError(400, 'costItemId must be a string');
+      costItem = (await jobCostItems(jobId)).find((c) => c.id === costItemId);
+      if (!costItem) throw new HttpError(400, "Cost item is not on this job's budget");
+    }
     const punch = await store.createPunch({
       userId: req.employee.jtUserId,
       userName: req.employee.name,
       jobId,
       jobName: job.name,
       activity: activity.trim(),
+      costItemId: costItem?.id ?? null,
+      costItemName: costItem?.name ?? null,
       startedAt,
       notes,
       coordinates: coordinates ?? null,
@@ -238,11 +273,23 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     }
     validateCoordinates(coordinates);
     const endedAt = validatePunchTime(at);
-    const punch = await store.closePunch(req.employee.jtUserId, {
+    let punch = await store.closePunch(req.employee.jtUserId, {
       endedAt,
       breakMinutes: breakMinutes ?? 0,
       endCoordinates: coordinates ?? null,
     });
+    // Auto-approved punches (budget cost item picked at clock-in) push to
+    // JobTread immediately; failures stay reviewable in the dashboard.
+    if (punch.status === 'approved' && punch.costItemId) {
+      try {
+        const jtTimeEntryId = await adapter.pushTimeEntry(punch);
+        await store.markPushed(punch.id, jtTimeEntryId);
+        punch = { ...punch, status: 'pushed', jtTimeEntryId };
+      } catch (e) {
+        await store.markError(punch.id, `auto-push failed: ${e.message}`);
+        punch = { ...punch, status: 'error', syncError: e.message };
+      }
+    }
     res.json({ entry: punchToEntry(punch) });
   }));
 
@@ -316,7 +363,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       const punch = await store.getPunch(id);
       try {
         if (!punch) throw new HttpError(404, 'Punch not found');
-        if (!['pending', 'error'].includes(punch.status)) throw new HttpError(400, `Punch status is ${punch.status}`);
+        if (!['pending', 'approved', 'error'].includes(punch.status)) throw new HttpError(400, `Punch status is ${punch.status}`);
         if (!punch.endedAt) throw new HttpError(400, 'Punch is still open');
         if (!punch.costItemId) throw new HttpError(400, 'Map a budget cost item before pushing');
         const jtTimeEntryId = await adapter.pushTimeEntry(punch);
@@ -325,7 +372,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       } catch (e) {
         // Only flag punches that were actually eligible — never clobber a
         // punch that is already pushed (or still open) with an error status.
-        if (punch && ['pending', 'error'].includes(punch.status)) {
+        if (punch && ['pending', 'approved', 'error'].includes(punch.status)) {
           await store.markError(punch.id, e.message);
         }
         results.push({ id, ok: false, error: e.message });

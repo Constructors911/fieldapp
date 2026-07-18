@@ -37,8 +37,8 @@ export function createMemoryStore() {
         jobId: p.jobId,
         jobName: p.jobName ?? '',
         activity: p.activity,
-        costItemId: null,
-        costItemName: null,
+        costItemId: p.costItemId ?? null,
+        costItemName: p.costItemName ?? null,
         entryType: p.entryType ?? 'Standard',
         startedAt: p.startedAt,
         endedAt: null,
@@ -57,7 +57,13 @@ export function createMemoryStore() {
     async closePunch(userId, { endedAt, breakMinutes = 0, endCoordinates } = {}) {
       const punch = await this.getOpenPunch(userId);
       if (!punch) throw new HttpError(409, 'No open time entry - clock in first');
-      Object.assign(punch, { endedAt, breakMinutes, endCoordinates: endCoordinates ?? null, status: 'pending' });
+      Object.assign(punch, {
+        endedAt,
+        breakMinutes,
+        endCoordinates: endCoordinates ?? null,
+        // a budget cost item picked at clock-in auto-approves the punch
+        status: punch.costItemId ? 'approved' : 'pending',
+      });
       return { ...punch };
     },
 
@@ -79,7 +85,7 @@ export function createMemoryStore() {
     },
 
     async updatePunch(id, patch) {
-      const punch = punches.find((p) => p.id === id && ['open', 'pending', 'error'].includes(p.status));
+      const punch = punches.find((p) => p.id === id && ['open', 'pending', 'approved', 'error'].includes(p.status));
       if (!punch) throw new HttpError(404, 'Punch not found or already pushed');
       for (const k of ['activity', 'costItemId', 'costItemName', 'entryType', 'startedAt', 'endedAt', 'breakMinutes', 'notes']) {
         if (patch[k] !== undefined && patch[k] !== null) punch[k] = patch[k];

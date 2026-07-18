@@ -156,6 +156,33 @@ test('clock-out rejects negative or non-numeric breakMinutes with 400', async ()
   );
 });
 
+test('budget cost item at clock-in auto-approves and auto-pushes at clock-out', async () => {
+  const cin = await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: {
+      jobId: 'job_maplewood',
+      activity: 'Cabinet Install Labor',
+      costItemId: 'ci_mw_cabinst',
+      at: new Date(Date.now() - 2 * 3600_000).toISOString(),
+    },
+  });
+  assert.equal(cin.status, 200);
+  assert.equal(cin.json.entry.costItemId, 'ci_mw_cabinst');
+
+  const cout = await authed('/api/time/clock-out', { method: 'POST', body: {} });
+  assert.equal(cout.status, 200);
+  assert.equal(cout.json.entry.status, 'pushed'); // auto-approved -> pushed to JT
+});
+
+test('clock-in rejects a cost item that is not on the job budget', async () => {
+  const { status, json } = await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: { jobId: 'job_maplewood', activity: 'Mason', costItemId: 'ci_rs_frame' },
+  });
+  assert.equal(status, 400);
+  assert.match(json.error, /budget/i);
+});
+
 // ---- admin review + push ------------------------------------------------
 
 test('admin: pending punches list, cost item mapping, push to JT', async () => {

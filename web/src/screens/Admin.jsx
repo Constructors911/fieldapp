@@ -39,7 +39,7 @@ function netHours(p) {
   return Math.max(0, gross - (p.breakMinutes || 0)) / 60;
 }
 
-const STATUS_TABS = ['pending', 'error', 'open', 'pushed', 'all'];
+const STATUS_TABS = ['pending', 'approved', 'error', 'open', 'pushed', 'all'];
 
 // ---- Google sign-in button (loads GIS script when a client id exists) ----
 function GoogleSignIn({ clientId, onCredential }) {
@@ -236,7 +236,8 @@ export default function Admin() {
     : [...new Map((punches || []).map((p) => [p.userId, { id: p.userId, name: p.userName || p.userId }])).values()];
 
   const visible = (punches || []).filter((p) => !userFilter || p.userId === userFilter);
-  const pushable = (p) => (p.status === 'pending' || p.status === 'error') && p.endedAt && p.costItemId;
+  const EDITABLE = ['pending', 'approved', 'error'];
+  const pushable = (p) => EDITABLE.includes(p.status) && p.endedAt && p.costItemId;
   const allPushableSelected = visible.filter(pushable).every((p) => selected.has(p.id)) && visible.some(pushable);
 
   return (
@@ -307,7 +308,7 @@ export default function Admin() {
             <tbody>
               {visible.map((p) => {
                 const hours = netHours(p);
-                const editable = p.status === 'pending' || p.status === 'error';
+                const editable = EDITABLE.includes(p.status);
                 return (
                   <tr key={p.id} className={selected.has(p.id) ? 'is-selected' : ''}>
                     <td className="adm-th-check">

@@ -144,8 +144,9 @@ export function createNeonStore(databaseUrl) {
       const open = await this.getOpenPunch(p.userId);
       if (open) throw new HttpError(409, 'Already clocked in - clock out first');
       const rows = await sql`insert into punches
-        (user_id, user_name, job_id, job_name, activity, entry_type, started_at, notes, start_lat, start_lng, status)
+        (user_id, user_name, job_id, job_name, activity, cost_item_id, cost_item_name, entry_type, started_at, notes, start_lat, start_lng, status)
         values (${p.userId}, ${p.userName ?? ''}, ${p.jobId}, ${p.jobName ?? ''}, ${p.activity},
+                ${p.costItemId ?? null}, ${p.costItemName ?? null},
                 ${p.entryType ?? 'Standard'}, ${p.startedAt}, ${p.notes ?? ''},
                 ${p.coordinates?.lat ?? null}, ${p.coordinates?.lng ?? null}, 'open')
         returning *`;
@@ -159,7 +160,8 @@ export function createNeonStore(databaseUrl) {
           break_minutes = ${breakMinutes},
           end_lat = ${endCoordinates?.lat ?? null},
           end_lng = ${endCoordinates?.lng ?? null},
-          status = 'pending',
+          -- a budget cost item picked at clock-in auto-approves the punch
+          status = case when cost_item_id is null then 'pending' else 'approved' end,
           updated_at = now()
         where user_id = ${userId} and status = 'open'
         returning *`;
@@ -198,7 +200,7 @@ export function createNeonStore(databaseUrl) {
           break_minutes = coalesce(${patch.breakMinutes ?? null}, break_minutes),
           notes = coalesce(${patch.notes ?? null}, notes),
           updated_at = now()
-        where id = ${id} and status in ('open', 'pending', 'error')
+        where id = ${id} and status in ('open', 'pending', 'approved', 'error')
         returning *`;
       if (!rows[0]) throw new HttpError(404, 'Punch not found or already pushed');
       return rowToPunch(rows[0]);

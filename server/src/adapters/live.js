@@ -214,6 +214,47 @@ export function createLiveAdapter({
       return { user, jobs, timeEntryTypes: types.length ? types : ['Standard'] };
     },
 
+    /**
+     * Org-level "Employee Labor" catalog (cost items with no job) — the
+     * standard labor list crews can always punch against. Names only.
+     */
+    async listActivityCatalog() {
+      const nodes = [];
+      let page = null;
+      do {
+        const data = await pave({
+          organization: {
+            $: { id: organizationId },
+            id: {},
+            costItems: {
+              $: {
+                size: 100,
+                ...(page ? { page } : {}),
+                where: { and: [[['costType', 'name'], '=', 'Employee Labor']] },
+              },
+              nextPage: {},
+              nodes: { id: {}, name: {}, job: { id: {} } },
+            },
+          },
+        });
+        const conn = data?.organization?.costItems ?? {};
+        nodes.push(...(conn.nodes ?? []));
+        page = conn.nextPage ?? null;
+      } while (page && nodes.length < 600);
+      // Catalog items have no job. Dedupe by the 3-digit code prefix,
+      // preferring the clean "NNN-01 ..." series over legacy imports.
+      const byCode = new Map();
+      for (const item of nodes.filter((n) => !n.job)) {
+        const name = item.name.replace(/["\s]+$/, '').trim();
+        const m = name.match(/^(\d{3})-/);
+        const key = m ? m[1] : name.toLowerCase();
+        const isClean = /^\d{3}-01\s/.test(name);
+        const existing = byCode.get(key);
+        if (!existing || (isClean && !existing.isClean)) byCode.set(key, { name, isClean });
+      }
+      return [...byCode.values()].map((v) => v.name).sort((a, b) => a.localeCompare(b));
+    },
+
     /** Find an org member by email for sign-in linking. {userId, name} | null. */
     async findMembershipByEmail(email) {
       const data = await pave({
