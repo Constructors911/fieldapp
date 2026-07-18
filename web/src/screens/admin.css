@@ -1,5 +1,41 @@
 /* Manager review dashboard (#/admin). Desktop-leaning but works on mobile. */
 .adm-wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
+.adm-wide { max-width: 1200px; }
+
+/* Spreadsheet table */
+.adm-tablewrap { overflow-x: auto; background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); }
+.adm-table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 900px; }
+.adm-table th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--muted); background: #f8fafb; padding: 10px 10px; border-bottom: 2px solid #e2e6ea;
+  position: sticky; top: 0; white-space: nowrap;
+}
+.adm-table td { padding: 8px 10px; border-bottom: 1px solid #eef1f4; vertical-align: middle; white-space: nowrap; }
+.adm-table tr:hover td { background: #f6f9fc; }
+.adm-table tr.is-selected td { background: #eaf6ef; }
+.adm-th-check { width: 34px; text-align: center; }
+.adm-th-check input { width: 16px; height: 16px; accent-color: var(--green); }
+.adm-strong { font-weight: 600; }
+.adm-job { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.adm-num { text-align: right; font-variant-numeric: tabular-nums; }
+.adm-times { font-variant-numeric: tabular-nums; }
+.adm-gps a { color: var(--navy); font-weight: 600; margin-right: 8px; }
+.adm-cellflex { display: inline-flex; align-items: center; gap: 6px; }
+.adm-table .adm-select { min-width: 200px; max-width: 260px; flex: none; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+.adm-userfilter { max-width: 180px; flex: none; }
+.adm-badge {
+  display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 11px; font-weight: 700;
+  text-transform: capitalize;
+}
+.adm-badge-pending { background: #fdf0e5; color: #a35315; }
+.adm-badge-open { background: #e8eef5; color: var(--navy); }
+.adm-badge-pushed { background: #e7f5ec; color: var(--green); }
+.adm-badge-error { background: #fbeaea; color: var(--red); }
+.adm-google { display: flex; justify-content: center; margin: 8px 0; }
+.adm-linklike {
+  background: none; border: 0; color: var(--navy); font-size: 13px; font-weight: 600;
+  cursor: pointer; text-decoration: underline; padding: 8px 0; min-height: var(--tap);
+}
 .adm-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .adm-title { font-size: 20px; font-weight: 800; color: var(--navy); margin: 0; flex: 1; }
 .adm-tabs { display: flex; gap: 4px; }

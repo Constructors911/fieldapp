@@ -8,6 +8,7 @@ export function createMemoryStore() {
   const punches = [];
   const employees = [];
   const sessions = new Map(); // token -> {employeeId, lastSeenAt}
+  const adminSessions = new Map(); // token -> {email, name, lastSeenAt}
 
   return {
     name: 'memory',
@@ -131,6 +132,23 @@ export function createMemoryStore() {
       s.lastSeenAt = Date.now();
       const e = employees.find((x) => x.id === s.employeeId && x.isActive);
       return e ? { ...e } : null;
+    },
+
+    async listEmployees() {
+      return employees.map((e) => ({ ...e }));
+    },
+
+    async createAdminSession(email, name) {
+      const token = randomUUID();
+      adminSessions.set(token, { email, name: name ?? '', lastSeenAt: Date.now() });
+      return token;
+    },
+
+    async getAdminSession(token) {
+      const s = adminSessions.get(token);
+      if (!s || Date.now() - s.lastSeenAt > 30 * 24 * 3600_000) return null;
+      s.lastSeenAt = Date.now();
+      return { email: s.email, name: s.name };
     },
   };
 }

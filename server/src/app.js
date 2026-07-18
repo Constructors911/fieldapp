@@ -6,6 +6,7 @@ import { HttpError } from './util/httpError.js';
 import { isValidDateString, isValidISO } from './util/dates.js';
 import { createStore } from './store/index.js';
 import { hashPin, verifyPin, isValidPin, normalizeEmail, isValidEmail } from './auth.js';
+import { verifyGoogleIdToken, adminAllowlist } from './googleAuth.js';
 import { createCompanyCam } from './connectors/companycam.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
@@ -52,7 +53,7 @@ function punchToEntry(p) {
   };
 }
 
-export function createApp(adapter, store = createStore()) {
+export function createApp(adapter, store = createStore(), { verifyGoogle = verifyGoogleIdToken } = {}) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -153,6 +154,26 @@ export function createApp(adapter, store = createStore()) {
     };
   }
 
+  // ---- admin sign-in: Google OAuth (allowlisted emails) ------------------
+  app.get('/api/auth/google/config', (req, res) => {
+    res.json({ clientId: process.env.GOOGLE_CLIENT_ID || null });
+  });
+
+  app.post('/api/auth/google', wrap(async (req, res) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) throw new HttpError(503, 'Google sign-in is not configured');
+    const { credential } = req.body ?? {};
+    if (typeof credential !== 'string' || !credential) throw new HttpError(400, 'credential is required');
+    const identity = await verifyGoogle(credential, clientId);
+    if (!identity) throw new HttpError(401, 'Google sign-in could not be verified');
+    const allowlist = adminAllowlist();
+    if (!allowlist.includes(identity.email)) {
+      throw new HttpError(403, `${identity.email} is not an authorized admin`);
+    }
+    const token = await store.createAdminSession(identity.email, identity.name);
+    res.json({ token, admin: identity });
+  }));
+
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 25 * 1024 * 1024, files: 1 },
@@ -235,23 +256,37 @@ export function createApp(adapter, store = createStore()) {
   }));
 
   // ---- admin: punch review + push to JobTread ---------------------------
+  // Two ways in: a Google admin session (x-admin-session, allowlisted email)
+  // or the shared ADMIN_KEY header (fallback / API use).
   const requireAdmin = (req, res, next) => {
-    const expected = process.env.ADMIN_KEY;
-    if (!expected) {
-      // Refuse in hosted environments; allow for local dev/tests.
-      if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-        res.status(503).json({ error: 'ADMIN_KEY not configured' });
+    (async () => {
+      const sessionToken = req.get('x-admin-session');
+      if (sessionToken) {
+        const admin = await store.getAdminSession(sessionToken).catch(() => null);
+        if (admin) {
+          req.admin = admin;
+          next();
+          return;
+        }
+      }
+      const expected = process.env.ADMIN_KEY;
+      if (expected && req.get('x-admin-key') === expected) {
+        next();
         return;
       }
-      next();
-      return;
-    }
-    if (req.get('x-admin-key') !== expected) {
-      res.status(401).json({ error: 'Invalid admin key' });
-      return;
-    }
-    next();
+      // Local dev/tests with no key configured: open.
+      if (!expected && !process.env.VERCEL && process.env.NODE_ENV !== 'production') {
+        next();
+        return;
+      }
+      res.status(401).json({ error: 'Admin sign-in required' });
+    })().catch(next);
   };
+
+  app.get('/api/admin/employees', requireAdmin, wrap(async (req, res) => {
+    const employees = await store.listEmployees();
+    res.json({ employees: employees.map(publicEmployee) });
+  }));
 
   app.get('/api/admin/punches', requireAdmin, wrap(async (req, res) => {
     const status = qp(req.query.status);

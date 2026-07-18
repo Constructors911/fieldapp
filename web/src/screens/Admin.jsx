@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
@@ -7,16 +7,21 @@ import { getJobCostItems } from '../api.js';
 import './admin.css';
 
 const KEY_STORAGE = 'c911_admin_key';
+const SESSION_STORAGE = 'c911_admin_session';
+
+function adminHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  const session = localStorage.getItem(SESSION_STORAGE);
+  const key = localStorage.getItem(KEY_STORAGE);
+  if (session) h['x-admin-session'] = session;
+  if (key) h['x-admin-key'] = key;
+  return h;
+}
 
 async function adminFetch(path, options = {}) {
-  const key = localStorage.getItem(KEY_STORAGE) || '';
   const res = await fetch(path, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-admin-key': key,
-      ...(options.headers || {})
-    },
+    headers: { ...adminHeaders(), ...(options.headers || {}) },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined
   });
   const json = await res.json().catch(() => null);
@@ -25,45 +30,144 @@ async function adminFetch(path, options = {}) {
   return json;
 }
 
-function fmtDT(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
+const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '—');
+const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—');
 
-function fmtHours(p) {
-  if (!p.endedAt) return 'running';
+function netHours(p) {
+  if (!p.endedAt) return null;
   const gross = (new Date(p.endedAt) - new Date(p.startedAt)) / 60000;
-  const net = Math.max(0, Math.round(gross - (p.breakMinutes || 0)));
-  return `${(net / 60).toFixed(2)}h${p.breakMinutes ? ` (${p.breakMinutes}m break)` : ''}`;
+  return Math.max(0, gross - (p.breakMinutes || 0)) / 60;
 }
 
-function gpsLink(c) {
-  return c ? `https://maps.google.com/?q=${c.lat},${c.lng}` : null;
+const STATUS_TABS = ['pending', 'error', 'open', 'pushed', 'all'];
+
+// ---- Google sign-in button (loads GIS script when a client id exists) ----
+function GoogleSignIn({ clientId, onCredential }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!clientId || !ref.current) return undefined;
+    const render = () => {
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (resp) => onCredential(resp.credential)
+      });
+      window.google.accounts.id.renderButton(ref.current, { theme: 'filled_blue', size: 'large', width: 280 });
+    };
+    if (window.google?.accounts?.id) { render(); return undefined; }
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.onload = render;
+    document.head.appendChild(s);
+    return () => { s.remove(); };
+  }, [clientId, onCredential]);
+  return <div ref={ref} className="adm-google" />;
 }
 
-const STATUS_TABS = ['pending', 'error', 'open', 'pushed'];
-
-export default function Admin() {
-  const [authed, setAuthed] = useState(() => Boolean(localStorage.getItem(KEY_STORAGE)));
+function SignIn({ onAuthed }) {
+  const [clientId, setClientId] = useState(undefined);
   const [keyInput, setKeyInput] = useState('');
-  const [tab, setTab] = useState('pending');
-  const [punches, setPunches] = useState(undefined); // undefined = loading
   const [err, setErr] = useState(null);
-  const [costItems, setCostItems] = useState({}); // jobId -> [{id,name,costCode}]
-  const [mapping, setMapping] = useState({}); // punchId -> costItemId (unsaved selection)
+  const [showKey, setShowKey] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/auth/google/config')
+      .then((r) => r.json())
+      .then((r) => setClientId(r.clientId))
+      .catch(() => setClientId(null));
+  }, []);
+
+  const onCredential = useCallback(async (credential) => {
+    setErr(null);
+    try {
+      const res = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Google sign-in failed');
+      localStorage.setItem(SESSION_STORAGE, json.token);
+      onAuthed();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }, [onAuthed]);
+
+  return (
+    <div className="adm-wrap">
+      <Card title="Manager sign-in">
+        {clientId === undefined && <Spinner label="Loading…" />}
+        {clientId && (
+          <>
+            <GoogleSignIn clientId={clientId} onCredential={onCredential} />
+            <p className="login-hint">Sign in with your authorized Google account.</p>
+          </>
+        )}
+        {clientId === null && <p className="login-hint">Google sign-in isn&apos;t configured yet — use the admin key.</p>}
+        {err && <p className="login-err" role="alert">{err}</p>}
+
+        {(clientId === null || showKey) ? (
+          <>
+            <label className="c-label" htmlFor="adm-key">Admin key</label>
+            <input
+              id="adm-key" className="c-input" type="password" value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && keyInput.trim()) { localStorage.setItem(KEY_STORAGE, keyInput.trim()); onAuthed(); } }}
+            />
+            <button
+              type="button" className="c-btn c-btn-block" style={{ marginTop: 10 }} disabled={!keyInput.trim()}
+              onClick={() => { localStorage.setItem(KEY_STORAGE, keyInput.trim()); onAuthed(); }}
+            >
+              Sign in with key
+            </button>
+          </>
+        ) : (
+          clientId && (
+            <button type="button" className="adm-linklike" onClick={() => setShowKey(true)}>
+              Use admin key instead
+            </button>
+          )
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ---- main dashboard -------------------------------------------------------
+export default function Admin() {
+  const [authed, setAuthed] = useState(() =>
+    Boolean(localStorage.getItem(SESSION_STORAGE) || localStorage.getItem(KEY_STORAGE)));
+  const [tab, setTab] = useState('pending');
+  const [userFilter, setUserFilter] = useState('');
+  const [punches, setPunches] = useState(undefined);
+  const [employees, setEmployees] = useState([]);
+  const [err, setErr] = useState(null);
+  const [costItems, setCostItems] = useState({}); // jobId -> items
   const [selected, setSelected] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
   const [pushResults, setPushResults] = useState(null);
+  const [savingIds, setSavingIds] = useState(() => new Set());
+
+  const signOut = useCallback(() => {
+    localStorage.removeItem(SESSION_STORAGE);
+    localStorage.removeItem(KEY_STORAGE);
+    setAuthed(false);
+  }, []);
 
   const load = useCallback(async () => {
     setPunches(undefined);
     setErr(null);
     try {
-      const r = await adminFetch(`/api/admin/punches?status=${tab}`);
-      setPunches(r.punches || []);
+      const q = tab === 'all' ? '' : `?status=${tab}`;
+      const [pr, er] = await Promise.all([
+        adminFetch(`/api/admin/punches${q}`),
+        adminFetch('/api/admin/employees').catch(() => ({ employees: [] }))
+      ]);
+      setPunches(pr.punches || []);
+      setEmployees(er.employees || []);
       setSelected(new Set());
-      // Prefetch cost items for the jobs on screen
-      const jobIds = [...new Set((r.punches || []).map((p) => p.jobId))];
+      const jobIds = [...new Set((pr.punches || []).map((p) => p.jobId))];
       jobIds.forEach((jobId) => {
         setCostItems((prev) => {
           if (prev[jobId]) return prev;
@@ -74,34 +178,30 @@ export default function Admin() {
         });
       });
     } catch (e) {
-      if (e.message === 'UNAUTHORIZED') {
-        localStorage.removeItem(KEY_STORAGE);
-        setAuthed(false);
-      } else {
-        setErr(e.message);
-        setPunches([]);
-      }
+      if (e.message === 'UNAUTHORIZED') signOut();
+      else { setErr(e.message); setPunches([]); }
     }
-  }, [tab]);
+  }, [tab, signOut]);
 
   useEffect(() => { if (authed) { setPushResults(null); load(); } }, [authed, load]);
 
-  async function saveMapping(punch) {
-    const costItemId = mapping[punch.id];
+  // Inline cost-item mapping: saves immediately on dropdown change.
+  async function mapCostItem(punch, costItemId) {
     if (!costItemId) return;
     const item = (costItems[punch.jobId] || []).find((c) => c.id === costItemId);
-    setBusy(true);
+    setSavingIds((s) => new Set(s).add(punch.id));
+    const prev = { costItemId: punch.costItemId, costItemName: punch.costItemName };
+    setPunches((list) => list.map((p) => (p.id === punch.id ? { ...p, costItemId, costItemName: item?.name || '' } : p)));
     try {
       await adminFetch(`/api/admin/punches/${punch.id}`, {
         method: 'PATCH',
         body: { costItemId, costItemName: item?.name || '' }
       });
-      setPunches((list) => list.map((p) => (p.id === punch.id ? { ...p, costItemId, costItemName: item?.name || '' } : p)));
-      setMapping((m) => { const next = { ...m }; delete next[punch.id]; return next; });
     } catch (e) {
-      setErr(e.message);
+      setPunches((list) => list.map((p) => (p.id === punch.id ? { ...p, ...prev } : p)));
+      setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
     } finally {
-      setBusy(false);
+      setSavingIds((s) => { const next = new Set(s); next.delete(punch.id); return next; });
     }
   }
 
@@ -113,7 +213,7 @@ export default function Admin() {
     try {
       const r = await adminFetch('/api/admin/punches/push', { method: 'POST', body: { ids } });
       await load();
-      setPushResults(r.results); // after load, so the refresh doesn't clear them
+      setPushResults(r.results);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -129,37 +229,18 @@ export default function Admin() {
     });
   }
 
-  if (!authed) {
-    return (
-      <div className="adm-wrap">
-        <Card title="Manager sign-in">
-          <label className="c-label" htmlFor="adm-key">Admin key</label>
-          <input
-            id="adm-key"
-            className="c-input"
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && keyInput.trim()) { localStorage.setItem(KEY_STORAGE, keyInput.trim()); setAuthed(true); } }}
-          />
-          <button
-            type="button"
-            className="c-btn c-btn-block"
-            style={{ marginTop: 12 }}
-            disabled={!keyInput.trim()}
-            onClick={() => { localStorage.setItem(KEY_STORAGE, keyInput.trim()); setAuthed(true); }}
-          >
-            Sign in
-          </button>
-        </Card>
-      </div>
-    );
-  }
+  if (!authed) return <SignIn onAuthed={() => setAuthed(true)} />;
 
+  const users = employees.length
+    ? employees.map((e) => ({ id: e.jtUserId, name: e.name }))
+    : [...new Map((punches || []).map((p) => [p.userId, { id: p.userId, name: p.userName || p.userId }])).values()];
+
+  const visible = (punches || []).filter((p) => !userFilter || p.userId === userFilter);
   const pushable = (p) => (p.status === 'pending' || p.status === 'error') && p.endedAt && p.costItemId;
+  const allPushableSelected = visible.filter(pushable).every((p) => selected.has(p.id)) && visible.some(pushable);
 
   return (
-    <div className="adm-wrap">
+    <div className="adm-wrap adm-wide">
       <div className="adm-toolbar">
         <h1 className="adm-title">Time review</h1>
         <div className="adm-tabs">
@@ -169,7 +250,12 @@ export default function Admin() {
             </button>
           ))}
         </div>
-        <button type="button" className="tdy-refresh" onClick={load}>↻ Refresh</button>
+        <select className="adm-select adm-userfilter" value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+          <option value="">All crew</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+        <button type="button" className="tdy-refresh" onClick={load}>↻</button>
+        <button type="button" className="adm-linklike" onClick={signOut}>Sign out</button>
       </div>
 
       <ErrorBanner message={err} onDismiss={() => setErr(null)} />
@@ -186,68 +272,99 @@ export default function Admin() {
 
       {punches === undefined && <Spinner label="Loading punches…" />}
 
-      {Array.isArray(punches) && punches.length === 0 && (
-        <Card><EmptyState icon="✓" title={`No ${tab} punches`} /></Card>
+      {Array.isArray(punches) && visible.length === 0 && (
+        <Card><EmptyState icon="✓" title={`No ${tab === 'all' ? '' : tab} punches${userFilter ? ' for this crew member' : ''}`} /></Card>
       )}
 
-      {Array.isArray(punches) && punches.map((p) => (
-        <Card key={p.id} className="adm-punch">
-          <div className="adm-punch-head">
-            {(p.status === 'pending' || p.status === 'error') && (
-              <input
-                type="checkbox"
-                className="adm-check"
-                checked={selected.has(p.id)}
-                disabled={!pushable(p)}
-                title={pushable(p) ? 'Select for push' : 'Map a cost item first'}
-                onChange={() => toggle(p.id)}
-              />
-            )}
-            <div className="adm-punch-main">
-              <p className="adm-punch-title">
-                <strong>{p.userName || p.userId}</strong> · {p.jobName}
-              </p>
-              <p className="adm-punch-meta">
-                {p.activity} · {fmtDT(p.startedAt)} → {p.endedAt ? fmtDT(p.endedAt) : 'now'} · <strong>{fmtHours(p)}</strong>
-              </p>
-              {p.notes && <p className="adm-punch-notes">{p.notes}</p>}
-              <p className="adm-punch-links">
-                {gpsLink(p.coordinates) && <a href={gpsLink(p.coordinates)} target="_blank" rel="noreferrer">📍 in</a>}
-                {gpsLink(p.endCoordinates) && <a href={gpsLink(p.endCoordinates)} target="_blank" rel="noreferrer">📍 out</a>}
-                {!p.coordinates && !p.endCoordinates && <span className="muted">no GPS</span>}
-                {p.status === 'error' && <span className="adm-err" title={p.syncError}>sync error: {p.syncError}</span>}
-                {p.status === 'pushed' && <span className="adm-ok">pushed → JT {p.jtTimeEntryId}</span>}
-              </p>
-            </div>
-          </div>
+      {Array.isArray(punches) && visible.length > 0 && (
+        <div className="adm-tablewrap">
+          <table className="adm-table">
+            <thead>
+              <tr>
+                <th className="adm-th-check">
+                  <input
+                    type="checkbox"
+                    checked={allPushableSelected}
+                    onChange={() => {
+                      const p = visible.filter(pushable);
+                      setSelected(allPushableSelected ? new Set() : new Set(p.map((x) => x.id)));
+                    }}
+                    title="Select all pushable"
+                  />
+                </th>
+                <th>Crew</th>
+                <th>Job</th>
+                <th>Activity</th>
+                <th>Date</th>
+                <th>In → Out</th>
+                <th className="adm-num">Hours</th>
+                <th className="adm-num">Break</th>
+                <th>Budget cost item</th>
+                <th>GPS</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((p) => {
+                const hours = netHours(p);
+                const editable = p.status === 'pending' || p.status === 'error';
+                return (
+                  <tr key={p.id} className={selected.has(p.id) ? 'is-selected' : ''}>
+                    <td className="adm-th-check">
+                      {editable && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(p.id)}
+                          disabled={!pushable(p)}
+                          title={pushable(p) ? 'Select for push' : 'Map a cost item first'}
+                          onChange={() => toggle(p.id)}
+                        />
+                      )}
+                    </td>
+                    <td className="adm-strong">{p.userName || p.userId}</td>
+                    <td className="adm-job" title={p.jobName}>{p.jobName}</td>
+                    <td>{p.activity}</td>
+                    <td>{fmtDate(p.startedAt)}</td>
+                    <td className="adm-times">{fmtTime(p.startedAt)} → {p.endedAt ? fmtTime(p.endedAt) : 'now'}</td>
+                    <td className="adm-num">{hours === null ? '—' : hours.toFixed(2)}</td>
+                    <td className="adm-num">{p.breakMinutes ? `${p.breakMinutes}m` : ''}</td>
+                    <td>
+                      {editable ? (
+                        <span className="adm-cellflex">
+                          <select
+                            className="adm-select"
+                            value={p.costItemId ?? ''}
+                            onChange={(e) => mapCostItem(p, e.target.value)}
+                          >
+                            <option value="">— map —</option>
+                            {(costItems[p.jobId] || []).map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}{c.costCode ? ` · ${c.costCode}` : ''}</option>
+                            ))}
+                          </select>
+                          {savingIds.has(p.id) && <Spinner inline size={14} />}
+                        </span>
+                      ) : (
+                        p.costItemName || '—'
+                      )}
+                    </td>
+                    <td className="adm-gps">
+                      {p.coordinates && <a href={`https://maps.google.com/?q=${p.coordinates.lat},${p.coordinates.lng}`} target="_blank" rel="noreferrer">in</a>}
+                      {p.endCoordinates && <a href={`https://maps.google.com/?q=${p.endCoordinates.lat},${p.endCoordinates.lng}`} target="_blank" rel="noreferrer">out</a>}
+                    </td>
+                    <td>
+                      <span className={`adm-badge adm-badge-${p.status}`} title={p.syncError || (p.jtTimeEntryId ? `JT ${p.jtTimeEntryId}` : '')}>
+                        {p.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-          {(p.status === 'pending' || p.status === 'error') && (
-            <div className="adm-map-row">
-              <select
-                className="adm-select"
-                value={mapping[p.id] ?? p.costItemId ?? ''}
-                onChange={(e) => setMapping((m) => ({ ...m, [p.id]: e.target.value }))}
-              >
-                <option value="">— map to budget cost item —</option>
-                {(costItems[p.jobId] || []).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}{c.costCode ? ` · ${c.costCode}` : ''}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="c-btn"
-                disabled={busy || !mapping[p.id] || mapping[p.id] === p.costItemId}
-                onClick={() => saveMapping(p)}
-              >
-                Save
-              </button>
-              {p.costItemId && !mapping[p.id] && <span className="adm-ok">✓ {p.costItemName}</span>}
-            </div>
-          )}
-        </Card>
-      ))}
-
-      {(tab === 'pending' || tab === 'error') && Array.isArray(punches) && punches.length > 0 && (
+      {(tab === 'pending' || tab === 'error' || tab === 'all') && Array.isArray(punches) && visible.some(pushable) && (
         <div className="adm-pushbar">
           <button
             type="button"

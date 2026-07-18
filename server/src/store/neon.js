@@ -99,6 +99,13 @@ export function createNeonStore(databaseUrl) {
           created_at timestamptz not null default now(),
           last_seen_at timestamptz not null default now()
         )`;
+        await sql`create table if not exists admin_sessions (
+          token uuid primary key default gen_random_uuid(),
+          email text not null,
+          name text not null default '',
+          created_at timestamptz not null default now(),
+          last_seen_at timestamptz not null default now()
+        )`;
         const [{ count }] = await sql`select count(*)::int as count from activities`;
         if (count === 0) {
           for (let i = 0; i < DEFAULT_ACTIVITIES.length; i++) {
@@ -231,6 +238,27 @@ export function createNeonStore(databaseUrl) {
       const rows = await sql`insert into sessions (employee_id) values (${employeeId}) returning token`;
       await sql`update employees set last_login_at = now() where id = ${employeeId}`;
       return rows[0].token;
+    },
+
+    async listEmployees() {
+      await migrate();
+      const rows = await sql`select * from employees order by name, email`;
+      return rows.map(employeeRow);
+    },
+
+    async createAdminSession(email, name) {
+      await migrate();
+      const rows = await sql`insert into admin_sessions (email, name) values (${email}, ${name ?? ''}) returning token`;
+      return rows[0].token;
+    },
+
+    async getAdminSession(token) {
+      await migrate();
+      const rows = await sql`select * from admin_sessions
+        where token = ${token} and last_seen_at > now() - interval '30 days' limit 1`;
+      if (!rows[0]) return null;
+      await sql`update admin_sessions set last_seen_at = now() where token = ${token}`;
+      return { email: rows[0].email, name: rows[0].name };
     },
 
     async getSessionEmployee(token) {
