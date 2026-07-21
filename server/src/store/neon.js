@@ -99,6 +99,17 @@ export function createNeonStore(databaseUrl) {
           created_at timestamptz not null default now(),
           last_seen_at timestamptz not null default now()
         )`;
+        await sql`create table if not exists log_texts (
+          id uuid primary key default gen_random_uuid(),
+          jt_log_id text,
+          job_id text not null default '',
+          job_name text not null default '',
+          log_date text not null default '',
+          employee_email text not null default '',
+          raw jsonb not null,
+          composed text not null default '',
+          created_at timestamptz not null default now()
+        )`;
         await sql`create table if not exists admin_sessions (
           token uuid primary key default gen_random_uuid(),
           email text not null,
@@ -223,6 +234,33 @@ export function createNeonStore(databaseUrl) {
     async markError(id, message) {
       await migrate();
       await sql`update punches set status = 'error', sync_error = ${String(message).slice(0, 1000)}, updated_at = now() where id = ${id}`;
+    },
+
+    // ---- original (pre-Haiku) log text ------------------------------------
+    async saveLogText(r) {
+      await migrate();
+      await sql`insert into log_texts (jt_log_id, job_id, job_name, log_date, employee_email, raw, composed)
+        values (${r.jtLogId ?? null}, ${r.jobId ?? ''}, ${r.jobName ?? ''}, ${r.date ?? ''},
+                ${r.employeeEmail ?? ''}, ${JSON.stringify(r.raw ?? {})}::jsonb, ${r.composed ?? ''})`;
+    },
+
+    async listLogTexts({ jobId, date } = {}) {
+      await migrate();
+      const rows = await sql`select * from log_texts
+        where (${jobId ?? null}::text is null or job_id = ${jobId ?? null})
+          and (${date ?? null}::text is null or log_date = ${date ?? null})
+        order by created_at desc limit 200`;
+      return rows.map((r) => ({
+        id: r.id,
+        jtLogId: r.jt_log_id,
+        jobId: r.job_id,
+        jobName: r.job_name,
+        date: r.log_date,
+        employeeEmail: r.employee_email,
+        raw: r.raw,
+        composed: r.composed,
+        at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+      }));
     },
 
     // ---- audit log --------------------------------------------------------

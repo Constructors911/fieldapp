@@ -69,6 +69,24 @@ test('POST /api/logs attaches native file tags to photos', async () => {
   assert.equal(bad.status, 400);
 });
 
+test('original pre-compose text is preserved and retrievable by admins', async () => {
+  await api(srv.base, '/api/logs', {
+    method: 'POST',
+    body: {
+      jobId: 'job_sunset',
+      date: '2026-01-17',
+      compose: { done: 'raw crew words here', needed: 'raw needed words', concerns: true },
+    },
+  });
+  const { status, json } = await api(srv.base, '/api/admin/log-texts?jobId=job_sunset&date=2026-01-17');
+  assert.equal(status, 200);
+  assert.equal(json.records.length, 1);
+  assert.equal(json.records[0].raw.done, 'raw crew words here');
+  assert.equal(json.records[0].raw.needed, 'raw needed words');
+  assert.match(json.records[0].composed, /Raw crew words here/);
+  assert.ok(json.records[0].jtLogId);
+});
+
 test('CompanyCam endpoints degrade cleanly when unconfigured', async () => {
   const status = await api(srv.base, '/api/companycam/status');
   assert.equal(status.json.configured, false);

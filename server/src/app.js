@@ -549,6 +549,11 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ project: await ccProjectForJob(jobId) });
   }));
 
+  // Original (pre-Haiku) log text records, newest first.
+  app.get('/api/admin/log-texts', requireAdmin, wrap(async (req, res) => {
+    res.json({ records: await store.listLogTexts({ jobId: qp(req.query.jobId), date: qp(req.query.date) }) });
+  }));
+
   // Admin preview of the Haiku log composer (no log created).
   app.post('/api/admin/compose-preview', requireAdmin, wrap(async (req, res) => {
     res.json({ notes: await composeLogNotes(req.body?.compose ?? {}) });
@@ -585,6 +590,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       }
       notes = await composeLogNotes(compose);
     }
+    const composedNotes = notes;
     if (date !== undefined && date !== null && date !== '' && !isValidDateString(date)) {
       throw new HttpError(400, 'date must be YYYY-MM-DD');
     }
@@ -602,6 +608,20 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       }
     }
     const log = await adapter.createLog({ jobId, date: date || undefined, notes, fileIds, fileTags: fileTags ?? {} });
+    // Preserve the crew's ORIGINAL words (pre-Haiku) alongside the composed
+    // version — JT gets the clean log, nothing the crew wrote is lost.
+    if (compose !== undefined) {
+      const employee = await sessionEmployee(req);
+      await store.saveLogText({
+        jtLogId: log?.id ?? null,
+        jobId,
+        jobName: log?.jobName ?? '',
+        date: log?.date ?? date ?? '',
+        employeeEmail: employee?.email ?? '',
+        raw: compose,
+        composed: composedNotes ?? '',
+      }).catch((e) => console.error('[log_texts] save failed', e));
+    }
     res.json({ log });
   }));
 

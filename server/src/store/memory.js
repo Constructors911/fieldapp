@@ -10,6 +10,7 @@ export function createMemoryStore() {
   const sessions = new Map(); // token -> {employeeId, lastSeenAt}
   const adminSessions = new Map(); // token -> {email, name, lastSeenAt}
   const audits = []; // {punchId, action, detail, at}
+  const logTexts = []; // raw pre-compose log text records
 
   return {
     name: 'memory',
@@ -109,6 +110,18 @@ export function createMemoryStore() {
     async markError(id, message) {
       const punch = punches.find((p) => p.id === id);
       if (punch) Object.assign(punch, { status: 'error', syncError: String(message) });
+    },
+
+    // ---- original (pre-Haiku) log text ------------------------------------
+    async saveLogText(r) {
+      logTexts.push({ id: randomUUID(), at: new Date().toISOString(), ...r });
+    },
+
+    async listLogTexts({ jobId, date } = {}) {
+      return logTexts
+        .filter((r) => (!jobId || r.jobId === jobId) && (!date || r.date === date))
+        .slice()
+        .reverse();
     },
 
     // ---- audit log --------------------------------------------------------
