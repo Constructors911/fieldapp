@@ -612,15 +612,23 @@ export function createLiveAdapter({
       if (!created) throw new HttpError(502, 'Pave did not return the created daily log');
 
       // Attach uploaded files: createFile from each earlier uploadRequest,
-      // carrying the crew's photo tags as native JT file tags.
+      // carrying the crew's photo tags as native JT file tags. createFile
+      // requires a name: prefer the original upload name, else tag + date.
+      const orgTags = await this.listFileTags().catch(() => []);
+      let photoIndex = 0;
       for (const uploadRequestId of fileIds) {
+        photoIndex += 1;
         const tagIds = (fileTags[uploadRequestId] ?? []).slice(0, 10);
+        const tagLabel = tagIds.map((tid) => orgTags.find((t) => t.id === tid)?.name).find(Boolean);
+        const name = uploadIndex.get(uploadRequestId)?.name
+          || `${(tagLabel || 'photo').toLowerCase().replace(/\s+/g, '-')}-${created.date}-${photoIndex}.jpg`;
         await pave({
           createFile: {
             $: {
               uploadRequestId,
               targetType: 'dailyLog',
               targetId: created.id,
+              name,
               ...(tagIds.length ? { fileTagIds: tagIds } : {}),
             },
             createdFile: { id: {}, name: {}, url: {} },
