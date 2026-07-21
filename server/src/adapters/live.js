@@ -77,7 +77,9 @@ export function createLiveAdapter({
     endDate: {},
     startTime: {},
     endTime: {},
-    subtasks: {},
+    // Selecting {} on an array-of-objects returns empty objects — subfields
+    // are required (subtasks have no id; mapTask synthesizes stable ones).
+    subtasks: { name: {}, isComplete: {} },
     job: { id: {}, number: {}, name: {} },
   };
 
