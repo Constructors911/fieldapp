@@ -27,7 +27,16 @@ export function createCompanyCam(env = process.env) {
     async findProjectForJob({ jobName, address }) {
       const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
       const street = norm(String(address || '').split(',')[0]);
-      for (const q of [jobName, street].filter(Boolean)) {
+      const name = norm(jobName);
+      // CC search is fuzzy, so every candidate must genuinely correspond:
+      // street equality, or one name containing the other. No blind fallbacks.
+      const corresponds = (p) => {
+        const pStreet = norm(p.address?.street_address_1);
+        if (street && pStreet && (pStreet === street || pStreet.includes(street) || street.includes(pStreet))) return true;
+        const pName = norm(p.name);
+        return Boolean(pName && name && (pName === name || pName.includes(name) || name.includes(pName)));
+      };
+      for (const q of [street, jobName].filter(Boolean)) {
         let results;
         try {
           results = await cc(`/projects?query=${encodeURIComponent(q)}&per_page=25`);
@@ -35,11 +44,8 @@ export function createCompanyCam(env = process.env) {
           continue;
         }
         if (!Array.isArray(results)) continue;
-        const exact = results.find((p) => norm(p.name) === norm(jobName));
-        if (exact) return { id: String(exact.id), name: exact.name };
-        const byStreet = street && results.find((p) => norm(p.address?.street_address_1) === street);
-        if (byStreet) return { id: String(byStreet.id), name: byStreet.name };
-        if (results.length === 1) return { id: String(results[0].id), name: results[0].name };
+        const match = results.find(corresponds);
+        if (match) return { id: String(match.id), name: match.name };
       }
       return null;
     },
