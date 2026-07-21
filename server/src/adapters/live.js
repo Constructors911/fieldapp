@@ -562,13 +562,21 @@ export function createLiveAdapter({
     },
 
     async updateTask(id, { progress, subtasks } = {}) {
-      const $ = { id };
+      // notify:false — checklist toggles shouldn't ping every assignee.
+      const $ = { id, notify: false };
       if (progress !== undefined) $.progress = progress;
       if (subtasks !== undefined) {
         // Pave requires a full array rewrite of {name, isComplete}.
         $.subtasks = subtasks.map((s) => ({ name: s.name, isComplete: Boolean(s.isComplete) }));
       }
-      const data = await pave({ updateTask: { $, task: taskFields } });
+      const data = await pave({
+        updateTask: {
+          $,
+          // updateTask returns the ROOT context, so the task must be
+          // re-selected by id (verified against the live org).
+          task: { $: { id }, ...taskFields },
+        },
+      });
       const task = data?.updateTask?.task;
       if (!task) throw new HttpError(404, `Unknown task: ${id}`);
       return mapTask(task);
