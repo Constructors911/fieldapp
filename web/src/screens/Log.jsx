@@ -68,7 +68,8 @@ export default function Log({ boot }) {
       return;
     }
     // Checked boxes make their tagged photos mandatory.
-    const tagErr = requiredTagError(photos, tags, { concerns: hasConcerns, complete: isComplete });
+    const required = [hasConcerns && 'Concerns', isComplete && 'Completion'].filter(Boolean);
+    const tagErr = requiredTagError(photos, tags, required);
     if (tagErr) { setMsg({ type: 'err', text: tagErr }); return; }
 
     setSubmitting(true);
@@ -83,12 +84,24 @@ export default function Log({ boot }) {
     }
 
     try {
-      const noteText = [
-        hasConcerns ? '⚠️ CONCERNS FLAGGED' : '',
-        isComplete ? '✅ WORK COMPLETE' : '',
-        notes.trim(),
-      ].filter(Boolean).join('\n');
-      const res = await createLog({ jobId, date, notes: noteText, fileIds, fileTags: fileTagsMap });
+      // Server composes the final notes (Haiku bullet cleanup with fallback).
+      const photoTagCounts = {};
+      for (const p of photos) {
+        const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
+        if (nm) photoTagCounts[nm] = (photoTagCounts[nm] || 0) + 1;
+      }
+      const res = await createLog({
+        jobId,
+        date,
+        fileIds,
+        fileTags: fileTagsMap,
+        compose: {
+          notes: notes.trim(),
+          concerns: hasConcerns,
+          complete: isComplete,
+          photoTags: photoTagCounts,
+        },
+      });
       photos.forEach((p) => { if (p.file) URL.revokeObjectURL(p.url); });
       setPhotos([]);
       setNotes('');

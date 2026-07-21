@@ -186,6 +186,7 @@ export function createMockAdapter() {
     async listFileTags() {
       return [
         { id: 'tag_before', name: 'Before' },
+        { id: 'tag_during', name: 'During' },
         { id: 'tag_after', name: 'After' },
         { id: 'tag_concerns', name: 'Concerns' },
         { id: 'tag_completion', name: 'Completion' },

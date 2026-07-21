@@ -45,11 +45,19 @@ export default function App() {
     return () => { un(); window.removeEventListener('online', onOnline); };
   }, [me]);
 
-  // Manager dashboard: /#/admin (no bottom tabs, own auth via admin key)
+  // Manager dashboard: /#/admin (no bottom tabs, own auth via Google/key)
   if (route.startsWith('#/admin')) {
     return (
       <div className="app">
         <header className="topbar">
+          <button
+            type="button"
+            className="topbar-btn"
+            aria-label="Back to the field app"
+            onClick={() => { window.location.hash = ''; }}
+          >
+            ← App
+          </button>
           <img className="brand-logo" src="/logo-white.png" alt="Constructors911 Field" />
         </header>
         <main className="screen" style={{ maxWidth: 'none', padding: 0 }}>
@@ -76,6 +84,15 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
+        <button
+          type="button"
+          className="topbar-btn"
+          aria-label="Manager dashboard"
+          title="Manager dashboard"
+          onClick={() => { window.location.hash = '#/admin'; }}
+        >
+          ⚙
+        </button>
         <img className="brand-logo" src="/logo-white.png" alt="Constructors911 Field" />
         {pending > 0 && <span className="badge" title="Queued offline actions">{pending} pending</span>}
       </header>

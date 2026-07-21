@@ -7,6 +7,7 @@ import { isValidDateString, isValidISO } from './util/dates.js';
 import { createStore } from './store/index.js';
 import { hashPin, verifyPin, isValidPin, normalizeEmail, isValidEmail } from './auth.js';
 import { verifyGoogleIdToken, adminAllowlist } from './googleAuth.js';
+import { composeLogNotes } from './compose.js';
 import { createCompanyCam } from './connectors/companycam.js';
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
@@ -490,6 +491,11 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ project: await ccProjectForJob(jobId) });
   }));
 
+  // Admin preview of the Haiku log composer (no log created).
+  app.post('/api/admin/compose-preview', requireAdmin, wrap(async (req, res) => {
+    res.json({ notes: await composeLogNotes(req.body?.compose ?? {}) });
+  }));
+
   // ---- daily logs ------------------------------------------------------
   app.get('/api/logs', wrap(async (req, res) => {
     const date = qp(req.query.date);
@@ -501,8 +507,26 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   }));
 
   app.post('/api/logs', wrap(async (req, res) => {
-    const { jobId, date, notes, fileIds, fileTags } = req.body ?? {};
+    const { jobId, date, fileIds, fileTags, compose } = req.body ?? {};
+    let { notes } = req.body ?? {};
     if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'jobId is required');
+    // compose: structured crew input -> Haiku-polished bullet log (with a
+    // deterministic fallback). When present it wins over raw notes.
+    if (compose !== undefined) {
+      if (typeof compose !== 'object' || compose === null || Array.isArray(compose)) {
+        throw new HttpError(400, 'compose must be an object');
+      }
+      for (const k of ['done', 'needed', 'notes']) {
+        if (compose[k] !== undefined && typeof compose[k] !== 'string') {
+          throw new HttpError(400, `compose.${k} must be a string`);
+        }
+      }
+      if (compose.tasksCompleted !== undefined
+          && (!Array.isArray(compose.tasksCompleted) || compose.tasksCompleted.some((t) => typeof t !== 'string'))) {
+        throw new HttpError(400, 'compose.tasksCompleted must be an array of strings');
+      }
+      notes = await composeLogNotes(compose);
+    }
     if (date !== undefined && date !== null && date !== '' && !isValidDateString(date)) {
       throw new HttpError(400, 'date must be YYYY-MM-DD');
     }

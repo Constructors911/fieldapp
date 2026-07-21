@@ -17,21 +17,17 @@ export function tagIdByName(tags, name) {
 }
 
 /**
- * Checkbox enforcement: each checked requirement needs >=1 photo carrying
- * that tag. Returns an error string or null.
+ * Tag enforcement: each required tag name needs >=1 photo carrying it.
+ * Returns an error string or null. Tags missing from the JT org are
+ * skipped rather than hard-blocking the crew.
  */
-export function requiredTagError(photos, tags, { concerns, complete }) {
-  const checks = [
-    concerns && { name: 'Concerns', id: tagIdByName(tags, 'Concerns') },
-    complete && { name: 'Completion', id: tagIdByName(tags, 'Completion') },
-  ].filter(Boolean);
-  for (const c of checks) {
-    if (!c.id) continue; // tag renamed/removed in JT — don't hard-block the crew
-    if (!photos.some((p) => p.tagId === c.id)) {
-      return `Add at least one photo tagged "${c.name}" (photos are required when it's checked).`;
-    }
-  }
-  return null;
+export function requiredTagError(photos, tags, requiredNames) {
+  const missing = requiredNames.filter((name) => {
+    const id = tagIdByName(tags, name);
+    return id && !photos.some((p) => p.tagId === id);
+  });
+  if (missing.length === 0) return null;
+  return `Add at least one photo tagged ${missing.map((n) => `"${n}"`).join(', ')}.`;
 }
 
 /**

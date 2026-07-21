@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getLogs, createLog, getFileTags, getCompanyCamStatus, clockIn, clockOut } from '../api.js';
+import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getLogs, createLog, getFileTags, getCompanyCamStatus, getTasks, updateTask, clockIn, clockOut } from '../api.js';
 import PhotoAttach, { requiredTagError, preparePhotos } from '../components/PhotoAttach.jsx';
+import Checkbox from '../components/Checkbox.jsx';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
@@ -88,6 +89,8 @@ export default function Clock({ boot }) {
   const [outPhotos, setOutPhotos] = useState([]);
   const [outConcerns, setOutConcerns] = useState(false);
   const [outComplete, setOutComplete] = useState(false);
+  const [outTasks, setOutTasks] = useState(undefined); // undefined idle, null loading
+  const [checkedNames, setCheckedNames] = useState(() => new Set());
   const [tags, setTags] = useState([]);
   const [ccAvailable, setCcAvailable] = useState(false);
   useEffect(() => { getFileTags().then((r) => setTags(r.tags || [])).catch(() => {}); }, []);
@@ -102,6 +105,41 @@ export default function Clock({ boot }) {
     getLogs(localToday(), current.jobId)
       .then((r) => setLogExists((r.logs || []).length > 0))
       .catch(() => setLogExists(false)); // can't verify -> require the log
+    // This job's tasks for today, so finished checklist items get checked off
+    // right in the log flow (server already filters to this employee).
+    setOutTasks(null);
+    getTasks('today')
+      .then((r) => setOutTasks((r.tasks || []).filter((t) => t.jobId === current.jobId)))
+      .catch(() => setOutTasks([]));
+  }
+
+  function trackChecked(name, nowComplete) {
+    setCheckedNames((prev) => {
+      const next = new Set(prev);
+      if (nowComplete) next.add(name); else next.delete(name);
+      return next;
+    });
+  }
+
+  function toggleOutTask(task) {
+    const nowDone = !(task.progress >= 1);
+    setOutTasks((list) => list.map((t) => (t.id === task.id ? { ...t, progress: nowDone ? 1 : 0 } : t)));
+    trackChecked(task.name, nowDone);
+    updateTask(task.id, { progress: nowDone ? 1 : 0 }).catch(() => {
+      setOutTasks((list) => list.map((t) => (t.id === task.id ? { ...t, progress: task.progress } : t)));
+      trackChecked(task.name, task.progress >= 1);
+    });
+  }
+
+  function toggleOutSubtask(task, sub) {
+    const subtasks = (task.subtasks || []).map((s) => (s.id === sub.id ? { ...s, isComplete: !s.isComplete } : s));
+    setOutTasks((list) => list.map((t) => (t.id === task.id ? { ...t, subtasks } : t)));
+    trackChecked(sub.name, !sub.isComplete);
+    updateTask(task.id, { subtasks: subtasks.map(({ id, name, isComplete }) => ({ id, name, isComplete })) })
+      .catch(() => {
+        setOutTasks((list) => list.map((t) => (t.id === task.id ? { ...t, subtasks: task.subtasks } : t)));
+        trackChecked(sub.name, sub.isComplete);
+      });
   }
 
   function loadPickerOptions(jobId) {
@@ -162,6 +200,8 @@ export default function Clock({ boot }) {
     setOutPhotos([]);
     setOutConcerns(false);
     setOutComplete(false);
+    setOutTasks(undefined);
+    setCheckedNames(new Set());
   }
 
   function startClockIn() {
@@ -226,26 +266,43 @@ export default function Clock({ boot }) {
       return;
     }
     if (needsLog) {
-      const tagErr = requiredTagError(outPhotos, tags, { concerns: outConcerns, complete: outComplete });
+      // Before/During/After are always required on the end-of-day log;
+      // Concerns/Completion join when their boxes are checked.
+      const required = ['Before', 'During', 'After',
+        outConcerns && 'Concerns', outComplete && 'Completion'].filter(Boolean);
+      const tagErr = requiredTagError(outPhotos, tags, required);
       if (tagErr) { setActionErr(tagErr); return; }
     }
     setBusy(true);
     setActionErr(null);
     if (needsLog) {
       const { fileIds, fileTagsMap, skipped } = await preparePhotos(outPhotos);
-      if (skipped > 0 && (outConcerns || outComplete)) {
-        setActionErr('Some photos could not upload — required photos need a connection.');
+      if (skipped > 0) {
+        setActionErr('Some photos could not upload — the required photos need a connection.');
         setBusy(false);
         return;
       }
-      const notes = [
-        outConcerns ? '⚠️ CONCERNS FLAGGED' : '',
-        outComplete ? '✅ WORK COMPLETE' : '',
-        `✅ Completed:\n${doneText.trim()}`,
-        neededText.trim() ? `🔲 Still needed:\n${neededText.trim()}` : '',
-      ].filter(Boolean).join('\n\n');
+      const photoTagCounts = {};
+      for (const p of outPhotos) {
+        const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
+        if (nm) photoTagCounts[nm] = (photoTagCounts[nm] || 0) + 1;
+      }
       try {
-        await createLog({ jobId: current.jobId, date: localToday(), notes, fileIds, fileTags: fileTagsMap });
+        await createLog({
+          jobId: current.jobId,
+          date: localToday(),
+          fileIds,
+          fileTags: fileTagsMap,
+          // Server composes the final notes (Haiku bullet cleanup + fallback).
+          compose: {
+            done: doneText.trim(),
+            needed: neededText.trim(),
+            concerns: outConcerns,
+            complete: outComplete,
+            photoTags: photoTagCounts,
+            tasksCompleted: [...checkedNames],
+          },
+        });
       } catch (e) {
         // Keep the sheet (and their text) so they can retry.
         setActionErr(e.message || 'Could not submit the log — try again.');
@@ -475,7 +532,40 @@ export default function Clock({ boot }) {
         )}
         {outMode === 'done' && logExists === false && (
           <>
-            <p className="clk-logreq">A quick daily log is required before you leave for the day.</p>
+            <p className="clk-logreq">
+              A daily log is required before you leave — including <strong>Before</strong>, <strong>During</strong> and <strong>After</strong> photos.
+            </p>
+
+            {outTasks === null && <Spinner label="Loading today's tasks…" />}
+            {Array.isArray(outTasks) && outTasks.length > 0 && (
+              <>
+                <p className="c-label">Today&apos;s tasks on this job — check off what you finished</p>
+                <div className="clk-tasklist">
+                  {outTasks.map((t) => (
+                    <div key={t.id}>
+                      <div className="clk-taskline">
+                        <Checkbox
+                          checked={t.progress >= 1}
+                          onChange={() => toggleOutTask(t)}
+                          label={`Mark ${t.name} ${t.progress >= 1 ? 'incomplete' : 'complete'}`}
+                        />
+                        <span className={t.progress >= 1 ? 'clk-taskname done' : 'clk-taskname'}>{t.name}</span>
+                      </div>
+                      {(t.subtasks || []).map((sub) => (
+                        <div key={sub.id} className="clk-taskline clk-subline-task">
+                          <Checkbox
+                            checked={!!sub.isComplete}
+                            onChange={() => toggleOutSubtask(t, sub)}
+                            label={`Mark subtask ${sub.name} ${sub.isComplete ? 'incomplete' : 'complete'}`}
+                          />
+                          <span className={sub.isComplete ? 'clk-taskname done' : 'clk-taskname'}>{sub.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             <label className="c-label" htmlFor="clk-done">What got done today?</label>
             <textarea
               id="clk-done"

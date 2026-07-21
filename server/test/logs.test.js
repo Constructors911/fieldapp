@@ -74,6 +74,38 @@ test('CompanyCam endpoints degrade cleanly when unconfigured', async () => {
   assert.equal(status.json.configured, false);
 });
 
+test('POST /api/logs with compose builds structured bullet notes (fallback path)', async () => {
+  const { status, json } = await api(srv.base, '/api/logs', {
+    method: 'POST',
+    body: {
+      jobId: 'job_riverside',
+      date: '2026-01-16',
+      compose: {
+        done: 'stood walls on unit B\nsheathed the east side',
+        needed: 'house wrap',
+        concerns: true,
+        complete: false,
+        photoTags: { Before: 1, During: 2, After: 1, Concerns: 1 },
+        tasksCompleted: ['Frame exterior walls - Unit B'],
+      },
+    },
+  });
+  assert.equal(status, 200);
+  const notes = json.log.notes;
+  assert.match(notes, /⚠️ CONCERNS FLAGGED/);
+  assert.match(notes, /✅ Completed:\n• Stood walls on unit B\n• Sheathed the east side/);
+  assert.match(notes, /☑ Tasks checked off:\n• Frame exterior walls - Unit B/);
+  assert.match(notes, /🔲 Still needed:\n• House wrap/);
+  assert.match(notes, /📷 Photos: 1 Before · 2 During · 1 After · 1 Concerns/);
+  assert.doesNotMatch(notes, /WORK COMPLETE/);
+
+  const bad = await api(srv.base, '/api/logs', {
+    method: 'POST',
+    body: { jobId: 'job_riverside', compose: { tasksCompleted: 'nope' } },
+  });
+  assert.equal(bad.status, 400);
+});
+
 test('GET /api/logs?date=today returns the seeded log with weather', async () => {
   const { status, json } = await api(srv.base, `/api/logs?date=${todayString()}`);
   assert.equal(status, 200);
