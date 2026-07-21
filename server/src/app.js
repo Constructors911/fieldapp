@@ -437,7 +437,8 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const { jobs } = await boot();
     const job = jobs.find((j) => j.id === jobId);
     if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
-    const project = await companycam.findProjectForJob({ jobName: job.name, address: job.location });
+    // rawName: the display name is number-prefixed, which CC won't match.
+    const project = await companycam.findProjectForJob({ jobName: job.rawName ?? job.name, address: job.location });
     ccProjectCache.set(jobId, { at: Date.now(), project });
     return project;
   }

@@ -38,9 +38,12 @@ export function createLiveAdapter({
     notes: {},
     startCoordinates: {},
     endCoordinates: {},
-    job: { id: {}, name: {} },
+    job: { id: {}, number: {}, name: {} },
     costItem: { id: {}, name: {} },
   };
+
+  // Crews refer to jobs by number: '12056 · Wildhorse Village Condo'.
+  const jobLabel = (j) => (j?.number ? `${j.number} · ${j.name}` : (j?.name ?? ''));
 
   // Pave coordinates are objects {latitude, longitude}; our wire shape is {lat, lng}.
   const toPaveCoords = (c) => ({ latitude: c.lat, longitude: c.lng });
@@ -52,7 +55,7 @@ export function createLiveAdapter({
     return {
       id: e.id,
       jobId: e.job?.id ?? null,
-      jobName: e.job?.name ?? '',
+      jobName: e.job ? jobLabel(e.job) : '',
       costItemId: e.costItem?.id ?? null,
       costItemName: e.costItem?.name ?? '',
       startedAt: e.startedAt ?? null,
@@ -75,14 +78,14 @@ export function createLiveAdapter({
     startTime: {},
     endTime: {},
     subtasks: {},
-    job: { id: {}, name: {} },
+    job: { id: {}, number: {}, name: {} },
   };
 
   function mapTask(t) {
     return {
       id: t.id,
       jobId: t.job?.id ?? null,
-      jobName: t.job?.name ?? '',
+      jobName: t.job ? jobLabel(t.job) : '',
       name: t.name,
       description: t.description ?? '',
       isToDo: Boolean(t.isToDo),
@@ -107,7 +110,7 @@ export function createLiveAdapter({
     weatherCondition: {},
     minTemperature: {},
     maxTemperature: {},
-    job: { id: {}, name: {} },
+    job: { id: {}, number: {}, name: {} },
     // files size must be capped: Pave rejects queries whose worst-case
     // response is too large (413), based on requested sizes, not actual data.
     files: { $: { size: 25 }, nodes: { id: {}, name: {}, url: {} } },
@@ -124,7 +127,7 @@ export function createLiveAdapter({
     return {
       id: l.id,
       jobId: l.job?.id ?? null,
-      jobName: l.job?.name ?? '',
+      jobName: l.job ? jobLabel(l.job) : '',
       date: l.date,
       notes: l.notes ?? '',
       weather: hasWeather
@@ -195,6 +198,7 @@ export function createLiveAdapter({
             $: { size: 100, where: { and: [['closedOn', '=', null]] } },
             nodes: {
               id: {},
+              number: {},
               name: {},
               location: { id: {}, formattedAddress: {} },
             },
@@ -207,7 +211,8 @@ export function createLiveAdapter({
       // response. The clock-in picker fetches them per job (getJobCostItems).
       const jobs = (data?.organization?.jobs?.nodes ?? []).map((j) => ({
         id: j.id,
-        name: j.name,
+        name: jobLabel(j),
+        rawName: j.name, // unprefixed, for CompanyCam project matching
         location: j.location?.formattedAddress ?? '',
       }));
       const types = await timeEntryTypeNames();
