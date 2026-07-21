@@ -285,9 +285,11 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       try {
         const jtTimeEntryId = await adapter.pushTimeEntry(punch);
         await store.markPushed(punch.id, jtTimeEntryId);
+        await store.logAudit(punch.id, 'pushed', { by: req.employee.email, auto: true, jtTimeEntryId });
         punch = { ...punch, status: 'pushed', jtTimeEntryId };
       } catch (e) {
         await store.markError(punch.id, `auto-push failed: ${e.message}`);
+        await store.logAudit(punch.id, 'push-failed', { by: req.employee.email, auto: true, error: e.message });
         punch = { ...punch, status: 'error', syncError: e.message };
       }
     }
@@ -331,9 +333,16 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     })().catch(next);
   };
 
+  // Who did an admin action, for the audit trail.
+  const actorOf = (req) => req.admin?.email || (req.get('x-admin-key') ? 'admin-key' : 'local-dev');
+
   app.get('/api/admin/employees', requireAdmin, wrap(async (req, res) => {
     const employees = await store.listEmployees();
     res.json({ employees: employees.map(publicEmployee) });
+  }));
+
+  app.get('/api/admin/punches/:id/audit', requireAdmin, wrap(async (req, res) => {
+    res.json({ events: await store.listAudit(req.params.id) });
   }));
 
   app.get('/api/admin/punches', requireAdmin, wrap(async (req, res) => {
@@ -351,7 +360,37 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     if (patch.breakMinutes !== undefined && (typeof patch.breakMinutes !== 'number' || patch.breakMinutes < 0)) {
       throw new HttpError(400, 'breakMinutes must be a non-negative number');
     }
-    res.json({ punch: await store.updatePunch(req.params.id, patch) });
+    const before = await store.getPunch(req.params.id);
+    if (!before) throw new HttpError(404, 'Punch not found');
+    // Validate the RESULTING times, mixing edited and existing values.
+    if (patch.startedAt !== undefined || patch.endedAt !== undefined || patch.breakMinutes !== undefined) {
+      const start = new Date(patch.startedAt ?? before.startedAt);
+      const endIso = patch.endedAt ?? before.endedAt;
+      const end = endIso ? new Date(endIso) : null;
+      const brk = patch.breakMinutes ?? before.breakMinutes ?? 0;
+      if (end && end <= start) throw new HttpError(400, 'Clock-out must be after clock-in');
+      if (end && (end - start) / 60_000 <= brk) throw new HttpError(400, 'Break exceeds punch duration');
+    }
+    const punch = await store.updatePunch(req.params.id, patch);
+    // Audit: exactly what changed, from -> to, and who did it.
+    const changes = {};
+    for (const k of Object.keys(patch)) {
+      if (JSON.stringify(before[k] ?? null) !== JSON.stringify(punch[k] ?? null)) {
+        changes[k] = { from: before[k] ?? null, to: punch[k] ?? null };
+      }
+    }
+    if (Object.keys(changes).length > 0) {
+      await store.logAudit(punch.id, 'edited', { by: actorOf(req), changes });
+    }
+    res.json({ punch });
+  }));
+
+  // Void junk/test/accidental punches (also releases a stuck open punch so
+  // the employee can clock in again). Pushed punches are immutable.
+  app.post('/api/admin/punches/:id/void', requireAdmin, wrap(async (req, res) => {
+    const punch = await store.voidPunch(req.params.id);
+    await store.logAudit(punch.id, 'voided', { by: actorOf(req) });
+    res.json({ punch });
   }));
 
   app.post('/api/admin/punches/push', requireAdmin, wrap(async (req, res) => {
@@ -369,12 +408,14 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
         if (!punch.costItemId) throw new HttpError(400, 'Map a budget cost item before pushing');
         const jtTimeEntryId = await adapter.pushTimeEntry(punch);
         await store.markPushed(punch.id, jtTimeEntryId);
+        await store.logAudit(punch.id, 'pushed', { by: actorOf(req), jtTimeEntryId });
         results.push({ id, ok: true, jtTimeEntryId });
       } catch (e) {
         // Only flag punches that were actually eligible — never clobber a
         // punch that is already pushed (or still open) with an error status.
         if (punch && ['pending', 'approved', 'error'].includes(punch.status)) {
           await store.markError(punch.id, e.message);
+          await store.logAudit(punch.id, 'push-failed', { by: actorOf(req), error: e.message });
         }
         results.push({ id, ok: false, error: e.message });
       }

@@ -33,6 +33,37 @@ async function adminFetch(path, options = {}) {
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '—');
 const fmtTime = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—');
 
+const isoToLocalInput = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const fmtAuditValue = (v) => {
+  if (v === null || v === undefined || v === '') return '—';
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
+    return new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+  return String(v);
+};
+
+function fmtAuditEvent(ev) {
+  const when = new Date(ev.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const by = ev.detail?.by ? ` by ${ev.detail.by}` : '';
+  let extra = '';
+  if (ev.action === 'edited' && ev.detail?.changes) {
+    extra = ': ' + Object.entries(ev.detail.changes)
+      .map(([k, c]) => `${k} ${fmtAuditValue(c.from)} → ${fmtAuditValue(c.to)}`)
+      .join(' · ');
+  } else if (ev.action === 'pushed' && ev.detail?.jtTimeEntryId) {
+    extra = ` (JT ${ev.detail.jtTimeEntryId}${ev.detail.auto ? ', auto' : ''})`;
+  } else if (ev.action === 'push-failed' && ev.detail?.error) {
+    extra = `: ${ev.detail.error}`;
+  }
+  return `${when} — ${ev.action}${by}${extra}`;
+}
+
 function netHours(p) {
   if (!p.endedAt) return null;
   const gross = (new Date(p.endedAt) - new Date(p.startedAt)) / 60000;
@@ -205,6 +236,75 @@ export default function Admin() {
     }
   }
 
+  const [editingId, setEditingId] = useState(null);
+  const [editVals, setEditVals] = useState({ start: '', end: '', brk: '' });
+  const [auditId, setAuditId] = useState(null);
+  const [auditEvents, setAuditEvents] = useState(undefined);
+
+  function startEdit(p) {
+    setEditingId(p.id);
+    setAuditId(null);
+    setEditVals({
+      start: isoToLocalInput(p.startedAt),
+      end: isoToLocalInput(p.endedAt),
+      brk: String(p.breakMinutes ?? 0),
+    });
+  }
+
+  async function saveEdit(p) {
+    // Only send what actually changed, so the audit trail stays clean.
+    const body = {};
+    if (editVals.start && editVals.start !== isoToLocalInput(p.startedAt)) {
+      body.startedAt = new Date(editVals.start).toISOString();
+    }
+    if (editVals.end && editVals.end !== isoToLocalInput(p.endedAt)) {
+      body.endedAt = new Date(editVals.end).toISOString();
+    }
+    const brk = parseInt(editVals.brk, 10);
+    if (Number.isFinite(brk) && brk >= 0 && brk !== (p.breakMinutes ?? 0)) {
+      body.breakMinutes = brk;
+    }
+    if (Object.keys(body).length === 0) { setEditingId(null); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      await adminFetch(`/api/admin/punches/${p.id}`, { method: 'PATCH', body });
+      setEditingId(null);
+      await load();
+    } catch (e) {
+      setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleAudit(p) {
+    if (auditId === p.id) { setAuditId(null); return; }
+    setEditingId(null);
+    setAuditId(p.id);
+    setAuditEvents(undefined);
+    try {
+      const r = await adminFetch(`/api/admin/punches/${p.id}/audit`);
+      setAuditEvents(r.events || []);
+    } catch {
+      setAuditEvents([]);
+    }
+  }
+
+  async function voidPunch(p) {
+    if (!window.confirm(`Void this punch (${p.userName || p.userId} · ${p.jobName})? It will never push to JobTread.`)) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await adminFetch(`/api/admin/punches/${p.id}/void`, { method: 'POST' });
+      await load();
+    } catch (e) {
+      setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function pushSelected() {
     const ids = [...selected];
     if (ids.length === 0 || busy) return;
@@ -310,7 +410,8 @@ export default function Admin() {
                 const hours = netHours(p);
                 const editable = EDITABLE.includes(p.status);
                 return (
-                  <tr key={p.id} className={selected.has(p.id) ? 'is-selected' : ''}>
+                  <React.Fragment key={p.id}>
+                  <tr className={selected.has(p.id) ? 'is-selected' : ''}>
                     <td className="adm-th-check">
                       {editable && (
                         <input
@@ -356,8 +457,63 @@ export default function Admin() {
                       <span className={`adm-badge adm-badge-${p.status}`} title={p.syncError || (p.jtTimeEntryId ? `JT ${p.jtTimeEntryId}` : '')}>
                         {p.status}
                       </span>
+                      {editable && (
+                        <button type="button" className="adm-void" disabled={busy} title="Edit times / break" onClick={() => startEdit(p)}>
+                          ✎
+                        </button>
+                      )}
+                      <button type="button" className="adm-void" title="Change history" onClick={() => toggleAudit(p)}>
+                        🕘
+                      </button>
+                      {(editable || p.status === 'open') && (
+                        <button
+                          type="button"
+                          className="adm-void"
+                          disabled={busy}
+                          title="Void this punch (never pushes to JobTread)"
+                          onClick={() => voidPunch(p)}
+                        >
+                          ✕
+                        </button>
+                      )}
                     </td>
                   </tr>
+                  {editingId === p.id && (
+                    <tr className="adm-editrow">
+                      <td colSpan={11}>
+                        <div className="adm-editform">
+                          <label>In
+                            <input type="datetime-local" value={editVals.start}
+                              onChange={(e) => setEditVals((v) => ({ ...v, start: e.target.value }))} />
+                          </label>
+                          <label>Out
+                            <input type="datetime-local" value={editVals.end}
+                              onChange={(e) => setEditVals((v) => ({ ...v, end: e.target.value }))} />
+                          </label>
+                          <label>Break (min)
+                            <input type="number" min="0" step="5" value={editVals.brk}
+                              onChange={(e) => setEditVals((v) => ({ ...v, brk: e.target.value }))} />
+                          </label>
+                          <button type="button" className="c-btn" disabled={busy} onClick={() => saveEdit(p)}>Save</button>
+                          <button type="button" className="c-btn c-btn-ghost" disabled={busy} onClick={() => setEditingId(null)}>Cancel</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {auditId === p.id && (
+                    <tr className="adm-auditrow">
+                      <td colSpan={11}>
+                        {auditEvents === undefined && <Spinner inline size={14} />}
+                        {Array.isArray(auditEvents) && auditEvents.length === 0 && <span className="muted">No history recorded for this punch.</span>}
+                        {Array.isArray(auditEvents) && auditEvents.length > 0 && (
+                          <ul className="adm-audit">
+                            {auditEvents.map((ev, i) => <li key={i}>{fmtAuditEvent(ev)}</li>)}
+                          </ul>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>

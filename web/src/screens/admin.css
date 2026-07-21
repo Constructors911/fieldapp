@@ -32,6 +32,19 @@
 .adm-badge-open { background: #e8eef5; color: var(--navy); }
 .adm-badge-pushed { background: #e7f5ec; color: var(--green); }
 .adm-badge-error { background: #fbeaea; color: var(--red); }
+.adm-badge-void { background: #eef1f4; color: var(--muted); text-decoration: line-through; }
+.adm-void {
+  margin-left: 6px; min-width: 28px; min-height: 28px; border: 1px solid #cfd6dd;
+  border-radius: 6px; background: #fff; color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.adm-void:hover { color: var(--red); border-color: var(--red); }
+.adm-editrow td, .adm-auditrow td { background: #f8fafb; white-space: normal; }
+.adm-editform { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; padding: 4px 0; }
+.adm-editform label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.adm-editform input { min-height: 36px; padding: 4px 8px; border: 1px solid #cfd6dd; border-radius: 6px; font-size: 13px; }
+.adm-editform .c-btn { min-height: 36px; padding: 0 16px; font-size: 14px; }
+.adm-audit { margin: 4px 0; padding-left: 18px; font-size: 13px; color: var(--text); }
+.adm-audit li { margin: 2px 0; }
 .adm-google { display: flex; justify-content: center; margin: 8px 0; }
 .adm-linklike {
   background: none; border: 0; color: var(--navy); font-size: 13px; font-weight: 600;

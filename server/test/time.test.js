@@ -226,3 +226,87 @@ test('admin: pending punches list, cost item mapping, push to JT', async () => {
   });
   assert.equal(editPushed.status, 404);
 });
+
+test('admin: time/break edits validate and land in the audit trail', async () => {
+  // Create a fresh closed punch to edit.
+  const inAt = new Date(Date.now() - 5 * 3600_000).toISOString();
+  const outAt = new Date(Date.now() - 3600_000).toISOString();
+  await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: { jobId: 'job_sunset', activity: 'Taper', at: inAt },
+  });
+  const cout = await authed('/api/time/clock-out', { method: 'POST', body: { at: outAt } });
+  const id = cout.json.entry.id;
+
+  // Bad edit: break longer than the punch.
+  const bad = await api(srv.base, `/api/admin/punches/${id}`, {
+    method: 'PATCH',
+    body: { breakMinutes: 999 },
+  });
+  assert.equal(bad.status, 400);
+  assert.match(bad.json.error, /Break exceeds/);
+
+  // Bad edit: out before in.
+  const backwards = await api(srv.base, `/api/admin/punches/${id}`, {
+    method: 'PATCH',
+    body: { endedAt: new Date(new Date(inAt).getTime() - 3600_000).toISOString() },
+  });
+  assert.equal(backwards.status, 400);
+
+  // Good edit: shift the out time and add a break.
+  const newOut = new Date(Date.now() - 30 * 60_000).toISOString();
+  const good = await api(srv.base, `/api/admin/punches/${id}`, {
+    method: 'PATCH',
+    body: { endedAt: newOut, breakMinutes: 30 },
+  });
+  assert.equal(good.status, 200);
+  assert.equal(good.json.punch.breakMinutes, 30);
+
+  // Audit trail records who changed what, from -> to.
+  const audit = await api(srv.base, `/api/admin/punches/${id}/audit`);
+  assert.equal(audit.status, 200);
+  const edited = audit.json.events.find((e) => e.action === 'edited');
+  assert.ok(edited, 'edited event recorded');
+  assert.ok(edited.detail.by);
+  assert.equal(edited.detail.changes.breakMinutes.from, 0);
+  assert.equal(edited.detail.changes.breakMinutes.to, 30);
+  assert.ok(edited.detail.changes.endedAt);
+
+  // Push it and confirm the push lands in the trail too.
+  await api(srv.base, `/api/admin/punches/${id}`, {
+    method: 'PATCH',
+    body: { costItemId: 'ci_sp_drywall', costItemName: 'Drywall Hang & Finish Labor' },
+  });
+  const push = await api(srv.base, '/api/admin/punches/push', { method: 'POST', body: { ids: [id] } });
+  assert.equal(push.json.results[0].ok, true);
+  const audit2 = await api(srv.base, `/api/admin/punches/${id}/audit`);
+  assert.ok(audit2.json.events.some((e) => e.action === 'pushed' && e.detail.by));
+});
+
+test('admin: voiding a punch removes it from the pipeline and frees the employee', async () => {
+  // Leave an open punch behind, then void it.
+  const cin = await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: { jobId: 'job_sunset', activity: 'Paint Labor' },
+  });
+  assert.equal(cin.status, 200);
+  const openId = cin.json.entry.id;
+
+  const voided = await api(srv.base, `/api/admin/punches/${openId}/void`, { method: 'POST' });
+  assert.equal(voided.status, 200);
+  assert.equal(voided.json.punch.status, 'void');
+
+  // Voiding released the open slot: the employee can clock in again.
+  const cin2 = await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: { jobId: 'job_sunset', activity: 'Paint Labor' },
+  });
+  assert.equal(cin2.status, 200);
+  await authed('/api/time/clock-out', { method: 'POST', body: {} });
+
+  // Voided punches never push and cannot be re-voided.
+  const push = await api(srv.base, '/api/admin/punches/push', { method: 'POST', body: { ids: [openId] } });
+  assert.equal(push.json.results[0].ok, false);
+  const again = await api(srv.base, `/api/admin/punches/${openId}/void`, { method: 'POST' });
+  assert.equal(again.status, 404);
+});

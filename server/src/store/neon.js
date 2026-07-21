@@ -206,16 +206,41 @@ export function createNeonStore(databaseUrl) {
       return rowToPunch(rows[0]);
     },
 
+    async voidPunch(id) {
+      await migrate();
+      const rows = await sql`update punches set status = 'void', updated_at = now()
+        where id = ${id} and status in ('open', 'pending', 'approved', 'error')
+        returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Punch not found or already pushed');
+      return rowToPunch(rows[0]);
+    },
+
     async markPushed(id, jtTimeEntryId) {
       await migrate();
       await sql`update punches set status = 'pushed', jt_time_entry_id = ${jtTimeEntryId}, sync_error = null, updated_at = now() where id = ${id}`;
-      await sql`insert into sync_log (punch_id, action, detail) values (${id}, 'pushed', ${JSON.stringify({ jtTimeEntryId })}::jsonb)`;
     },
 
     async markError(id, message) {
       await migrate();
       await sql`update punches set status = 'error', sync_error = ${String(message).slice(0, 1000)}, updated_at = now() where id = ${id}`;
-      await sql`insert into sync_log (punch_id, action, detail) values (${id}, 'error', ${JSON.stringify({ message: String(message).slice(0, 1000) })}::jsonb)`;
+    },
+
+    // ---- audit log --------------------------------------------------------
+    async logAudit(punchId, action, detail = {}) {
+      await migrate();
+      await sql`insert into sync_log (punch_id, action, detail)
+        values (${punchId}, ${action}, ${JSON.stringify(detail)}::jsonb)`;
+    },
+
+    async listAudit(punchId) {
+      await migrate();
+      const rows = await sql`select action, detail, created_at from sync_log
+        where punch_id = ${punchId} order by created_at desc, id desc limit 100`;
+      return rows.map((r) => ({
+        action: r.action,
+        detail: r.detail ?? {},
+        at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+      }));
     },
 
     // ---- employees & sessions -------------------------------------------

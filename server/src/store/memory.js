@@ -9,6 +9,7 @@ export function createMemoryStore() {
   const employees = [];
   const sessions = new Map(); // token -> {employeeId, lastSeenAt}
   const adminSessions = new Map(); // token -> {email, name, lastSeenAt}
+  const audits = []; // {punchId, action, detail, at}
 
   return {
     name: 'memory',
@@ -93,6 +94,13 @@ export function createMemoryStore() {
       return { ...punch };
     },
 
+    async voidPunch(id) {
+      const punch = punches.find((p) => p.id === id && ['open', 'pending', 'approved', 'error'].includes(p.status));
+      if (!punch) throw new HttpError(404, 'Punch not found or already pushed');
+      punch.status = 'void';
+      return { ...punch };
+    },
+
     async markPushed(id, jtTimeEntryId) {
       const punch = punches.find((p) => p.id === id);
       if (punch) Object.assign(punch, { status: 'pushed', jtTimeEntryId, syncError: null });
@@ -101,6 +109,16 @@ export function createMemoryStore() {
     async markError(id, message) {
       const punch = punches.find((p) => p.id === id);
       if (punch) Object.assign(punch, { status: 'error', syncError: String(message) });
+    },
+
+    // ---- audit log --------------------------------------------------------
+    async logAudit(punchId, action, detail = {}) {
+      audits.push({ punchId, action, detail, at: new Date().toISOString() });
+    },
+
+    async listAudit(punchId) {
+      return audits.filter((a) => a.punchId === punchId).reverse()
+        .map(({ action, detail, at }) => ({ action, detail, at }));
     },
 
     // ---- employees & sessions -------------------------------------------
