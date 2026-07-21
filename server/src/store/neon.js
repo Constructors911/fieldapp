@@ -93,7 +93,7 @@ export function createNeonStore(databaseUrl) {
           created_at timestamptz not null default now(),
           last_login_at timestamptz
         )`;
-        await sql`create table if not exists sessions (
+        await sql`create table if not exists app_sessions (
           token uuid primary key default gen_random_uuid(),
           employee_id uuid not null,
           created_at timestamptz not null default now(),
@@ -237,7 +237,7 @@ export function createNeonStore(databaseUrl) {
 
     async createSession(employeeId) {
       await migrate();
-      const rows = await sql`insert into sessions (employee_id) values (${employeeId}) returning token`;
+      const rows = await sql`insert into app_sessions (employee_id) values (${employeeId}) returning token`;
       await sql`update employees set last_login_at = now() where id = ${employeeId}`;
       return rows[0].token;
     },
@@ -265,12 +265,12 @@ export function createNeonStore(databaseUrl) {
 
     async getSessionEmployee(token) {
       await migrate();
-      const rows = await sql`select e.*, e.pin_hash as pin_hash, s.token from sessions s
+      const rows = await sql`select e.*, e.pin_hash as pin_hash, s.token from app_sessions s
         join employees e on e.id = s.employee_id
         where s.token = ${token} and s.last_seen_at > now() - interval '30 days' and e.is_active
         limit 1`;
       if (!rows[0]) return null;
-      await sql`update sessions set last_seen_at = now() where token = ${token}`;
+      await sql`update app_sessions set last_seen_at = now() where token = ${token}`;
       return employeeRow(rows[0]);
     },
   };
