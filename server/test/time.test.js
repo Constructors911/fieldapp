@@ -223,6 +223,33 @@ test('admin: pushing an unmapped punch auto-adds the activity to the job budget'
   assert.equal(audit2.json.events.find((e) => e.action === 'budget-item').detail.created, false);
 });
 
+test('admin: relabeling a punch to another catalog item drives the budget auto-add', async () => {
+  const cin = await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: { jobId: 'job_sunset', activity: 'Drywaller', at: new Date(Date.now() - 2 * 3600_000).toISOString() },
+  });
+  await authed('/api/time/clock-out', { method: 'POST', body: {} });
+  const id = cin.json.entry.id;
+
+  // Manager decides it was really Hauling: relabel via PATCH activity.
+  const patch = await api(srv.base, `/api/admin/punches/${id}`, {
+    method: 'PATCH',
+    body: { activity: '116-01 Hauling' },
+  });
+  assert.equal(patch.status, 200);
+  assert.equal(patch.json.punch.activity, '116-01 Hauling');
+
+  const push = await api(srv.base, '/api/admin/punches/push', { method: 'POST', body: { ids: [id] } });
+  assert.equal(push.json.results[0].ok, true);
+
+  const items = await api(srv.base, '/api/jobs/job_sunset/cost-items');
+  assert.ok(items.json.costItems.some((c) => c.name === '116-01 Hauling'), 'chosen catalog item added to budget');
+
+  const audit = await api(srv.base, `/api/admin/punches/${id}/audit`);
+  assert.ok(audit.json.events.some((e) => e.action === 'edited' && e.detail.changes?.activity));
+  assert.ok(audit.json.events.some((e) => e.action === 'budget-item' && e.detail.name === '116-01 Hauling'));
+});
+
 test('admin: explicit cost item mapping + push, pushed punches immutable', async () => {
   const list = await api(srv.base, '/api/admin/punches?status=pending');
   const punch = list.json.punches.find((p) => p.activity === 'Concrete Labor');

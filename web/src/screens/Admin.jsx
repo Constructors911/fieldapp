@@ -3,7 +3,7 @@ import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
-import { getJobCostItems } from '../api.js';
+import { getJobCostItems, getActivities } from '../api.js';
 import './admin.css';
 
 const KEY_STORAGE = 'c911_admin_key';
@@ -173,6 +173,8 @@ export default function Admin() {
   const [userFilter, setUserFilter] = useState('');
   const [punches, setPunches] = useState(undefined);
   const [employees, setEmployees] = useState([]);
+  const [catalog, setCatalog] = useState([]); // Employee Labor catalog names
+  useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
   const [err, setErr] = useState(null);
   const [costItems, setCostItems] = useState({}); // jobId -> items
   const [selected, setSelected] = useState(() => new Set());
@@ -216,18 +218,29 @@ export default function Admin() {
 
   useEffect(() => { if (authed) { setPushResults(null); load(); } }, [authed, load]);
 
-  // Inline cost-item mapping: saves immediately on dropdown change.
-  async function mapCostItem(punch, costItemId) {
-    if (!costItemId) return;
-    const item = (costItems[punch.jobId] || []).find((c) => c.id === costItemId);
+  // Inline mapping: saves immediately on dropdown change. Two kinds of value:
+  //   "<costItemId>"  -> map to an existing budget line
+  //   "cat:<name>"    -> relabel the punch to a catalog item; push will add
+  //                      that line to the job budget (or reuse a same-named one)
+  async function mapCostItem(punch, value) {
+    if (!value) return;
     setSavingIds((s) => new Set(s).add(punch.id));
-    const prev = { costItemId: punch.costItemId, costItemName: punch.costItemName };
-    setPunches((list) => list.map((p) => (p.id === punch.id ? { ...p, costItemId, costItemName: item?.name || '' } : p)));
+    const prev = { costItemId: punch.costItemId, costItemName: punch.costItemName, activity: punch.activity };
+    let body;
+    let optimistic;
+    if (value.startsWith('cat:')) {
+      // Relabel only — the push step creates/reuses the budget line.
+      const name = value.slice(4);
+      body = { activity: name };
+      optimistic = { activity: name };
+    } else {
+      const item = (costItems[punch.jobId] || []).find((c) => c.id === value);
+      body = { costItemId: value, costItemName: item?.name || '' };
+      optimistic = body;
+    }
+    setPunches((list) => list.map((p) => (p.id === punch.id ? { ...p, ...optimistic } : p)));
     try {
-      await adminFetch(`/api/admin/punches/${punch.id}`, {
-        method: 'PATCH',
-        body: { costItemId, costItemName: item?.name || '' }
-      });
+      await adminFetch(`/api/admin/punches/${punch.id}`, { method: 'PATCH', body });
     } catch (e) {
       setPunches((list) => list.map((p) => (p.id === punch.id ? { ...p, ...prev } : p)));
       setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
@@ -443,9 +456,16 @@ export default function Admin() {
                             onChange={(e) => mapCostItem(p, e.target.value)}
                           >
                             <option value="">{`auto-add "${p.activity}" on push`}</option>
-                            {(costItems[p.jobId] || []).map((c) => (
-                              <option key={c.id} value={c.id}>{c.name}{c.costCode ? ` · ${c.costCode}` : ''}</option>
-                            ))}
+                            <optgroup label="Job budget">
+                              {(costItems[p.jobId] || []).map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}{c.costCode ? ` · ${c.costCode}` : ''}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="Add to budget on push (Employee Labor)">
+                              {catalog.map((name) => (
+                                <option key={name} value={`cat:${name}`}>{name}</option>
+                              ))}
+                            </optgroup>
                           </select>
                           {savingIds.has(p.id) && <Spinner inline size={14} />}
                         </span>
