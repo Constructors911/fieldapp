@@ -419,6 +419,76 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ task });
   }));
 
+  // ---- file tags (JobTread's org tag list, shown as photo tag options) ---
+  let tagCache = { at: 0, data: null };
+  app.get('/api/file-tags', wrap(async (req, res) => {
+    if (!tagCache.data || Date.now() - tagCache.at > 5 * 60_000) {
+      tagCache = { at: Date.now(), data: await adapter.listFileTags() };
+    }
+    res.json({ tags: tagCache.data });
+  }));
+
+  // ---- CompanyCam photo pull ---------------------------------------------
+  const ccProjectCache = new Map(); // jobId -> {at, project}
+  async function ccProjectForJob(jobId) {
+    if (!companycam) throw new HttpError(503, 'CompanyCam is not configured');
+    const cached = ccProjectCache.get(jobId);
+    if (cached && Date.now() - cached.at < 10 * 60_000) return cached.project;
+    const { jobs } = await boot();
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
+    const project = await companycam.findProjectForJob({ jobName: job.name, address: job.location });
+    ccProjectCache.set(jobId, { at: Date.now(), project });
+    return project;
+  }
+
+  app.get('/api/companycam/status', wrap(async (req, res) => {
+    const employee = await sessionEmployee(req);
+    res.json({ configured: Boolean(companycam), ccLinked: Boolean(employee?.ccUserId) });
+  }));
+
+  app.get('/api/companycam/photos', requireSession, wrap(async (req, res) => {
+    const jobId = qp(req.query.jobId);
+    if (!jobId) throw new HttpError(400, 'jobId is required');
+    const mine = qp(req.query.mine) === '1';
+    const page = Math.max(1, parseInt(qp(req.query.page) ?? '1', 10) || 1);
+    const project = await ccProjectForJob(jobId);
+    if (!project) {
+      res.json({ project: null, photos: [] });
+      return;
+    }
+    let photos = await companycam.listProjectPhotos(project.id, { page });
+    if (mine) {
+      if (!req.employee.ccUserId) throw new HttpError(400, 'Your sign-in is not linked to a CompanyCam user');
+      photos = photos.filter((p) => p.creatorId === req.employee.ccUserId);
+    }
+    res.json({ project, photos });
+  }));
+
+  app.post('/api/companycam/import', requireSession, wrap(async (req, res) => {
+    const { photoIds } = req.body ?? {};
+    if (!Array.isArray(photoIds) || photoIds.length === 0 || photoIds.length > 10
+        || photoIds.some((i) => typeof i !== 'string')) {
+      throw new HttpError(400, 'photoIds must be an array of 1-10 photo ids');
+    }
+    if (!companycam) throw new HttpError(503, 'CompanyCam is not configured');
+    // Bytes flow CC CDN -> here -> JobTread upload; never through the phone.
+    const files = [];
+    for (const photoId of photoIds) {
+      const { buffer, type, name } = await companycam.getPhotoOriginal(photoId);
+      const { fileId, url } = await adapter.storeUpload({ name, type, buffer });
+      files.push({ photoId, fileId, url });
+    }
+    res.json({ files });
+  }));
+
+  // Admin sanity check: which CC project a job maps to (debugging aid).
+  app.get('/api/admin/companycam/check', requireAdmin, wrap(async (req, res) => {
+    const jobId = qp(req.query.jobId);
+    if (!jobId) throw new HttpError(400, 'jobId is required');
+    res.json({ project: await ccProjectForJob(jobId) });
+  }));
+
   // ---- daily logs ------------------------------------------------------
   app.get('/api/logs', wrap(async (req, res) => {
     const date = qp(req.query.date);
@@ -430,7 +500,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   }));
 
   app.post('/api/logs', wrap(async (req, res) => {
-    const { jobId, date, notes, fileIds } = req.body ?? {};
+    const { jobId, date, notes, fileIds, fileTags } = req.body ?? {};
     if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'jobId is required');
     if (date !== undefined && date !== null && date !== '' && !isValidDateString(date)) {
       throw new HttpError(400, 'date must be YYYY-MM-DD');
@@ -441,7 +511,14 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
         throw new HttpError(400, 'fileIds must be an array of strings');
       }
     }
-    const log = await adapter.createLog({ jobId, date: date || undefined, notes, fileIds });
+    // fileTags: {fileId: [tagId, ...]} — native JT file tags per photo.
+    if (fileTags !== undefined) {
+      if (typeof fileTags !== 'object' || fileTags === null || Array.isArray(fileTags)
+          || Object.values(fileTags).some((v) => !Array.isArray(v) || v.some((t) => typeof t !== 'string'))) {
+        throw new HttpError(400, 'fileTags must map fileId to an array of tag ids');
+      }
+    }
+    const log = await adapter.createLog({ jobId, date: date || undefined, notes, fileIds, fileTags: fileTags ?? {} });
     res.json({ log });
   }));
 

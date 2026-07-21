@@ -258,6 +258,18 @@ export function createLiveAdapter({
       return catalog.sort((a, b) => a.localeCompare(b));
     },
 
+    /** Org file tags (Before/During/Completion/etc. as configured in JT). */
+    async listFileTags() {
+      const data = await pave({
+        organization: {
+          $: { id: organizationId },
+          id: {},
+          fileTags: { $: { size: 50 }, nodes: { id: {}, name: {} } },
+        },
+      });
+      return (data?.organization?.fileTags?.nodes ?? []).map((t) => ({ id: t.id, name: t.name }));
+    },
+
     /**
      * Find an org member by email for sign-in linking. {userId, name} | null.
      * Fetches internal memberships and matches case-insensitively client-side
@@ -491,7 +503,7 @@ export function createLiveAdapter({
       return (data?.organization?.dailyLogs?.nodes ?? []).map(mapLog);
     },
 
-    async createLog({ jobId, date, notes, fileIds = [] }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {} }) {
       const data = await pave({
         createDailyLog: {
           $: { jobId, date: date || todayString(), notes: notes ?? '', files: [] },
@@ -501,11 +513,18 @@ export function createLiveAdapter({
       const created = data?.createDailyLog?.createdDailyLog;
       if (!created) throw new HttpError(502, 'Pave did not return the created daily log');
 
-      // Attach uploaded files: createFile from each earlier uploadRequest.
+      // Attach uploaded files: createFile from each earlier uploadRequest,
+      // carrying the crew's photo tags as native JT file tags.
       for (const uploadRequestId of fileIds) {
+        const tagIds = (fileTags[uploadRequestId] ?? []).slice(0, 10);
         await pave({
           createFile: {
-            $: { uploadRequestId, targetType: 'dailyLog', targetId: created.id },
+            $: {
+              uploadRequestId,
+              targetType: 'dailyLog',
+              targetId: created.id,
+              ...(tagIds.length ? { fileTagIds: tagIds } : {}),
+            },
             createdFile: { id: {}, name: {}, url: {} },
           },
         });

@@ -182,6 +182,17 @@ export function createMockAdapter() {
       return job.costItems.filter((c) => c.isTimeTrackable);
     },
 
+    /** Mock org file tags, mirroring the live org's set. */
+    async listFileTags() {
+      return [
+        { id: 'tag_precon', name: 'Pre-construction' },
+        { id: 'tag_progress', name: 'In Progress' },
+        { id: 'tag_completion', name: 'Completion' },
+        { id: 'tag_issues', name: 'Issues' },
+        { id: 'tag_demo', name: 'Demolition' },
+      ];
+    },
+
     /** Mock membership lookup: the seeded user, plus a second crew member. */
     async findMembershipByEmail(email) {
       const roster = {
@@ -304,13 +315,13 @@ export function createMockAdapter() {
       return logs.sort((a, b) => b.date.localeCompare(a.date));
     },
 
-    async createLog({ jobId, date, notes, fileIds = [] }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {} }) {
       const job = findJob(jobId);
       if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
       const files = fileIds.map((fid) => {
         const up = db.uploads.get(fid);
         if (!up) throw new HttpError(400, `Unknown fileId: ${fid}`);
-        return { id: up.id, url: up.url, name: up.name };
+        return { id: up.id, url: up.url, name: up.name, tagIds: fileTags[fid] ?? [] };
       });
       const log = {
         id: uid('log'),

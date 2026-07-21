@@ -34,6 +34,46 @@ test('GET /api/jobs/:id/cost-items 404s for an unknown job', async () => {
   assert.equal(status, 404);
 });
 
+test('GET /api/file-tags returns the org tag list', async () => {
+  const { status, json } = await api(srv.base, '/api/file-tags');
+  assert.equal(status, 200);
+  assert.ok(json.tags.length >= 3);
+  assert.ok(json.tags.every((t) => t.id && t.name));
+  assert.ok(json.tags.some((t) => t.name === 'Completion'));
+});
+
+test('POST /api/logs attaches native file tags to photos', async () => {
+  const fd = new FormData();
+  fd.append('file', new Blob([Buffer.from('fake image bytes')], { type: 'image/jpeg' }), 'tagged.jpg');
+  const up = await api(srv.base, '/api/uploads', { method: 'POST', body: fd });
+  assert.equal(up.status, 200);
+
+  const { status, json } = await api(srv.base, '/api/logs', {
+    method: 'POST',
+    body: {
+      jobId: 'job_maplewood',
+      date: '2026-01-15', // fixed past date so the seeded-today test stays clean
+      notes: 'tag test',
+      fileIds: [up.json.fileId],
+      fileTags: { [up.json.fileId]: ['tag_completion'] },
+    },
+  });
+  assert.equal(status, 200);
+  assert.equal(json.log.files.length, 1);
+  assert.deepEqual(json.log.files[0].tagIds, ['tag_completion']);
+
+  const bad = await api(srv.base, '/api/logs', {
+    method: 'POST',
+    body: { jobId: 'job_maplewood', notes: 'x', fileTags: { a: 'not-an-array' } },
+  });
+  assert.equal(bad.status, 400);
+});
+
+test('CompanyCam endpoints degrade cleanly when unconfigured', async () => {
+  const status = await api(srv.base, '/api/companycam/status');
+  assert.equal(status.json.configured, false);
+});
+
 test('GET /api/logs?date=today returns the seeded log with weather', async () => {
   const { status, json } = await api(srv.base, `/api/logs?date=${todayString()}`);
   assert.equal(status, 200);
