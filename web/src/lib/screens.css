@@ -94,6 +94,16 @@
 }
 .c9-thumb-x::after { content: ''; position: absolute; inset: -8px; }
 
+/* --- concerns / complete checkboxes --- */
+.c9-checkrow { display: flex; gap: 18px; flex-wrap: wrap; }
+.c9-check {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 15px; font-weight: 600; color: var(--text);
+  min-height: var(--tap); cursor: pointer;
+}
+.c9-check input { width: 20px; height: 20px; accent-color: var(--orange); }
+.c9-check-hint { color: var(--muted); font-size: 13px; margin: -6px 0 12px; }
+
 /* --- photo tags + CompanyCam --- */
 .c9-photo-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .c9-thumb-wrap { display: flex; flex-direction: column; gap: 4px; width: 88px; }

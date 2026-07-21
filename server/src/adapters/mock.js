@@ -185,9 +185,12 @@ export function createMockAdapter() {
     /** Mock org file tags, mirroring the live org's set. */
     async listFileTags() {
       return [
+        { id: 'tag_before', name: 'Before' },
+        { id: 'tag_after', name: 'After' },
+        { id: 'tag_concerns', name: 'Concerns' },
+        { id: 'tag_completion', name: 'Completion' },
         { id: 'tag_precon', name: 'Pre-construction' },
         { id: 'tag_progress', name: 'In Progress' },
-        { id: 'tag_completion', name: 'Completion' },
         { id: 'tag_issues', name: 'Issues' },
         { id: 'tag_demo', name: 'Demolition' },
       ];

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getLogs, createLog, clockIn, clockOut } from '../api.js';
+import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getLogs, createLog, getFileTags, getCompanyCamStatus, clockIn, clockOut } from '../api.js';
+import PhotoAttach, { requiredTagError, preparePhotos } from '../components/PhotoAttach.jsx';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
@@ -84,6 +85,13 @@ export default function Clock({ boot }) {
   const [logExists, setLogExists] = useState(undefined); // undefined = checking
   const [doneText, setDoneText] = useState('');
   const [neededText, setNeededText] = useState('');
+  const [outPhotos, setOutPhotos] = useState([]);
+  const [outConcerns, setOutConcerns] = useState(false);
+  const [outComplete, setOutComplete] = useState(false);
+  const [tags, setTags] = useState([]);
+  const [ccAvailable, setCcAvailable] = useState(false);
+  useEffect(() => { getFileTags().then((r) => setTags(r.tags || [])).catch(() => {}); }, []);
+  useEffect(() => { getCompanyCamStatus().then((r) => setCcAvailable(r.configured)).catch(() => {}); }, []);
   const gpsPromise = useRef(null);
   const budgetCache = useRef(new Map()); // jobId -> items
 
@@ -150,6 +158,10 @@ export default function Clock({ boot }) {
     setLogExists(undefined);
     setDoneText('');
     setNeededText('');
+    outPhotos.forEach((p) => { if (p.file) URL.revokeObjectURL(p.url); });
+    setOutPhotos([]);
+    setOutConcerns(false);
+    setOutComplete(false);
   }
 
   function startClockIn() {
@@ -213,15 +225,27 @@ export default function Clock({ boot }) {
       setActionErr('Write a quick note about what got done today before clocking out.');
       return;
     }
+    if (needsLog) {
+      const tagErr = requiredTagError(outPhotos, tags, { concerns: outConcerns, complete: outComplete });
+      if (tagErr) { setActionErr(tagErr); return; }
+    }
     setBusy(true);
     setActionErr(null);
     if (needsLog) {
+      const { fileIds, fileTagsMap, skipped } = await preparePhotos(outPhotos);
+      if (skipped > 0 && (outConcerns || outComplete)) {
+        setActionErr('Some photos could not upload — required photos need a connection.');
+        setBusy(false);
+        return;
+      }
       const notes = [
+        outConcerns ? '⚠️ CONCERNS FLAGGED' : '',
+        outComplete ? '✅ WORK COMPLETE' : '',
         `✅ Completed:\n${doneText.trim()}`,
         neededText.trim() ? `🔲 Still needed:\n${neededText.trim()}` : '',
       ].filter(Boolean).join('\n\n');
       try {
-        await createLog({ jobId: current.jobId, date: localToday(), notes });
+        await createLog({ jobId: current.jobId, date: localToday(), notes, fileIds, fileTags: fileTagsMap });
       } catch (e) {
         // Keep the sheet (and their text) so they can retry.
         setActionErr(e.message || 'Could not submit the log — try again.');
@@ -470,8 +494,35 @@ export default function Clock({ boot }) {
               value={neededText}
               onChange={(e) => setNeededText(e.target.value)}
             />
+
+            <div className="c9-checkrow" style={{ marginTop: 10 }}>
+              <label className="c9-check">
+                <input type="checkbox" checked={outConcerns} onChange={(e) => setOutConcerns(e.target.checked)} />
+                ⚠️ Concerns
+              </label>
+              <label className="c9-check">
+                <input type="checkbox" checked={outComplete} onChange={(e) => setOutComplete(e.target.checked)} />
+                ✅ Work complete
+              </label>
+            </div>
+            {(outConcerns || outComplete) && (
+              <p className="c9-check-hint">
+                Photos tagged {[outConcerns && '"Concerns"', outComplete && '"Completion"'].filter(Boolean).join(' and ')} are required.
+              </p>
+            )}
+            <PhotoAttach
+              jobId={current?.jobId}
+              photos={outPhotos}
+              setPhotos={setOutPhotos}
+              tags={tags}
+              ccAvailable={ccAvailable}
+              onError={setActionErr}
+            />
           </>
         )}
+
+        {/* Errors must be visible inside the sheet, not behind it. */}
+        {actionErr && step === 'out' && <p className="login-err" role="alert">{actionErr}</p>}
 
         {outMode !== null && (
           <>
