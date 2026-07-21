@@ -337,7 +337,9 @@ export default function Admin() {
 
   const visible = (punches || []).filter((p) => !userFilter || p.userId === userFilter);
   const EDITABLE = ['pending', 'approved', 'error'];
-  const pushable = (p) => EDITABLE.includes(p.status) && p.endedAt && p.costItemId;
+  // Unmapped punches are pushable too: approving auto-adds the activity to
+  // the job budget (or reuses a same-named budget line).
+  const pushable = (p) => EDITABLE.includes(p.status) && p.endedAt;
   const allPushableSelected = visible.filter(pushable).every((p) => selected.has(p.id)) && visible.some(pushable);
 
   return (
@@ -418,7 +420,9 @@ export default function Admin() {
                           type="checkbox"
                           checked={selected.has(p.id)}
                           disabled={!pushable(p)}
-                          title={pushable(p) ? 'Select for push' : 'Map a cost item first'}
+                          title={!pushable(p) ? 'Punch is still open'
+                            : p.costItemId ? 'Select for push'
+                              : `Push will add "${p.activity}" to the job budget`}
                           onChange={() => toggle(p.id)}
                         />
                       )}
@@ -438,7 +442,7 @@ export default function Admin() {
                             value={p.costItemId ?? ''}
                             onChange={(e) => mapCostItem(p, e.target.value)}
                           >
-                            <option value="">— map —</option>
+                            <option value="">{`auto-add "${p.activity}" on push`}</option>
                             {(costItems[p.jobId] || []).map((c) => (
                               <option key={c.id} value={c.id}>{c.name}{c.costCode ? ` · ${c.costCode}` : ''}</option>
                             ))}

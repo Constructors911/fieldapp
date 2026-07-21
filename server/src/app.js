@@ -400,12 +400,22 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     }
     const results = [];
     for (const id of ids) {
-      const punch = await store.getPunch(id);
+      let punch = await store.getPunch(id);
       try {
         if (!punch) throw new HttpError(404, 'Punch not found');
         if (!['pending', 'approved', 'error'].includes(punch.status)) throw new HttpError(400, `Punch status is ${punch.status}`);
         if (!punch.endedAt) throw new HttpError(400, 'Punch is still open');
-        if (!punch.costItemId) throw new HttpError(400, 'Map a budget cost item before pushing');
+        // Unmapped punch: approving it adds the activity to the job budget
+        // (reusing a same-named budget item when one exists).
+        if (!punch.costItemId) {
+          if (!adapter.ensureBudgetCostItem) throw new HttpError(400, 'Map a budget cost item before pushing');
+          const item = await adapter.ensureBudgetCostItem(punch.jobId, punch.activity);
+          punch = await store.updatePunch(punch.id, { costItemId: item.id, costItemName: item.name });
+          jobItemsCache.delete(punch.jobId); // pickers should see the new budget line
+          await store.logAudit(punch.id, 'budget-item', {
+            by: actorOf(req), costItemId: item.id, name: item.name, created: item.created,
+          });
+        }
         const jtTimeEntryId = await adapter.pushTimeEntry(punch);
         await store.markPushed(punch.id, jtTimeEntryId);
         await store.logAudit(punch.id, 'pushed', { by: actorOf(req), jtTimeEntryId });

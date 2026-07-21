@@ -248,6 +248,20 @@ export function createMockAdapter() {
       return entry;
     },
 
+    /** Mock budget auto-add: reuse by name or append a new trackable item. */
+    async ensureBudgetCostItem(jobId, activityName) {
+      const job = findJob(jobId);
+      if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
+      const name = String(activityName).trim();
+      const existing = job.costItems.find(
+        (c) => c.isTimeTrackable && c.name.toLowerCase() === name.toLowerCase()
+      );
+      if (existing) return { id: existing.id, name: existing.name, created: false };
+      const item = { id: uid('ci'), name, costCode: '', isTimeTrackable: true };
+      job.costItems.push(item);
+      return { id: item.id, name: item.name, created: true };
+    },
+
     /** Mock push: validates like the live adapter, returns a fake JT id. */
     async pushTimeEntry(p) {
       const job = findJob(p.jobId);

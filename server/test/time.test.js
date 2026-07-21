@@ -185,37 +185,61 @@ test('clock-in rejects a cost item that is not on the job budget', async () => {
 
 // ---- admin review + push ------------------------------------------------
 
-test('admin: pending punches list, cost item mapping, push to JT', async () => {
+test('admin: pushing an unmapped punch auto-adds the activity to the job budget', async () => {
   const list = await api(srv.base, '/api/admin/punches?status=pending');
   assert.equal(list.status, 200);
-  assert.ok(list.json.punches.length >= 2);
   const punch = list.json.punches.find((p) => p.activity === 'Finish Carpentry');
   assert.ok(punch, 'the first closed punch is pending review');
-
-  // Push without a mapped cost item is rejected (and marks the punch error)
-  const early = await api(srv.base, '/api/admin/punches/push', {
-    method: 'POST',
-    body: { ids: [punch.id] },
-  });
-  assert.equal(early.status, 200);
-  assert.equal(early.json.results[0].ok, false);
-  assert.match(early.json.results[0].error, /cost item/i);
-
-  // Map to a real budget cost item, then push
-  const patch = await api(srv.base, `/api/admin/punches/${punch.id}`, {
-    method: 'PATCH',
-    body: { costItemId: 'ci_mw_cabinst', costItemName: 'Cabinet Install Labor' },
-  });
-  assert.equal(patch.status, 200);
-  assert.equal(patch.json.punch.costItemId, 'ci_mw_cabinst');
+  assert.equal(punch.costItemId, null);
 
   const push = await api(srv.base, '/api/admin/punches/push', {
     method: 'POST',
     body: { ids: [punch.id] },
   });
   assert.equal(push.status, 200);
-  assert.equal(push.json.results[0].ok, true);
+  assert.equal(push.json.results[0].ok, true, JSON.stringify(push.json.results[0]));
   assert.ok(push.json.results[0].jtTimeEntryId);
+
+  // The budget gained the activity as a cost item, and the punch is mapped to it.
+  const items = await api(srv.base, '/api/jobs/job_maplewood/cost-items');
+  const added = items.json.costItems.find((c) => c.name === 'Finish Carpentry');
+  assert.ok(added, 'activity added to the job budget');
+
+  const audit = await api(srv.base, `/api/admin/punches/${punch.id}/audit`);
+  const budgetEvent = audit.json.events.find((e) => e.action === 'budget-item');
+  assert.ok(budgetEvent);
+  assert.equal(budgetEvent.detail.created, true);
+  assert.ok(budgetEvent.detail.by);
+
+  // A second unmapped punch with the same activity reuses the budget line.
+  const cin = await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: { jobId: 'job_maplewood', activity: 'Finish Carpentry', at: new Date(Date.now() - 3600_000).toISOString() },
+  });
+  await authed('/api/time/clock-out', { method: 'POST', body: {} });
+  const push2 = await api(srv.base, '/api/admin/punches/push', { method: 'POST', body: { ids: [cin.json.entry.id] } });
+  assert.equal(push2.json.results[0].ok, true);
+  const audit2 = await api(srv.base, `/api/admin/punches/${cin.json.entry.id}/audit`);
+  assert.equal(audit2.json.events.find((e) => e.action === 'budget-item').detail.created, false);
+});
+
+test('admin: explicit cost item mapping + push, pushed punches immutable', async () => {
+  const list = await api(srv.base, '/api/admin/punches?status=pending');
+  const punch = list.json.punches.find((p) => p.activity === 'Concrete Labor');
+  assert.ok(punch, 'the tap-time test punch is pending review');
+
+  const patch = await api(srv.base, `/api/admin/punches/${punch.id}`, {
+    method: 'PATCH',
+    body: { costItemId: 'ci_rs_found', costItemName: 'Foundation & Flatwork Labor' },
+  });
+  assert.equal(patch.status, 200);
+  assert.equal(patch.json.punch.costItemId, 'ci_rs_found');
+
+  const push = await api(srv.base, '/api/admin/punches/push', {
+    method: 'POST',
+    body: { ids: [punch.id] },
+  });
+  assert.equal(push.json.results[0].ok, true);
 
   // Pushed punches are immutable and cannot be double-pushed
   const again = await api(srv.base, '/api/admin/punches/push', { method: 'POST', body: { ids: [punch.id] } });

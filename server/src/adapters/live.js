@@ -161,6 +161,64 @@ export function createLiveAdapter({
   // Remembers upload URLs so GET /uploads/:id can redirect to hosted files.
   const uploadIndex = new Map();
 
+  // Org "Employee Labor" catalog: items with no job, current NNN-01 naming.
+  // Cached per instance; used for the activity picker and budget auto-add.
+  let catalogCache = { at: 0, items: null };
+  async function fetchCatalog() {
+    if (catalogCache.items && Date.now() - catalogCache.at < 5 * 60_000) return catalogCache.items;
+    const nodes = [];
+    let page = null;
+    do {
+      const data = await pave({
+        organization: {
+          $: { id: organizationId },
+          id: {},
+          costItems: {
+            $: {
+              size: 100,
+              ...(page ? { page } : {}),
+              where: { and: [[['costType', 'name'], '=', 'Employee Labor']] },
+            },
+            nextPage: {},
+            nodes: { id: {}, name: {}, job: { id: {} } },
+          },
+        },
+      });
+      const conn = data?.organization?.costItems ?? {};
+      nodes.push(...(conn.nodes ?? []));
+      page = conn.nextPage ?? null;
+    } while (page && nodes.length < 600);
+    const seen = new Set();
+    const items = [];
+    for (const item of nodes.filter((n) => !n.job)) {
+      const name = item.name.replace(/["\s]+$/, '').trim();
+      if (!/^\d{3}-01\s/.test(name)) continue; // current nomenclature only
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ id: item.id, name });
+    }
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    catalogCache = { at: Date.now(), items };
+    return items;
+  }
+
+  // "Employee Labor" cost type id (for budget auto-add). Cached per instance.
+  let cachedEmployeeLaborTypeId;
+  async function employeeLaborTypeId() {
+    if (cachedEmployeeLaborTypeId !== undefined) return cachedEmployeeLaborTypeId;
+    const data = await pave({
+      organization: {
+        $: { id: organizationId },
+        id: {},
+        costTypes: { $: { size: 25 }, nodes: { id: {}, name: {} } },
+      },
+    });
+    cachedEmployeeLaborTypeId = (data?.organization?.costTypes?.nodes ?? [])
+      .find((t) => t.name === 'Employee Labor')?.id ?? null;
+    return cachedEmployeeLaborTypeId;
+  }
+
   // createTimeEntry requires a non-null `type` matching one of the user's
   // membership timeEntryTypes (e.g. "Standard", "Overtime"). Cached per instance.
   let cachedTypeNames = null;
@@ -224,43 +282,47 @@ export function createLiveAdapter({
      * standard labor list crews can always punch against. Names only.
      */
     async listActivityCatalog() {
-      const nodes = [];
-      let page = null;
-      do {
-        const data = await pave({
-          organization: {
-            $: { id: organizationId },
-            id: {},
-            costItems: {
-              $: {
-                size: 100,
-                ...(page ? { page } : {}),
-                where: { and: [[['costType', 'name'], '=', 'Employee Labor']] },
-              },
-              nextPage: {},
-              nodes: { id: {}, name: {}, job: { id: {} } },
-            },
+      return (await fetchCatalog()).map((i) => i.name);
+    },
+
+    /** Catalog item matching an activity name (for budget auto-add). */
+    async findCatalogItem(name) {
+      const target = String(name).toLowerCase().trim();
+      return (await fetchCatalog()).find((i) => i.name.toLowerCase() === target) ?? null;
+    },
+
+    /**
+     * Ensure the job's BUDGET has a cost item for this activity: reuse an
+     * existing budget item with the same name, else create one (linked to
+     * the org catalog item and typed Employee Labor). Returns {id, name,
+     * created}. This is what lets an approved punch push even when the
+     * estimate never budgeted that labor line.
+     */
+    async ensureBudgetCostItem(jobId, activityName) {
+      const name = String(activityName).trim();
+      const existing = (await this.getJobCostItems(jobId))
+        .find((c) => c.name.toLowerCase() === name.toLowerCase());
+      if (existing) return { id: existing.id, name: existing.name, created: false };
+
+      const [catalog, typeId] = await Promise.all([
+        this.findCatalogItem(name),
+        employeeLaborTypeId(),
+      ]);
+      const data = await pave({
+        createCostItem: {
+          $: {
+            jobId,
+            name,
+            isSelected: true,
+            ...(catalog ? { organizationCostItemId: catalog.id } : {}),
+            ...(typeId ? { costTypeId: typeId } : {}),
           },
-        });
-        const conn = data?.organization?.costItems ?? {};
-        nodes.push(...(conn.nodes ?? []));
-        page = conn.nextPage ?? null;
-      } while (page && nodes.length < 600);
-      // Catalog = org-level (no job) Employee Labor items in the CURRENT
-      // numbering system only ("NNN-01 ..."). Old-numbering leftovers still
-      // exist at org level but are excluded here — they only appear in the
-      // picker when they live on a job's budget.
-      const seen = new Set();
-      const catalog = [];
-      for (const item of nodes.filter((n) => !n.job)) {
-        const name = item.name.replace(/["\s]+$/, '').trim();
-        if (!/^\d{3}-01\s/.test(name)) continue;
-        const key = name.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        catalog.push(name);
-      }
-      return catalog.sort((a, b) => a.localeCompare(b));
+          createdCostItem: { id: {}, name: {} },
+        },
+      });
+      const created = data?.createCostItem?.createdCostItem;
+      if (!created?.id) throw new HttpError(502, 'Pave did not return the created cost item');
+      return { id: created.id, name: created.name, created: true };
     },
 
     /** Org file tags (Before/During/Completion/etc. as configured in JT). */
@@ -299,25 +361,46 @@ export function createLiveAdapter({
     },
 
     async getJobCostItems(jobId) {
-      const data = await pave({
-        job: {
-          $: { id: jobId },
-          id: {},
-          costItems: {
-            // Trackable only: this feeds the clock-in cost-code picker, and
-            // unfiltered lists 413 on estimate-heavy jobs.
-            $: { size: 100, where: { and: [[['costType', 'isTimeTrackable'], '=', true]] } },
-            nodes: { id: {}, name: {}, costCode: { id: {}, fullName: {} } },
+      // BUDGET items only: JT rejects time entries against estimate document
+      // lines ("Invalid cost item ID"). Budget-level items have no document;
+      // Pave `where` can't compare null, so filter client-side and paginate.
+      const budget = [];
+      let page = null;
+      let pages = 0;
+      let jobFound = false;
+      do {
+        const data = await pave({
+          job: {
+            $: { id: jobId },
+            id: {},
+            costItems: {
+              $: {
+                size: 100,
+                ...(page ? { page } : {}),
+                where: { and: [[['costType', 'isTimeTrackable'], '=', true]] },
+              },
+              nextPage: {},
+              nodes: { id: {}, name: {}, costCode: { id: {}, fullName: {} }, document: { id: {} } },
+            },
           },
-        },
-      });
-      if (!data?.job?.id) throw new HttpError(404, `Unknown job: ${jobId}`);
-      return (data.job.costItems?.nodes ?? []).map((c) => ({
-        id: c.id,
-        name: c.name,
-        costCode: c.costCode?.fullName ?? '',
-        isTimeTrackable: true, // query is pre-filtered to trackable items
-      }));
+        });
+        if (!data?.job?.id) throw new HttpError(404, `Unknown job: ${jobId}`);
+        jobFound = true;
+        const conn = data.job.costItems ?? {};
+        for (const c of conn.nodes ?? []) {
+          if (c.document) continue; // estimate line, not a budget item
+          budget.push({
+            id: c.id,
+            name: c.name.replace(/["\s]+$/, '').trim(),
+            costCode: c.costCode?.fullName ?? '',
+            isTimeTrackable: true,
+          });
+        }
+        page = conn.nextPage ?? null;
+        pages += 1;
+      } while (page && pages < 5);
+      if (!jobFound) throw new HttpError(404, `Unknown job: ${jobId}`);
+      return budget;
     },
 
     async getCurrentEntry() {
