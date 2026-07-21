@@ -525,12 +525,19 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       throw new HttpError(400, 'photoIds must be an array of 1-10 photo ids');
     }
     if (!companycam) throw new HttpError(503, 'CompanyCam is not configured');
-    // Bytes flow CC CDN -> here -> JobTread upload; never through the phone.
+    // Preferred: hand JobTread the public CC URL and let IT fetch the bytes —
+    // nothing transits our function. Fallback: download + re-upload here.
     const files = [];
     for (const photoId of photoIds) {
-      const { buffer, type, name } = await companycam.getPhotoOriginal(photoId);
-      const { fileId, url } = await adapter.storeUpload({ name, type, buffer });
-      files.push({ photoId, fileId, url });
+      if (adapter.storeUploadFromUrl) {
+        const { url, preview, name } = await companycam.getPhotoOriginalUrl(photoId);
+        const { fileId } = await adapter.storeUploadFromUrl({ url, name });
+        files.push({ photoId, fileId, url: preview });
+      } else {
+        const { buffer, type, name } = await companycam.getPhotoOriginal(photoId);
+        const { fileId, url } = await adapter.storeUpload({ name, type, buffer });
+        files.push({ photoId, fileId, url });
+      }
     }
     res.json({ files });
   }));

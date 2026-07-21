@@ -63,6 +63,21 @@ export function createCompanyCam(env = process.env) {
       }));
     },
 
+    /**
+     * Public URLs for a photo: original (for JobTread to fetch directly)
+     * and a lighter web variant for previews. {url, preview, name}.
+     */
+    async getPhotoOriginalUrl(photoId) {
+      const photo = await cc(`/photos/${photoId}`);
+      const url = uriOf(photo, 'original') || uriOf(photo, 'web');
+      if (!url) throw new Error('CompanyCam photo has no downloadable uri');
+      return {
+        url,
+        preview: uriOf(photo, 'web') || url,
+        name: `companycam-${photoId}.jpg`,
+      };
+    },
+
     /** Download a photo's original bytes. Returns {buffer, type, name}. */
     async getPhotoOriginal(photoId) {
       const photo = await cc(`/photos/${photoId}`);

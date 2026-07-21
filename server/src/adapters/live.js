@@ -632,23 +632,41 @@ export function createLiveAdapter({
     },
 
     async storeUpload({ name, type, buffer }) {
-      // 1) createUploadRequest -> 2) PUT bytes -> fileId is the request id.
+      // 1) createUploadRequest -> 2) send bytes with the EXACT method and
+      // headers JT returns (extra headers break presigned signatures).
       const data = await pave({
         createUploadRequest: {
-          $: { size: buffer.length, type },
-          createdUploadRequest: { id: {}, url: {}, headers: {} },
+          $: { organizationId, size: buffer.length, type },
+          createdUploadRequest: { id: {}, url: {}, method: {}, headers: {}, downloadUrl: {} },
         },
       });
       const req = data?.createUploadRequest?.createdUploadRequest;
       if (!req?.url) throw new HttpError(502, 'Pave did not return an upload URL');
       const put = await fetch(req.url, {
-        method: 'PUT',
-        headers: { 'Content-Type': type, ...(req.headers ?? {}) },
+        method: req.method || 'PUT',
+        headers: { ...(req.headers ?? {}) },
         body: buffer,
       });
-      if (!put.ok) throw new HttpError(502, `Upload PUT failed (${put.status})`);
-      uploadIndex.set(req.id, { id: req.id, name, type, url: req.url.split('?')[0] });
+      if (!put.ok) throw new HttpError(502, `Upload send failed (${put.status})`);
+      uploadIndex.set(req.id, { id: req.id, name, type, url: req.downloadUrl || req.url.split('?')[0] });
       return { fileId: req.id, url: `/api/uploads/${req.id}` };
+    },
+
+    /**
+     * Upload by public URL: JobTread fetches the file itself — nothing
+     * transits our serverless function (verified against the live org).
+     */
+    async storeUploadFromUrl({ url, name }) {
+      const data = await pave({
+        createUploadRequest: {
+          $: { organizationId, url },
+          createdUploadRequest: { id: {}, downloadUrl: {}, type: {} },
+        },
+      });
+      const req = data?.createUploadRequest?.createdUploadRequest;
+      if (!req?.id) throw new HttpError(502, 'Pave did not return an upload request');
+      uploadIndex.set(req.id, { id: req.id, name, type: req.type || 'image/jpeg', url: req.downloadUrl || url });
+      return { fileId: req.id, url: req.downloadUrl || url };
     },
 
     async getUpload(id) {

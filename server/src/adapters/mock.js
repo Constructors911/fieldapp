@@ -354,6 +354,12 @@ export function createMockAdapter() {
       return log;
     },
 
+    async storeUploadFromUrl({ url, name }) {
+      const id = uid('file');
+      db.uploads.set(id, { id, name, type: 'image/jpeg', url });
+      return { fileId: id, url };
+    },
+
     async storeUpload({ name, type, buffer }) {
       const id = uid('file');
       // /api-prefixed so the Vite dev proxy serves photos; /uploads/:id also works.
