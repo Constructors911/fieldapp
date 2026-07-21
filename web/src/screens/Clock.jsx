@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, clockIn, clockOut } from '../api.js';
+import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getLogs, createLog, clockIn, clockOut } from '../api.js';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
@@ -20,6 +20,12 @@ function todayRange() {
 function fmtTime(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function localToday() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function fmtMins(mins) {
@@ -73,8 +79,22 @@ export default function Clock({ boot }) {
   const [budgetItems, setBudgetItems] = useState(null); // this job's labor items, null = loading
   const [note, setNote] = useState('');
   const [breakMin, setBreakMin] = useState('');
+  // Clock-out gate: leaving for the day requires a daily log for the job.
+  const [outMode, setOutMode] = useState(null); // null | 'break' | 'done'
+  const [logExists, setLogExists] = useState(undefined); // undefined = checking
+  const [doneText, setDoneText] = useState('');
+  const [neededText, setNeededText] = useState('');
   const gpsPromise = useRef(null);
   const budgetCache = useRef(new Map()); // jobId -> items
+
+  function chooseOutMode(mode) {
+    setOutMode(mode);
+    if (mode !== 'done' || !current) return;
+    setLogExists(undefined);
+    getLogs(localToday(), current.jobId)
+      .then((r) => setLogExists((r.logs || []).length > 0))
+      .catch(() => setLogExists(false)); // can't verify -> require the log
+  }
 
   function loadPickerOptions(jobId) {
     if (!activities?.length) {
@@ -126,6 +146,10 @@ export default function Clock({ boot }) {
     setSelCostItem(null);
     setNote('');
     setBreakMin('');
+    setOutMode(null);
+    setLogExists(undefined);
+    setDoneText('');
+    setNeededText('');
   }
 
   function startClockIn() {
@@ -183,8 +207,28 @@ export default function Clock({ boot }) {
 
   async function submitClockOut() {
     if (busy || !current) return;
+    // Leaving for the day without a log: the log is part of clocking out.
+    const needsLog = outMode === 'done' && logExists === false;
+    if (needsLog && !doneText.trim()) {
+      setActionErr('Write a quick note about what got done today before clocking out.');
+      return;
+    }
     setBusy(true);
     setActionErr(null);
+    if (needsLog) {
+      const notes = [
+        `✅ Completed:\n${doneText.trim()}`,
+        neededText.trim() ? `🔲 Still needed:\n${neededText.trim()}` : '',
+      ].filter(Boolean).join('\n\n');
+      try {
+        await createLog({ jobId: current.jobId, date: localToday(), notes });
+      } catch (e) {
+        // Keep the sheet (and their text) so they can retry.
+        setActionErr(e.message || 'Could not submit the log — try again.');
+        setBusy(false);
+        return;
+      }
+    }
     const prev = current;
     const at = new Date().toISOString(); // tap time — survives the offline queue
     try {
@@ -377,28 +421,89 @@ export default function Clock({ boot }) {
             </p>
           </div>
         )}
-        <label className="c-label" htmlFor="clk-break">Break minutes (optional)</label>
-        <input
-          id="clk-break"
-          className="c-input"
-          type="number"
-          inputMode="numeric"
-          min="0"
-          step="5"
-          placeholder="0"
-          value={breakMin}
-          onChange={(e) => setBreakMin(e.target.value)}
-        />
-        <button
-          type="button"
-          className="c-btn c-btn-big c-btn-block c-btn-red"
-          style={{ marginTop: 12 }}
-          disabled={busy}
-          onClick={submitClockOut}
-        >
-          {busy && <Spinner inline size={18} />}
-          {busy ? 'Clocking out…' : 'Confirm Clock Out'}
-        </button>
+
+        {/* Step 1: why are you clocking out? */}
+        {outMode === null && (
+          <>
+            <p className="clk-outq">Done at this job for today?</p>
+            <button
+              type="button"
+              className="c-btn c-btn-big c-btn-block"
+              onClick={() => chooseOutMode('done')}
+            >
+              ✅ Done for the day
+            </button>
+            <button
+              type="button"
+              className="c-btn c-btn-big c-btn-block c-btn-ghost"
+              style={{ marginTop: 8 }}
+              onClick={() => chooseOutMode('break')}
+            >
+              🥪 Just a break — I&apos;ll be back
+            </button>
+          </>
+        )}
+
+        {/* Step 2: done-for-the-day requires today's daily log for this job */}
+        {outMode === 'done' && logExists === undefined && <Spinner label="Checking today's log…" />}
+        {outMode === 'done' && logExists === true && (
+          <p className="clk-logok">✓ Daily log already submitted for this job today.</p>
+        )}
+        {outMode === 'done' && logExists === false && (
+          <>
+            <p className="clk-logreq">A quick daily log is required before you leave for the day.</p>
+            <label className="c-label" htmlFor="clk-done">What got done today?</label>
+            <textarea
+              id="clk-done"
+              className="c-input"
+              rows={3}
+              placeholder="Plain words are fine — tore off north slope, dried in, staged shingles…"
+              value={doneText}
+              onChange={(e) => setDoneText(e.target.value)}
+            />
+            <label className="c-label" htmlFor="clk-needed">What&apos;s still needed? (optional)</label>
+            <textarea
+              id="clk-needed"
+              className="c-input"
+              rows={2}
+              placeholder="Ridge cap, final cleanup, inspection…"
+              value={neededText}
+              onChange={(e) => setNeededText(e.target.value)}
+            />
+          </>
+        )}
+
+        {outMode !== null && (
+          <>
+            <label className="c-label" htmlFor="clk-break">Break minutes (optional)</label>
+            <input
+              id="clk-break"
+              className="c-input"
+              type="number"
+              inputMode="numeric"
+              min="0"
+              step="5"
+              placeholder="0"
+              value={breakMin}
+              onChange={(e) => setBreakMin(e.target.value)}
+            />
+            <button
+              type="button"
+              className="c-btn c-btn-big c-btn-block c-btn-red"
+              style={{ marginTop: 12 }}
+              disabled={busy || (outMode === 'done' && logExists === undefined)}
+              onClick={submitClockOut}
+            >
+              {busy && <Spinner inline size={18} />}
+              {busy
+                ? 'Clocking out…'
+                : outMode === 'done' && logExists === false
+                  ? 'Submit log & clock out'
+                  : 'Confirm Clock Out'}
+            </button>
+          </>
+        )}
+
         <button
           type="button"
           className="c-btn c-btn-block c-btn-ghost"

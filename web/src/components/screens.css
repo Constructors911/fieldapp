@@ -99,6 +99,9 @@
   color: var(--muted);
   margin: 8px 0 0;
 }
+.clk-outq { font-size: 15px; font-weight: 700; color: var(--navy); margin: 4px 0 10px; }
+.clk-logok { color: var(--green); font-size: 14px; font-weight: 600; margin: 8px 0; }
+.clk-logreq { color: var(--navy); font-size: 13px; font-weight: 600; background: var(--bg); border-radius: var(--radius); padding: 8px 10px; margin: 8px 0 0; }
 
 /* ---- Today ---- */
 .tdy-toolbar {
