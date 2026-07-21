@@ -241,18 +241,21 @@ export function createLiveAdapter({
         nodes.push(...(conn.nodes ?? []));
         page = conn.nextPage ?? null;
       } while (page && nodes.length < 600);
-      // Catalog items have no job. Dedupe by the 3-digit code prefix,
-      // preferring the clean "NNN-01 ..." series over legacy imports.
-      const byCode = new Map();
+      // Catalog = org-level (no job) Employee Labor items in the CURRENT
+      // numbering system only ("NNN-01 ..."). Old-numbering leftovers still
+      // exist at org level but are excluded here — they only appear in the
+      // picker when they live on a job's budget.
+      const seen = new Set();
+      const catalog = [];
       for (const item of nodes.filter((n) => !n.job)) {
         const name = item.name.replace(/["\s]+$/, '').trim();
-        const m = name.match(/^(\d{3})-/);
-        const key = m ? m[1] : name.toLowerCase();
-        const isClean = /^\d{3}-01\s/.test(name);
-        const existing = byCode.get(key);
-        if (!existing || (isClean && !existing.isClean)) byCode.set(key, { name, isClean });
+        if (!/^\d{3}-01\s/.test(name)) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        catalog.push(name);
       }
-      return [...byCode.values()].map((v) => v.name).sort((a, b) => a.localeCompare(b));
+      return catalog.sort((a, b) => a.localeCompare(b));
     },
 
     /**
