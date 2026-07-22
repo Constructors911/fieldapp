@@ -182,7 +182,7 @@ export function createLiveAdapter({
               where: { and: [[['costType', 'name'], '=', 'Employee Labor']] },
             },
             nextPage: {},
-            nodes: { id: {}, name: {}, job: { id: {} } },
+            nodes: { id: {}, name: {}, job: { id: {} }, costCode: { id: {} } },
           },
         },
       });
@@ -198,11 +198,28 @@ export function createLiveAdapter({
       const key = name.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      items.push({ id: item.id, name });
+      items.push({ id: item.id, name, costCodeId: item.costCode?.id ?? null });
     }
     items.sort((a, b) => a.name.localeCompare(b.name));
     catalogCache = { at: Date.now(), items };
     return items;
+  }
+
+  // Fallback cost code for non-catalog activity names (createCostItem
+  // requires a costCodeId in this org). Prefers "Uncategorized".
+  let cachedFallbackCostCodeId;
+  async function fallbackCostCodeId() {
+    if (cachedFallbackCostCodeId !== undefined) return cachedFallbackCostCodeId;
+    const data = await pave({
+      organization: {
+        $: { id: organizationId },
+        id: {},
+        costCodes: { $: { size: 100 }, nodes: { id: {}, fullName: {} } },
+      },
+    });
+    const codes = data?.organization?.costCodes?.nodes ?? [];
+    cachedFallbackCostCodeId = (codes.find((c) => /uncategorized/i.test(c.fullName)) ?? codes[0])?.id ?? null;
+    return cachedFallbackCostCodeId;
   }
 
   // "Employee Labor" cost type id (for budget auto-add). Cached per instance.
@@ -310,12 +327,17 @@ export function createLiveAdapter({
         this.findCatalogItem(name),
         employeeLaborTypeId(),
       ]);
+      // createCostItem requires a cost code: use the catalog item's, else
+      // the org's Uncategorized code.
+      const costCodeId = catalog?.costCodeId ?? await fallbackCostCodeId();
+      if (!costCodeId) throw new HttpError(502, 'No cost code available for the new budget item');
       const data = await pave({
         createCostItem: {
           $: {
             jobId,
             name,
             isSelected: true,
+            costCodeId,
             ...(catalog ? { organizationCostItemId: catalog.id } : {}),
             ...(typeId ? { costTypeId: typeId } : {}),
           },
