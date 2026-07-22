@@ -77,6 +77,14 @@
   padding-bottom: max(16px, env(safe-area-inset-bottom));
 }
 
+/* Picker search (sticks while the list scrolls under it) */
+.c-picker-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 10px;
+}
+
 /* Option list (pickers inside sheets) */
 .c-option {
   display: block;
