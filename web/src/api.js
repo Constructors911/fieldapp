@@ -39,6 +39,8 @@ export const getCurrentEntry = () => get('/api/time/current');
 export const getTimeEntries = (from, to) => get(`/api/time/entries?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
 export const getTasks = (scope, weekStart) => get(`/api/tasks?scope=${scope}${weekStart ? `&weekStart=${weekStart}` : ''}`);
 export const getLogs = (date, jobId) => get(`/api/logs?date=${date}${jobId ? `&jobId=${jobId}` : ''}`);
+export const getMyLogs = ({ jobId, date } = {}) =>
+  get(`/api/logs?mine=1${jobId ? `&jobId=${encodeURIComponent(jobId)}` : ''}${date ? `&date=${date}` : ''}`);
 export const getFileTags = () => get('/api/file-tags');
 export const getCompanyCamStatus = () => get('/api/companycam/status');
 export const getCompanyCamPhotos = (jobId, { mine = false, page = 1 } = {}) =>

@@ -566,7 +566,14 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     if (date !== undefined && !isValidDateString(date)) {
       throw new HttpError(400, 'date must be YYYY-MM-DD');
     }
-    res.json({ logs: await adapter.listLogs({ date, jobId }) });
+    // mine=1: only the signed-in employee's logs (the Log tab feed).
+    let jtUserId;
+    if (qp(req.query.mine) === '1') {
+      const employee = await sessionEmployee(req);
+      if (!employee) throw new HttpError(401, 'Sign in to continue');
+      jtUserId = employee.jtUserId;
+    }
+    res.json({ logs: await adapter.listLogs({ date, jobId, jtUserId }) });
   }));
 
   app.post('/api/logs', wrap(async (req, res) => {

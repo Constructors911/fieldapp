@@ -604,10 +604,11 @@ export function createLiveAdapter({
       return mapTask(task);
     },
 
-    async listLogs({ date, jobId } = {}) {
+    async listLogs({ date, jobId, jtUserId } = {}) {
       const where = { and: [] };
       if (date) where.and.push(['date', '=', date]);
       if (jobId) where.and.push([['job', 'id'], '=', jobId]);
+      if (jtUserId) where.and.push([['user', 'id'], '=', jtUserId]);
       const data = await pave({
         organization: {
           $: { id: organizationId },

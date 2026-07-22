@@ -94,6 +94,16 @@
 }
 .c9-thumb-x::after { content: ''; position: absolute; inset: -8px; }
 
+/* --- log feed (Log tab) --- */
+.c9-feed-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.c9-feed-title { margin: 0; font-size: 18px; font-weight: 800; color: var(--navy); }
+.c9-btn-add { width: auto; padding: 8px 16px; }
+.c9-btn-small { min-height: 36px; padding: 6px 12px; font-size: 13px; width: auto; }
+.c9-feed-filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.c9-feed-search { flex: 1 1 160px; min-width: 140px; }
+.c9-feed-date { flex: 0 1 150px; min-width: 130px; }
+.c9-log-date { font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+
 /* --- concerns / complete checkboxes --- */
 .c9-checkrow { display: flex; gap: 18px; flex-wrap: wrap; }
 .c9-check {

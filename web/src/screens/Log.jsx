@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getLogs, createLog, getFileTags, getCompanyCamStatus } from '../api.js';
+import { getMyLogs, createLog, getFileTags, getCompanyCamStatus } from '../api.js';
 import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import PhotoAttach, { requiredTagError, preparePhotos } from '../components/PhotoAttach.jsx';
-import { todayISO, parseISODate, fmtMonthDay } from '../lib/dates.js';
+import { todayISO, parseISODate, fmtMonthDay, fmtDayShort } from '../lib/dates.js';
 import '../lib/screens.css';
 
 function weatherChip(w) {
@@ -20,43 +20,25 @@ function weatherChip(w) {
   );
 }
 
-export default function Log({ boot }) {
-  const jobs = boot?.jobs || [];
+const fmtLogDate = (s) => {
+  const d = parseISODate(s);
+  return d ? `${fmtDayShort(d)} ${fmtMonthDay(d)}` : s;
+};
 
-  // --- form state ---
-  const [jobId, setJobId] = useState(jobs[0]?.id || '');
+// ---- New-log form (the '+' view) ------------------------------------------
+function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
+  const jobs = boot?.jobs || [];
+  const [jobId, setJobId] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [date, setDate] = useState(todayISO());
   const [notes, setNotes] = useState('');
-  // Photos: manual {key, file, url, tagId} | CompanyCam {key, fileId, url, tagId, cc: true}
   const [photos, setPhotos] = useState([]);
   const [hasConcerns, setHasConcerns] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [msg, setMsg] = useState(null); // {type: 'ok'|'queued'|'err', text}
-
-  // --- photo tags (JobTread's org file tags) + CompanyCam availability ---
-  const [tags, setTags] = useState([]);
-  const [ccAvailable, setCcAvailable] = useState(false);
-  useEffect(() => { getFileTags().then((r) => setTags(r.tags || [])).catch(() => {}); }, []);
-  useEffect(() => { getCompanyCamStatus().then((r) => setCcAvailable(r.configured)).catch(() => {}); }, []);
-
-  // --- existing logs ---
-  const [logs, setLogs] = useState(undefined); // undefined = loading, null = error
-  const [logsErr, setLogsErr] = useState(null);
+  const [msg, setMsg] = useState(null); // errors stay here; success reports via onDone
 
   const job = jobs.find((j) => j.id === jobId) || null;
-
-  const loadLogs = useCallback(() => {
-    if (!date) { setLogs([]); return; }
-    setLogs(undefined);
-    setLogsErr(null);
-    getLogs(date, jobId || undefined)
-      .then((r) => setLogs(r.logs || []))
-      .catch((e) => { setLogsErr(e.message); setLogs(null); });
-  }, [date, jobId]);
-
-  useEffect(loadLogs, [loadLogs]);
 
   async function submit(e) {
     e.preventDefault();
@@ -67,7 +49,6 @@ export default function Log({ boot }) {
       setMsg({ type: 'err', text: 'Add some notes or a photo before submitting.' });
       return;
     }
-    // Checked boxes make their tagged photos mandatory.
     const required = [hasConcerns && 'Concerns', isComplete && 'Completion'].filter(Boolean);
     const tagErr = requiredTagError(photos, tags, required);
     if (tagErr) { setMsg({ type: 'err', text: tagErr }); return; }
@@ -77,14 +58,12 @@ export default function Log({ boot }) {
 
     const { fileIds, fileTagsMap, skipped } = await preparePhotos(photos);
     if (skipped > 0 && (hasConcerns || isComplete)) {
-      // Required photos can't silently vanish into the offline gap.
       setMsg({ type: 'err', text: 'Some photos could not upload — required photos need a connection. Try again when back online.' });
       setSubmitting(false);
       return;
     }
 
     try {
-      // Server composes the final notes (Haiku bullet cleanup with fallback).
       const photoTagCounts = {};
       for (const p of photos) {
         const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
@@ -103,29 +82,24 @@ export default function Log({ boot }) {
         },
       });
       photos.forEach((p) => { if (p.file) URL.revokeObjectURL(p.url); });
-      setPhotos([]);
-      setNotes('');
-      setHasConcerns(false);
-      setIsComplete(false);
       const photoNote = skipped > 0
         ? ` ${skipped} photo${skipped > 1 ? 's' : ''} skipped — photos need a connection, re-attach once you're back online.`
         : '';
-      if (res.queued) {
-        setMsg({ type: 'queued', text: `Log saved offline — it will sync automatically.${photoNote}` });
-      } else {
-        setMsg({ type: 'ok', text: `Log submitted.${photoNote}` });
-        loadLogs();
-      }
+      onDone(res.queued
+        ? { type: 'queued', text: `Log saved offline — it will sync automatically.${photoNote}` }
+        : { type: 'ok', text: `Log submitted.${photoNote}` });
     } catch (err) {
       setMsg({ type: 'err', text: err.message || 'Could not submit log.' });
-    } finally {
       setSubmitting(false);
     }
   }
 
   return (
     <div>
-      <Card title="Daily log">
+      <Card
+        title="New daily log"
+        action={<button type="button" className="c9-btn c9-btn-ghost c9-btn-small" onClick={onCancel}>✕ Cancel</button>}
+      >
         <form onSubmit={submit}>
           <div className="c9-field">
             <label className="c9-label" htmlFor="log-job">Job</label>
@@ -207,36 +181,147 @@ export default function Log({ boot }) {
         </form>
       </Card>
 
-      <Card title={`Logs · ${date ? fmtMonthDay(parseISODate(date)) : '—'}`}>
-        {logs === undefined && <Spinner label="Loading logs…" />}
-        {logs === null && <ErrorBanner message={logsErr} onRetry={loadLogs} />}
-        {Array.isArray(logs) && logs.length === 0 && (
-          <EmptyState icon="📋" title="No logs yet" hint="Logs you submit for this job and date show up here." />
-        )}
-        {Array.isArray(logs) && logs.map((l) => (
-          <div key={l.id} className="c9-log-item">
-            <div className="c9-log-meta">
-              <span className="c9-log-job">{l.jobName}</span>
-              {weatherChip(l.weather)}
-            </div>
-            {l.notes && <p className="c9-log-notes">{l.notes}</p>}
-            {l.files?.length > 0 && (
-              <div className="c9-log-photos">
-                {l.files.map((f) => (
-                  <img key={f.id} src={f.url} alt={f.name || 'log photo'} loading="lazy" />
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </Card>
-
       <PickerSheet
         open={pickerOpen}
         title="Select job"
         onClose={() => setPickerOpen(false)}
         options={jobs.map((j) => ({ id: j.id, label: j.name, sub: j.location }))}
         onSelect={(opt) => { setJobId(opt.id); setMsg(null); setPickerOpen(false); }}
+        emptyText="No jobs available."
+      />
+    </div>
+  );
+}
+
+// ---- Log tab: the user's daily-log feed ------------------------------------
+export default function Log({ boot }) {
+  const jobs = boot?.jobs || [];
+  const [mode, setMode] = useState('list'); // 'list' | 'new'
+
+  const [tags, setTags] = useState([]);
+  const [ccAvailable, setCcAvailable] = useState(false);
+  useEffect(() => { getFileTags().then((r) => setTags(r.tags || [])).catch(() => {}); }, []);
+  useEffect(() => { getCompanyCamStatus().then((r) => setCcAvailable(r.configured)).catch(() => {}); }, []);
+
+  const [logs, setLogs] = useState(undefined); // undefined = loading, null = error
+  const [logsErr, setLogsErr] = useState(null);
+  const [msg, setMsg] = useState(null); // post-submit confirmation
+  const [search, setSearch] = useState('');
+  const [jobFilter, setJobFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [jobPickerOpen, setJobPickerOpen] = useState(false);
+
+  const load = useCallback(() => {
+    setLogs(undefined);
+    setLogsErr(null);
+    getMyLogs({ jobId: jobFilter || undefined, date: dateFilter || undefined })
+      .then((r) => setLogs(r.logs || []))
+      .catch((e) => { setLogsErr(e.message); setLogs(null); });
+  }, [jobFilter, dateFilter]);
+
+  useEffect(() => { if (mode === 'list') load(); }, [mode, load]);
+
+  if (mode === 'new') {
+    return (
+      <LogForm
+        boot={boot}
+        tags={tags}
+        ccAvailable={ccAvailable}
+        onCancel={() => setMode('list')}
+        onDone={(m) => { setMsg(m); setMode('list'); }}
+      />
+    );
+  }
+
+  const q = search.trim().toLowerCase();
+  const visible = (logs || []).filter((l) =>
+    !q || `${l.jobName} ${l.notes ?? ''}`.toLowerCase().includes(q));
+  const jobFilterName = jobs.find((j) => j.id === jobFilter)?.name;
+
+  return (
+    <div>
+      <div className="c9-feed-toolbar">
+        <h2 className="c9-feed-title">My daily logs</h2>
+        <button type="button" className="c9-btn c9-btn-primary c9-btn-add" onClick={() => { setMsg(null); setMode('new'); }}>
+          ＋ New log
+        </button>
+      </div>
+
+      <div className="c9-feed-filters">
+        <input
+          type="search"
+          className="c9-input c9-feed-search"
+          placeholder="Search notes or jobs…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button
+          type="button"
+          className={jobFilter ? 'c9-cc-filter active' : 'c9-cc-filter'}
+          onClick={() => setJobPickerOpen(true)}
+        >
+          {jobFilterName ? jobFilterName.slice(0, 22) : 'All jobs'}
+        </button>
+        <input
+          type="date"
+          className="c9-input c9-feed-date"
+          value={dateFilter}
+          max={todayISO()}
+          onChange={(e) => setDateFilter(e.target.value)}
+        />
+        {(jobFilter || dateFilter || search) && (
+          <button
+            type="button"
+            className="c9-cc-filter"
+            onClick={() => { setJobFilter(''); setDateFilter(''); setSearch(''); }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {msg && <div className={`c9-msg c9-msg-${msg.type}`} role="status">{msg.text}</div>}
+
+      {logs === undefined && <Spinner label="Loading your logs…" />}
+      {logs === null && <ErrorBanner message={logsErr} onRetry={load} />}
+      {Array.isArray(logs) && visible.length === 0 && (
+        <Card>
+          <EmptyState
+            icon="📋"
+            title={q || jobFilter || dateFilter ? 'No logs match' : 'No logs yet'}
+            hint={q || jobFilter || dateFilter ? 'Try clearing the filters.' : 'Tap ＋ New log to write your first daily log.'}
+          />
+        </Card>
+      )}
+      {Array.isArray(logs) && visible.map((l) => (
+        <Card key={l.id}>
+          <div className="c9-log-meta">
+            <span className="c9-log-job">{l.jobName}</span>
+            <span className="c9-log-date">{fmtLogDate(l.date)}</span>
+          </div>
+          <div className="c9-log-meta">
+            {weatherChip(l.weather)}
+          </div>
+          {l.notes && <p className="c9-log-notes">{l.notes}</p>}
+          {l.files?.length > 0 && (
+            <div className="c9-log-photos">
+              {l.files.map((f) => (
+                <img key={f.id} src={f.url} alt={f.name || 'log photo'} loading="lazy" />
+              ))}
+            </div>
+          )}
+        </Card>
+      ))}
+
+      <PickerSheet
+        open={jobPickerOpen}
+        title="Filter by job"
+        onClose={() => setJobPickerOpen(false)}
+        options={[
+          { id: '', label: 'All jobs' },
+          ...jobs.map((j) => ({ id: j.id, label: j.name, sub: j.location })),
+        ]}
+        onSelect={(opt) => { setJobFilter(opt.id); setJobPickerOpen(false); }}
         emptyText="No jobs available."
       />
     </div>
