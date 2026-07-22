@@ -40,6 +40,7 @@ Registration links the employee to JobTread (required: org membership matched by
 - POST /api/time/clock-in { jobId, activity, notes?, coordinates? {lat,lng}, at? ISO } -> { entry } (409 if already open; at = tap time, sanity-bounded)
 - POST /api/time/clock-out { breakMinutes?, coordinates?, at? } -> { entry } (409 if none open)
 - GET /api/time/entries?from=ISO&to=ISO -> { entries: [] }
+- POST /api/time/location { coordinates: {lat,lng}, at? ISO } -> { ok, ping? | skipped? } (session; wake breadcrumb while clocked in — skipped if no open punch)
 
 ### Buffered time architecture
 
@@ -51,12 +52,25 @@ Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_UR
 
 ### Admin crew map (punch GPS)
 
-Admin-only Google Maps view of crew punch locations (geofences deferred). Requires `GOOGLE_MAPS_API_KEY` — see docs/GOOGLE_MAPS.md.
+Admin-only Google Maps view of crew punch locations. Requires `GOOGLE_MAPS_API_KEY` — see docs/GOOGLE_MAPS.md.
 
 - GET /api/admin/map/config -> { mapsApiKey: string | null } (admin)
-- GET /api/admin/map/pins?view=open|today -> { view, pins: [{id, punchId, kind: 'open'|'in'|'out', lat, lng, userName, userId, jobId, jobName, activity, status, at}], withoutGps, punchCount } (admin)
-  - `open` (default): one pin per open punch at clock-in GPS
-  - `today`: clock-in + clock-out pins for punches that started/ended today (local), plus any still-open punches
+- GET /api/admin/map/pins?view=open|today -> { view, pins, withoutGps, punchCount, fences: [{jobId, lat, lng, radiusM, active}] } (admin)
+  - `open` (default): one pin per open punch — last wake breadcrumb if any, else clock-in GPS
+  - `today`: clock-in + clock-out pins; open pins prefer last wake
+  - `fences`: active geofences for map circles
+
+### Geofences (silent admin log — no crew warnings)
+
+Jobs may carry `coordinates: {lat,lng}` from JobTread (or mock). First punch against a job auto-seeds an active fence (default radius 250m) when coords exist. Events are logged silently for managers.
+
+- GET /api/admin/geofences -> { geofences: [{jobId, jobName, lat, lng, radiusM, active, hasFence, jobCoordinates}] } (admin)
+- PUT /api/admin/geofences/:jobId { lat?, lng?, radiusM?, active? } -> { geofence } (admin)
+- GET /api/admin/geofence-events?status=unreviewed|reviewed -> { events: [{id, punchId, userId, userName, jobId, jobName, type, coordinates, distanceM, radiusM, status, recordedAt, reviewedAt, reviewedBy}] } (admin)
+  - types: `clock_in_outside` | `clock_out_outside` | `left_geofence` | `returned_to_geofence`
+- PATCH /api/admin/geofence-events/:id { status: 'reviewed'|'unreviewed' } -> { event } (admin)
+
+Wake pings (`POST /api/time/location`) also evaluate leave/return transitions against the open punch's job fence.
 
 - GET /api/tasks?scope=today|week&weekStart=YYYY-MM-DD -> { tasks: [Task] } (session required)
 - PATCH /api/tasks/:id { progress?, subtasks? } -> { task } (session required)

@@ -121,8 +121,59 @@ test('punchesToPins helper expands correctly', () => {
   const open = punchesToPins([{ ...punches[0], status: 'open', endedAt: null, endCoordinates: null }], 'open');
   assert.equal(open.pins.length, 1);
   assert.equal(open.pins[0].kind, 'open');
+  assert.equal(open.pins[0].source, 'clock-in');
+
+  const withWake = punchesToPins(
+    [{ ...punches[0], status: 'open', endedAt: null, endCoordinates: null }],
+    'open',
+    { p1: { coordinates: { lat: 9, lng: 8 }, recordedAt: '2026-07-22T16:00:00.000Z' } }
+  );
+  assert.equal(withWake.pins[0].lat, 9);
+  assert.equal(withWake.pins[0].source, 'wake');
 
   const today = punchesToPins(punches, 'today');
   assert.equal(today.pins.length, 2);
   assert.deepEqual(today.pins.map((p) => p.kind).sort(), ['in', 'out']);
+});
+
+test('wake location ping requires session and open punch', async () => {
+  assert.equal(
+    (await api(srv.base, '/api/time/location', {
+      method: 'POST',
+      body: { coordinates: { lat: 30.3, lng: -97.7 } },
+    })).status,
+    401
+  );
+
+  // Not clocked in → skipped (200), so offline queues won't treat it as failure.
+  const skipped = await authed('/api/time/location', {
+    method: 'POST',
+    body: { coordinates: { lat: 30.3, lng: -97.7 } },
+  });
+  assert.equal(skipped.status, 200);
+  assert.equal(skipped.json.skipped, 'not-clocked-in');
+
+  await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: {
+      jobId: 'job_riverside',
+      activity: 'Laborer',
+      coordinates: { lat: 30.25, lng: -97.75 },
+    },
+  });
+  const pinged = await authed('/api/time/location', {
+    method: 'POST',
+    body: { coordinates: { lat: 30.26, lng: -97.76 } },
+  });
+  assert.equal(pinged.status, 200);
+  assert.equal(pinged.json.ok, true);
+  assert.equal(pinged.json.ping.coordinates.lat, 30.26);
+
+  const map = await api(srv.base, '/api/admin/map/pins?view=open');
+  const pin = map.json.pins.find((p) => p.jobId === 'job_riverside');
+  assert.ok(pin);
+  assert.equal(pin.source, 'wake');
+  assert.equal(pin.lat, 30.26);
+
+  await authed('/api/time/clock-out', { method: 'POST', body: {} });
 });

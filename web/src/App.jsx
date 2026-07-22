@@ -7,6 +7,7 @@ import Admin from './screens/Admin.jsx';
 import Login from './screens/Login.jsx';
 import { getBootstrap, authMe, getToken, authLogout } from './api.js';
 import { pendingCount, subscribePending, flushQueue } from './lib/offlineQueue.js';
+import { startLocationWakePings } from './lib/locationWake.js';
 
 const TABS = [
   { id: 'clock', label: 'Clock', icon: '⏱' },
@@ -42,7 +43,12 @@ export default function App() {
     const onOnline = () => flushQueue();
     window.addEventListener('online', onOnline);
     flushQueue();
-    return () => { un(); window.removeEventListener('online', onOnline); };
+    const stopPings = startLocationWakePings();
+    return () => {
+      un();
+      window.removeEventListener('online', onOnline);
+      stopPings();
+    };
   }, [me]);
 
   async function signOut() {

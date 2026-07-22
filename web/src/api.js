@@ -56,6 +56,8 @@ export const importCompanyCamPhotos = (photoIds) => post('/api/companycam/import
 
 export const clockIn = (body) => enqueueOrSend('POST', '/api/time/clock-in', body);
 export const clockOut = (body) => enqueueOrSend('POST', '/api/time/clock-out', body);
+/** Wake breadcrumb while clocked in — live POST (skipped server-side if clocked out). */
+export const pingLocation = (body) => post('/api/time/location', body);
 export const updateTask = (id, body) => enqueueOrSend('PATCH', `/api/tasks/${id}`, body);
 export const createLog = (body) => enqueueOrSend('POST', '/api/logs', body);
 export const uploadFile = async (file) => {

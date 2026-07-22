@@ -13,6 +13,8 @@ import { wrap, qp, validateCoordinates, validatePunchTime, punchToEntry } from '
 import { registerTasks } from './routes/tasks.js';
 import { registerLogs } from './routes/logs.js';
 import { registerAdminMap } from './routes/adminMap.js';
+import { registerGeofences } from './routes/geofences.js';
+import { onClockInGeofence, onClockOutGeofence, onWakeGeofence } from './geofence.js';
 
 export function createApp(adapter, store = createStore(), { verifyGoogle = verifyGoogleIdToken } = {}) {
   const app = express();
@@ -226,6 +228,13 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       notes,
       coordinates: coordinates ?? null,
     });
+    // Silent admin log if clock-in GPS is outside the job geofence.
+    await onClockInGeofence(store, {
+      punch,
+      coordinates: coordinates ?? null,
+      job,
+      recordedAt: startedAt,
+    }).catch((e) => console.error('[geofence] clock-in eval failed', e));
     res.json({ entry: punchToEntry(punch) });
   }));
 
@@ -243,6 +252,14 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       breakMinutes: breakMinutes ?? 0,
       endCoordinates: coordinates ?? null,
     });
+    const { jobs } = await boot();
+    const job = jobs.find((j) => j.id === punch.jobId);
+    await onClockOutGeofence(store, {
+      punch,
+      coordinates: coordinates ?? null,
+      job,
+      recordedAt: endedAt,
+    }).catch((e) => console.error('[geofence] clock-out eval failed', e));
     // Auto-approved punches (budget cost item picked at clock-in) push to
     // JobTread immediately; failures stay reviewable in the dashboard.
     if (punch.status === 'approved' && punch.costItemId) {
@@ -267,6 +284,34 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     if (to !== undefined && !isValidISO(to)) throw new HttpError(400, 'to must be an ISO timestamp');
     const punches = await store.listPunches({ from, to, userId: req.employee.jtUserId });
     res.json({ entries: punches.map(punchToEntry) });
+  }));
+
+  // App-wake breadcrumb while clocked in (not continuous tracking).
+  app.post('/api/time/location', requireSession, wrap(async (req, res) => {
+    const { coordinates, at } = req.body ?? {};
+    if (!coordinates) throw new HttpError(400, 'coordinates are required');
+    validateCoordinates(coordinates);
+    const recordedAt = validatePunchTime(at);
+    const open = await store.getOpenPunch(req.employee.jtUserId);
+    if (!open) {
+      res.json({ ok: true, skipped: 'not-clocked-in' });
+      return;
+    }
+    const ping = await store.saveLocationPing({
+      punchId: open.id,
+      userId: req.employee.jtUserId,
+      coordinates,
+      recordedAt,
+    });
+    const { jobs } = await boot();
+    const job = jobs.find((j) => j.id === open.jobId);
+    await onWakeGeofence(store, {
+      punch: open,
+      coordinates,
+      recordedAt,
+      job,
+    }).catch((e) => console.error('[geofence] wake eval failed', e));
+    res.json({ ok: true, ping });
   }));
 
   // ---- admin: punch review + push to JobTread ---------------------------
@@ -398,10 +443,14 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   }));
 
   // ---- tasks + daily logs + admin map (extracted route modules) ---------
-  const routeCtx = { adapter, store, requireSession, requireAdmin, HttpError, wrap, qp, isValidDateString, composeLogNotes };
+  const routeCtx = {
+    adapter, store, requireSession, requireAdmin, HttpError, wrap, qp,
+    isValidDateString, composeLogNotes, actorOf,
+  };
   registerTasks(app, routeCtx);
   registerLogs(app, routeCtx);
   registerAdminMap(app, routeCtx);
+  registerGeofences(app, routeCtx);
 
   // ---- CompanyCam photo pull ---------------------------------------------
   const ccProjectCache = new Map(); // jobId -> {at, project}

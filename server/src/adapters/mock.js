@@ -23,6 +23,7 @@ function seed() {
       id: 'job_maplewood',
       name: 'Maplewood Kitchen Remodel',
       location: '412 Maplewood Ave, Austin, TX 78722',
+      coordinates: { lat: 30.3015, lng: -97.7105 },
       costItems: [
         { id: 'ci_mw_demo', name: 'Demolition Labor', costCode: '02-050', isTimeTrackable: true },
         { id: 'ci_mw_frame', name: 'Framing Labor', costCode: '06-100', isTimeTrackable: true },
@@ -35,6 +36,7 @@ function seed() {
       id: 'job_riverside',
       name: 'Riverside Duplex - Unit B Addition',
       location: '1810 Riverside Dr, Austin, TX 78741',
+      coordinates: { lat: 30.2405, lng: -97.7355 },
       costItems: [
         { id: 'ci_rs_found', name: 'Foundation & Flatwork Labor', costCode: '03-100', isTimeTrackable: true },
         { id: 'ci_rs_frame', name: 'Framing Labor', costCode: '06-100', isTimeTrackable: true },
@@ -46,6 +48,7 @@ function seed() {
       id: 'job_sunset',
       name: 'Sunset Plaza Office TI Buildout',
       location: '7700 Sunset Valley Blvd, Suite 200, Austin, TX 78745',
+      coordinates: { lat: 30.2155, lng: -97.8255 },
       costItems: [
         { id: 'ci_sp_drywall', name: 'Drywall Hang & Finish Labor', costCode: '09-250', isTimeTrackable: true },
         { id: 'ci_sp_paint', name: 'Paint Labor', costCode: '09-900', isTimeTrackable: true },

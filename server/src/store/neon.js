@@ -72,6 +72,35 @@ export function createNeonStore(databaseUrl) {
           active boolean not null default true,
           updated_at timestamptz not null default now()
         )`;
+        await sql`create table if not exists location_pings (
+          id uuid primary key default gen_random_uuid(),
+          punch_id uuid not null,
+          user_id text not null,
+          lat double precision not null,
+          lng double precision not null,
+          recorded_at timestamptz not null,
+          created_at timestamptz not null default now()
+        )`;
+        await sql`create index if not exists location_pings_punch_idx on location_pings(punch_id, recorded_at desc)`;
+        await sql`create table if not exists geofence_events (
+          id uuid primary key default gen_random_uuid(),
+          punch_id uuid,
+          user_id text not null,
+          user_name text not null default '',
+          job_id text not null,
+          job_name text not null default '',
+          event_type text not null,
+          lat double precision,
+          lng double precision,
+          distance_m int,
+          radius_m int,
+          status text not null default 'unreviewed',
+          reviewed_at timestamptz,
+          reviewed_by text,
+          recorded_at timestamptz not null,
+          created_at timestamptz not null default now()
+        )`;
+        await sql`create index if not exists geofence_events_status_idx on geofence_events(status, recorded_at desc)`;
         await sql`create table if not exists sync_log (
           id serial primary key,
           punch_id uuid,
@@ -281,6 +310,119 @@ export function createNeonStore(databaseUrl) {
       }));
     },
 
+    // ---- wake / last-seen location breadcrumbs ----------------------------
+    async saveLocationPing({ punchId, userId, coordinates, recordedAt }) {
+      await migrate();
+      const rows = await sql`insert into location_pings (punch_id, user_id, lat, lng, recorded_at)
+        values (${punchId}, ${userId}, ${coordinates.lat}, ${coordinates.lng}, ${recordedAt})
+        returning id, punch_id, user_id, lat, lng, recorded_at`;
+      const r = rows[0];
+      return {
+        id: r.id,
+        punchId: r.punch_id,
+        userId: r.user_id,
+        coordinates: { lat: Number(r.lat), lng: Number(r.lng) },
+        recordedAt: r.recorded_at instanceof Date ? r.recorded_at.toISOString() : r.recorded_at,
+      };
+    },
+
+    /** Latest ping per punch id (for open-crew map pins). */
+    async latestLocationPings(punchIds) {
+      await migrate();
+      const out = {};
+      for (const id of punchIds || []) {
+        const rows = await sql`select lat, lng, recorded_at from location_pings
+          where punch_id = ${id} order by recorded_at desc limit 1`;
+        if (!rows[0]) continue;
+        out[id] = {
+          coordinates: { lat: Number(rows[0].lat), lng: Number(rows[0].lng) },
+          recordedAt: rows[0].recorded_at instanceof Date
+            ? rows[0].recorded_at.toISOString()
+            : rows[0].recorded_at,
+        };
+      }
+      return out;
+    },
+
+    async previousLocationCoordinates(punchId) {
+      await migrate();
+      const rows = await sql`select lat, lng from location_pings
+        where punch_id = ${punchId} order by recorded_at desc limit 2`;
+      if (rows.length < 2) return null;
+      return { lat: Number(rows[1].lat), lng: Number(rows[1].lng) };
+    },
+
+    async getGeofence(jobId) {
+      await migrate();
+      const rows = await sql`select * from geofences where job_id = ${jobId} limit 1`;
+      return geofenceRow(rows[0]);
+    },
+
+    async listGeofences() {
+      await migrate();
+      const rows = await sql`select * from geofences order by job_id`;
+      return rows.map(geofenceRow);
+    },
+
+    async upsertGeofence({ jobId, lat, lng, radiusM = 250, active = true }) {
+      await migrate();
+      const rows = await sql`
+        insert into geofences (job_id, lat, lng, radius_m, active, updated_at)
+        values (${jobId}, ${lat}, ${lng}, ${radiusM}, ${active}, now())
+        on conflict (job_id) do update set
+          lat = coalesce(${lat}, geofences.lat),
+          lng = coalesce(${lng}, geofences.lng),
+          radius_m = coalesce(${radiusM}, geofences.radius_m),
+          active = coalesce(${active}, geofences.active),
+          updated_at = now()
+        returning *`;
+      return geofenceRow(rows[0]);
+    },
+
+    async createGeofenceEvent(e) {
+      await migrate();
+      const rows = await sql`insert into geofence_events
+        (punch_id, user_id, user_name, job_id, job_name, event_type, lat, lng, distance_m, radius_m, status, recorded_at)
+        values (${e.punchId}, ${e.userId}, ${e.userName ?? ''}, ${e.jobId}, ${e.jobName ?? ''},
+                ${e.type}, ${e.coordinates?.lat ?? null}, ${e.coordinates?.lng ?? null},
+                ${e.distanceM ?? null}, ${e.radiusM ?? null}, ${e.status || 'unreviewed'}, ${e.recordedAt})
+        returning *`;
+      return geofenceEventRow(rows[0]);
+    },
+
+    async listGeofenceEvents({ status } = {}) {
+      await migrate();
+      const rows = await sql`select * from geofence_events
+        where (${status ?? null}::text is null or status = ${status ?? null})
+        order by recorded_at desc
+        limit 500`;
+      return rows.map(geofenceEventRow);
+    },
+
+    async latestGeofenceEvent(punchId) {
+      await migrate();
+      const rows = await sql`select * from geofence_events
+        where punch_id = ${punchId} order by recorded_at desc limit 1`;
+      return geofenceEventRow(rows[0]);
+    },
+
+    async updateGeofenceEventStatus(id, { status, reviewedBy }) {
+      await migrate();
+      if (status !== 'reviewed' && status !== 'unreviewed') {
+        throw new HttpError(400, "status must be 'reviewed' or 'unreviewed'");
+      }
+      const reviewedAt = status === 'reviewed' ? new Date().toISOString() : null;
+      const by = status === 'reviewed' ? (reviewedBy || null) : null;
+      const rows = await sql`update geofence_events set
+          status = ${status},
+          reviewed_at = ${reviewedAt},
+          reviewed_by = ${by}
+        where id = ${id}
+        returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Geofence event not found');
+      return geofenceEventRow(rows[0]);
+    },
+
     // ---- employees & sessions -------------------------------------------
     async getEmployeeByEmail(email) {
       await migrate();
@@ -357,5 +499,38 @@ function employeeRow(r) {
     ccUserName: r.cc_user_name,
     role: r.role,
     isActive: r.is_active,
+  };
+}
+
+function geofenceRow(r) {
+  if (!r) return null;
+  return {
+    jobId: r.job_id,
+    lat: r.lat != null ? Number(r.lat) : null,
+    lng: r.lng != null ? Number(r.lng) : null,
+    radiusM: r.radius_m,
+    active: r.active,
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : r.updated_at,
+  };
+}
+
+function geofenceEventRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    punchId: r.punch_id,
+    userId: r.user_id,
+    userName: r.user_name,
+    jobId: r.job_id,
+    jobName: r.job_name,
+    type: r.event_type,
+    coordinates: r.lat != null ? { lat: Number(r.lat), lng: Number(r.lng) } : null,
+    distanceM: r.distance_m,
+    radiusM: r.radius_m,
+    status: r.status,
+    reviewedAt: r.reviewed_at instanceof Date ? r.reviewed_at.toISOString() : r.reviewed_at,
+    reviewedBy: r.reviewed_by,
+    recordedAt: r.recorded_at instanceof Date ? r.recorded_at.toISOString() : r.recorded_at,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
   };
 }

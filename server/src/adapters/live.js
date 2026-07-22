@@ -294,7 +294,7 @@ export function createLiveAdapter({
               id: {},
               number: {},
               name: {},
-              location: { id: {}, formattedAddress: {} },
+              location: { id: {}, formattedAddress: {}, latitude: {}, longitude: {} },
             },
           },
         },
@@ -308,6 +308,9 @@ export function createLiveAdapter({
         name: jobLabel(j),
         rawName: j.name, // unprefixed, for CompanyCam project matching
         location: j.location?.formattedAddress ?? '',
+        coordinates: (typeof j.location?.latitude === 'number' && typeof j.location?.longitude === 'number')
+          ? { lat: j.location.latitude, lng: j.location.longitude }
+          : null,
       }));
       const types = await timeEntryTypeNames();
       return { user, jobs, timeEntryTypes: types.length ? types : ['Standard'] };
