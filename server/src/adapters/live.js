@@ -238,6 +238,23 @@ export function createLiveAdapter({
     return cachedEmployeeLaborTypeId;
   }
 
+  // "Internal Notes" custom field on daily logs — the crew's original,
+  // pre-cleanup words land there. Cached per instance.
+  let cachedInternalNotesFieldId;
+  async function internalNotesFieldId() {
+    if (cachedInternalNotesFieldId !== undefined) return cachedInternalNotesFieldId;
+    const data = await pave({
+      organization: {
+        $: { id: organizationId },
+        id: {},
+        customFields: { $: { size: 100 }, nodes: { id: {}, name: {}, targetType: {} } },
+      },
+    });
+    cachedInternalNotesFieldId = (data?.organization?.customFields?.nodes ?? [])
+      .find((f) => f.targetType === 'dailyLog' && f.name === 'Internal Notes')?.id ?? null;
+    return cachedInternalNotesFieldId;
+  }
+
   // createTimeEntry requires a non-null `type` matching one of the user's
   // membership timeEntryTypes (e.g. "Standard", "Overtime"). Cached per instance.
   let cachedTypeNames = null;
@@ -624,10 +641,17 @@ export function createLiveAdapter({
       return (data?.organization?.dailyLogs?.nodes ?? []).map(mapLog);
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {} }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes }) {
+      const cfId = internalNotes ? await internalNotesFieldId() : null;
       const data = await pave({
         createDailyLog: {
-          $: { jobId, date: date || todayString(), notes: notes ?? '', files: [] },
+          $: {
+            jobId,
+            date: date || todayString(),
+            notes: notes ?? '',
+            files: [],
+            ...(cfId ? { customFieldValues: { [cfId]: internalNotes } } : {}),
+          },
           createdDailyLog: logFields,
         },
       });

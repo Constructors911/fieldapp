@@ -87,6 +87,20 @@ test('original pre-compose text is preserved and retrievable by admins', async (
   assert.ok(json.records[0].jtLogId);
 });
 
+test('original crew text also lands in the JT Internal Notes field', async () => {
+  const { status, json } = await api(srv.base, '/api/logs', {
+    method: 'POST',
+    body: {
+      jobId: 'job_riverside',
+      date: '2026-01-18',
+      compose: { done: 'set trusses', needed: 'sheath roof' },
+    },
+  });
+  assert.equal(status, 200);
+  assert.match(json.log.internalNotes, /Done: set trusses/);
+  assert.match(json.log.internalNotes, /Needed: sheath roof/);
+});
+
 test('CompanyCam endpoints degrade cleanly when unconfigured', async () => {
   const status = await api(srv.base, '/api/companycam/status');
   assert.equal(status.json.configured, false);

@@ -598,6 +598,14 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       notes = await composeLogNotes(compose);
     }
     const composedNotes = notes;
+    // The crew's original words also land in JT's "Internal Notes" custom field.
+    const internalNotes = compose !== undefined
+      ? [
+        compose.done && `Done: ${compose.done}`,
+        compose.needed && `Needed: ${compose.needed}`,
+        compose.notes,
+      ].filter(Boolean).join('\n\n') || undefined
+      : undefined;
     if (date !== undefined && date !== null && date !== '' && !isValidDateString(date)) {
       throw new HttpError(400, 'date must be YYYY-MM-DD');
     }
@@ -614,7 +622,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
         throw new HttpError(400, 'fileTags must map fileId to an array of tag ids');
       }
     }
-    const log = await adapter.createLog({ jobId, date: date || undefined, notes, fileIds, fileTags: fileTags ?? {} });
+    const log = await adapter.createLog({ jobId, date: date || undefined, notes, fileIds, fileTags: fileTags ?? {}, internalNotes });
     // Preserve the crew's ORIGINAL words (pre-Haiku) alongside the composed
     // version — JT gets the clean log, nothing the crew wrote is lost.
     if (compose !== undefined) {

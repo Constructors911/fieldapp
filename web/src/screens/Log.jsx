@@ -5,7 +5,7 @@ import Spinner from '../components/Spinner.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
-import PhotoAttach, { requiredTagError, preparePhotos } from '../components/PhotoAttach.jsx';
+import PhotoAttach, { preparePhotos } from '../components/PhotoAttach.jsx';
 import { todayISO, parseISODate, fmtMonthDay, fmtDayShort } from '../lib/dates.js';
 import '../lib/screens.css';
 
@@ -36,6 +36,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
   const [hasConcerns, setHasConcerns] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [photoReminderShown, setPhotoReminderShown] = useState(false);
   const [msg, setMsg] = useState(null); // errors stay here; success reports via onDone
 
   const job = jobs.find((j) => j.id === jobId) || null;
@@ -49,19 +50,17 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
       setMsg({ type: 'err', text: 'Add some notes or a photo before submitting.' });
       return;
     }
-    const required = [hasConcerns && 'Concerns', isComplete && 'Completion'].filter(Boolean);
-    const tagErr = requiredTagError(photos, tags, required);
-    if (tagErr) { setMsg({ type: 'err', text: tagErr }); return; }
+    // Photos aren't mandatory — but remind once before an all-text log goes out.
+    if (photos.length === 0 && !photoReminderShown) {
+      setPhotoReminderShown(true);
+      setMsg({ type: 'queued', text: '📸 Don’t forget relevant photos — Before, During, After, Concerns. Add them now, or tap "Save log" to submit without.' });
+      return;
+    }
 
     setSubmitting(true);
     setMsg(null);
 
     const { fileIds, fileTagsMap, skipped } = await preparePhotos(photos);
-    if (skipped > 0 && (hasConcerns || isComplete)) {
-      setMsg({ type: 'err', text: 'Some photos could not upload — required photos need a connection. Try again when back online.' });
-      setSubmitting(false);
-      return;
-    }
 
     try {
       const photoTagCounts = {};
@@ -157,7 +156,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
           </div>
           {(hasConcerns || isComplete) && (
             <p className="c9-check-hint">
-              Photos tagged {[hasConcerns && '"Concerns"', isComplete && '"Completion"'].filter(Boolean).join(' and ')} are required.
+              Remember photos tagged {[hasConcerns && '"Concerns"', isComplete && '"Completion"'].filter(Boolean).join(' and ')}.
             </p>
           )}
 
@@ -176,7 +175,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
           {msg && <div className={`c9-msg c9-msg-${msg.type}`} role="status">{msg.text}</div>}
 
           <button type="submit" className="c9-btn c9-btn-primary" disabled={submitting || !jobId}>
-            {submitting ? 'Submitting…' : 'Submit log'}
+            {submitting ? 'Submitting…' : (photoReminderShown && photos.length === 0 ? 'Save log' : 'Submit log')}
           </button>
         </form>
       </Card>

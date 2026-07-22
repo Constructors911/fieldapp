@@ -333,7 +333,7 @@ export function createMockAdapter() {
       return logs.sort((a, b) => b.date.localeCompare(a.date));
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {} }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes }) {
       const job = findJob(jobId);
       if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
       const files = fileIds.map((fid) => {
@@ -347,6 +347,7 @@ export function createMockAdapter() {
         jobName: job.name,
         date: date || todayString(),
         notes: typeof notes === 'string' ? notes : '',
+        internalNotes: internalNotes ?? undefined, // mirrors JT's Internal Notes custom field
         weather: weatherFor(date || todayString()),
         files,
       };

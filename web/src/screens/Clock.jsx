@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getLogs, createLog, getFileTags, getCompanyCamStatus, getTasks, updateTask, clockIn, clockOut } from '../api.js';
-import PhotoAttach, { requiredTagError, preparePhotos } from '../components/PhotoAttach.jsx';
+import PhotoAttach, { preparePhotos } from '../components/PhotoAttach.jsx';
 import Checkbox from '../components/Checkbox.jsx';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
@@ -91,6 +91,7 @@ export default function Clock({ boot }) {
   const [outComplete, setOutComplete] = useState(false);
   const [outTasks, setOutTasks] = useState(undefined); // undefined idle, null loading
   const [checkedNames, setCheckedNames] = useState(() => new Set());
+  const [photoReminderShown, setPhotoReminderShown] = useState(false);
   const [tags, setTags] = useState([]);
   const [ccAvailable, setCcAvailable] = useState(false);
   useEffect(() => { getFileTags().then((r) => setTags(r.tags || [])).catch(() => {}); }, []);
@@ -202,6 +203,7 @@ export default function Clock({ boot }) {
     setOutComplete(false);
     setOutTasks(undefined);
     setCheckedNames(new Set());
+    setPhotoReminderShown(false);
   }
 
   function startClockIn() {
@@ -265,23 +267,16 @@ export default function Clock({ boot }) {
       setActionErr('Write a quick note about what got done today before clocking out.');
       return;
     }
-    if (needsLog) {
-      // Before/During/After are always required on the end-of-day log;
-      // Concerns/Completion join when their boxes are checked.
-      const required = ['Before', 'During', 'After',
-        outConcerns && 'Concerns', outComplete && 'Completion'].filter(Boolean);
-      const tagErr = requiredTagError(outPhotos, tags, required);
-      if (tagErr) { setActionErr(tagErr); return; }
+    // Photos aren't mandatory — but remind once before an all-text log goes out.
+    if (needsLog && outPhotos.length === 0 && !photoReminderShown) {
+      setPhotoReminderShown(true);
+      setActionErr('📸 Don’t forget relevant photos — Before, During, After, Concerns. Add them now, or tap "Save & close" to record the log and your time.');
+      return;
     }
     setBusy(true);
     setActionErr(null);
     if (needsLog) {
       const { fileIds, fileTagsMap, skipped } = await preparePhotos(outPhotos);
-      if (skipped > 0) {
-        setActionErr('Some photos could not upload — the required photos need a connection.');
-        setBusy(false);
-        return;
-      }
       const photoTagCounts = {};
       for (const p of outPhotos) {
         const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
@@ -533,7 +528,7 @@ export default function Clock({ boot }) {
         {outMode === 'done' && logExists === false && (
           <>
             <p className="clk-logreq">
-              A daily log is required before you leave — including <strong>Before</strong>, <strong>During</strong> and <strong>After</strong> photos.
+              A quick daily log is required before you leave. Photos help: Before, During, After, Concerns.
             </p>
 
             {outTasks === null && <Spinner label="Loading today's tasks…" />}
@@ -597,7 +592,7 @@ export default function Clock({ boot }) {
             </div>
             {(outConcerns || outComplete) && (
               <p className="c9-check-hint">
-                Photos tagged {[outConcerns && '"Concerns"', outComplete && '"Completion"'].filter(Boolean).join(' and ')} are required.
+                Remember photos tagged {[outConcerns && '"Concerns"', outComplete && '"Completion"'].filter(Boolean).join(' and ')}.
               </p>
             )}
             <PhotoAttach
