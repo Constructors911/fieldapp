@@ -12,6 +12,7 @@ import { createCompanyCam } from './connectors/companycam.js';
 import { wrap, qp, validateCoordinates, validatePunchTime, punchToEntry } from './httpUtil.js';
 import { registerTasks } from './routes/tasks.js';
 import { registerLogs } from './routes/logs.js';
+import { registerAdminMap } from './routes/adminMap.js';
 
 export function createApp(adapter, store = createStore(), { verifyGoogle = verifyGoogleIdToken } = {}) {
   const app = express();
@@ -396,10 +397,11 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ results });
   }));
 
-  // ---- tasks + daily logs (extracted route modules) ---------------------
-  const routeCtx = { adapter, store, requireSession, HttpError, wrap, qp, isValidDateString, composeLogNotes };
+  // ---- tasks + daily logs + admin map (extracted route modules) ---------
+  const routeCtx = { adapter, store, requireSession, requireAdmin, HttpError, wrap, qp, isValidDateString, composeLogNotes };
   registerTasks(app, routeCtx);
   registerLogs(app, routeCtx);
+  registerAdminMap(app, routeCtx);
 
   // ---- CompanyCam photo pull ---------------------------------------------
   const ccProjectCache = new Map(); // jobId -> {at, project}

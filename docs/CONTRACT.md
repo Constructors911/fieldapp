@@ -48,6 +48,16 @@ Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_UR
 - GET /api/admin/punches?status=open|pending|pushed|error -> { punches } (admin)
 - PATCH /api/admin/punches/:id { costItemId?, costItemName?, activity?, entryType?, startedAt?, endedAt?, breakMinutes?, notes? } -> { punch } (admin; pushed punches immutable)
 - POST /api/admin/punches/push { ids: [] } -> { results: [{id, ok, jtTimeEntryId? | error?}] } (admin)
+
+### Admin crew map (punch GPS)
+
+Admin-only Google Maps view of crew punch locations (geofences deferred). Requires `GOOGLE_MAPS_API_KEY` — see docs/GOOGLE_MAPS.md.
+
+- GET /api/admin/map/config -> { mapsApiKey: string | null } (admin)
+- GET /api/admin/map/pins?view=open|today -> { view, pins: [{id, punchId, kind: 'open'|'in'|'out', lat, lng, userName, userId, jobId, jobName, activity, status, at}], withoutGps, punchCount } (admin)
+  - `open` (default): one pin per open punch at clock-in GPS
+  - `today`: clock-in + clock-out pins for punches that started/ended today (local), plus any still-open punches
+
 - GET /api/tasks?scope=today|week&weekStart=YYYY-MM-DD -> { tasks: [Task] } (session required)
 - PATCH /api/tasks/:id { progress?, subtasks? } -> { task } (session required)
 - GET /api/file-tags -> { tags: [] } (session required; JobTread org tag list for photo tagging)
@@ -64,9 +74,9 @@ Log: { id, jobId, jobName, date, notes, weather?: {condition, minTemp, maxTemp},
 ## Server layout (internal)
 
 `server/src/app.js` wires up auth, time/punch, admin, companycam, bootstrap, and webhook
-routes directly. Tasks and daily logs/uploads (the two session-gated route groups) are
-split into `server/src/routes/tasks.js` and `server/src/routes/logs.js`, each exporting a
-`register*(app, ctx)` function; `ctx` carries `{ adapter, store, requireSession, HttpError,
+routes directly. Tasks, daily logs/uploads, and the admin crew map are split into
+`server/src/routes/tasks.js`, `logs.js`, and `adminMap.js`, each exporting a
+`register*(app, ctx)` function; `ctx` carries `{ adapter, store, requireSession, requireAdmin, HttpError,
 wrap, qp, isValidDateString, composeLogNotes }`. Shared request helpers (`wrap`, `qp`,
 `validateCoordinates`, `validatePunchTime`, `punchToEntry`) live in `server/src/httpUtil.js`.
 

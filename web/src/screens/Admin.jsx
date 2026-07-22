@@ -4,6 +4,7 @@ import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import { getJobCostItems, getActivities } from '../api.js';
+import AdminMap from './AdminMap.jsx';
 import './admin.css';
 
 const KEY_STORAGE = 'c911_admin_key';
@@ -169,6 +170,7 @@ function SignIn({ onAuthed }) {
 export default function Admin() {
   const [authed, setAuthed] = useState(() =>
     Boolean(localStorage.getItem(SESSION_STORAGE) || localStorage.getItem(KEY_STORAGE)));
+  const [section, setSection] = useState('review'); // 'review' | 'map'
   const [tab, setTab] = useState('pending');
   const [userFilter, setUserFilter] = useState('');
   const [punches, setPunches] = useState(undefined);
@@ -216,7 +218,7 @@ export default function Admin() {
     }
   }, [tab, signOut]);
 
-  useEffect(() => { if (authed) { setPushResults(null); load(); } }, [authed, load]);
+  useEffect(() => { if (authed && section === 'review') { setPushResults(null); load(); } }, [authed, section, load]);
 
   // Inline mapping: saves immediately on dropdown change. Two kinds of value:
   //   "<costItemId>"  -> map to an existing budget line
@@ -358,22 +360,50 @@ export default function Admin() {
   return (
     <div className="adm-wrap adm-wide">
       <div className="adm-toolbar">
-        <h1 className="adm-title">Time review</h1>
-        <div className="adm-tabs">
-          {STATUS_TABS.map((t) => (
-            <button key={t} type="button" className={tab === t ? 'adm-tab active' : 'adm-tab'} onClick={() => setTab(t)}>
-              {t}
-            </button>
-          ))}
+        <h1 className="adm-title">{section === 'map' ? 'Crew map' : 'Time review'}</h1>
+        <div className="adm-sections" role="tablist" aria-label="Admin sections">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'review'}
+            className={section === 'review' ? 'adm-section active' : 'adm-section'}
+            onClick={() => setSection('review')}
+          >
+            Time review
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'map'}
+            className={section === 'map' ? 'adm-section active' : 'adm-section'}
+            onClick={() => setSection('map')}
+          >
+            Crew map
+          </button>
         </div>
-        <select className="adm-select adm-userfilter" value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
-          <option value="">All crew</option>
-          {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-        </select>
-        <button type="button" className="tdy-refresh" onClick={load}>↻</button>
+        {section === 'review' && (
+          <>
+            <div className="adm-tabs">
+              {STATUS_TABS.map((t) => (
+                <button key={t} type="button" className={tab === t ? 'adm-tab active' : 'adm-tab'} onClick={() => setTab(t)}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            <select className="adm-select adm-userfilter" value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+              <option value="">All crew</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+            <button type="button" className="tdy-refresh" onClick={load}>↻</button>
+          </>
+        )}
         <button type="button" className="adm-linklike" onClick={signOut}>Sign out</button>
       </div>
 
+      {section === 'map' ? (
+        <AdminMap adminFetch={adminFetch} />
+      ) : (
+      <>
       <ErrorBanner message={err} onDismiss={() => setErr(null)} />
 
       {pushResults && (
@@ -556,6 +586,8 @@ export default function Admin() {
             {busy ? 'Pushing…' : `Approve & push ${selected.size || ''} to JobTread`}
           </button>
         </div>
+      )}
+      </>
       )}
     </div>
   );
