@@ -19,11 +19,15 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
   background: var(--navy); color: #fff; padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top)); }
 .brand { font-weight: 700; letter-spacing: 0.5px; }
 .brand-logo { height: 36px; width: auto; display: block; }
-.badge { background: var(--orange); color: #fff; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600;
-  position: absolute; right: 16px; top: 50%; transform: translateY(-50%); }
+.badge { background: var(--orange); color: #fff; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
 .topbar-btn { position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
   min-width: var(--tap); min-height: var(--tap); border: 0; background: none; cursor: pointer;
   color: rgba(255, 255, 255, 0.8); font-size: 17px; font-weight: 600; }
+.topbar-btn-right { left: auto; right: 8px; }
+.topbar-right { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; gap: 6px; }
+.topbar-right .badge { position: static; transform: none; }
+.topbar-right .topbar-btn { position: static; transform: none; }
 /* Crew app is phone/tablet-first: fills small screens, centered column on desktop. */
 .screen { flex: 1; padding: 16px; padding-bottom: 84px; max-width: 768px; width: 100%; margin: 0 auto; }
 .tabbar { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: var(--card);

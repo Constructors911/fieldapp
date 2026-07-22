@@ -28,11 +28,12 @@ Mobile-first PWA for field crews. Users are paid JobTread internal users. Mock P
 - GET /api/jobs/:jobId/cost-items -> { costItems: [{id, name, costCode, isTimeTrackable: true}] } (time-trackable only; 404 unknown job)
 ### Employee auth (sessions)
 
-Registration links the employee to JobTread (required: org membership matched by email -> jt_user_id) and CompanyCam (best-effort: cc_user_id for per-user photo filtering later). Sessions are 30-day tokens sent as x-session-token; punch endpoints require one. PIN is 4-8 digits, scrypt-hashed. No PIN reset flow yet (manager deletes the employees row to re-register).
+Registration links the employee to JobTread (required: org membership matched by email -> jt_user_id) and CompanyCam (best-effort: cc_user_id for per-user photo filtering later). Sessions are 30-day tokens sent as x-session-token; punch/task/log/upload endpoints require one (401 without a valid token). PIN is 4-8 digits, scrypt-hashed. No PIN reset flow yet (manager deletes the employees row to re-register). `employee.canAccessAdmin` reflects the Google-allowlisted admin emails (ADMIN_EMAILS), independent of the ADMIN_KEY fallback — the web app uses it to decide whether to show the Admin tab.
 
 - POST /api/auth/register { email, pin, name? } -> { token, employee } (404 if email not in JT org; 409 if already registered)
 - POST /api/auth/login { email, pin } -> { token, employee }
 - GET /api/auth/me -> { employee } (401 without valid session)
+- POST /api/auth/logout -> { ok: true } (best-effort session revoke; client always clears its local token)
 
 - GET /api/activities -> { activities: [string] } (standard labor list crews punch against)
 - GET /api/time/current -> { entry: TimeEntry | null }
@@ -47,16 +48,27 @@ Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_UR
 - GET /api/admin/punches?status=open|pending|pushed|error -> { punches } (admin)
 - PATCH /api/admin/punches/:id { costItemId?, costItemName?, activity?, entryType?, startedAt?, endedAt?, breakMinutes?, notes? } -> { punch } (admin; pushed punches immutable)
 - POST /api/admin/punches/push { ids: [] } -> { results: [{id, ok, jtTimeEntryId? | error?}] } (admin)
-- GET /api/tasks?scope=today|week&weekStart=YYYY-MM-DD -> { tasks: [Task] }
-- PATCH /api/tasks/:id { progress?, subtasks? } -> { task }
-- GET /api/logs?date=YYYY-MM-DD&jobId= -> { logs: [] }
-- POST /api/logs { jobId, date, notes, fileIds? [] } -> { log }
-- POST /api/uploads multipart form (file) -> { fileId, url } (mock stores to disk/memory)
+- GET /api/tasks?scope=today|week&weekStart=YYYY-MM-DD -> { tasks: [Task] } (session required)
+- PATCH /api/tasks/:id { progress?, subtasks? } -> { task } (session required)
+- GET /api/file-tags -> { tags: [] } (session required; JobTread org tag list for photo tagging)
+- GET /api/logs?date=YYYY-MM-DD&jobId= -> { logs: [] } (session required)
+- POST /api/logs { jobId, date, notes, fileIds? [] } -> { log } (session required)
+- POST /api/uploads multipart form (file) -> { fileId, url } (session required; mock stores to disk/memory)
+- GET /uploads/:id, GET /api/uploads/:id -> serves the stored upload bytes/redirect (no session — plain image src)
 - POST /api/webhooks/jt?secret= -> 200 immediately, logs event (mock)
 
 TimeEntry: { id, jobId, jobName, costItemId, costItemName, startedAt, endedAt, minutes, notes, coordinates }
 Task: { id, jobId, jobName, name, description, isToDo, progress, startDate, endDate, startTime, endTime, subtasks: [{id, name, isComplete}] }
 Log: { id, jobId, jobName, date, notes, weather?: {condition, minTemp, maxTemp}, files: [{id, url, name}] }
+
+## Server layout (internal)
+
+`server/src/app.js` wires up auth, time/punch, admin, companycam, bootstrap, and webhook
+routes directly. Tasks and daily logs/uploads (the two session-gated route groups) are
+split into `server/src/routes/tasks.js` and `server/src/routes/logs.js`, each exporting a
+`register*(app, ctx)` function; `ctx` carries `{ adapter, store, requireSession, HttpError,
+wrap, qp, isValidDateString, composeLogNotes }`. Shared request helpers (`wrap`, `qp`,
+`validateCoordinates`, `validatePunchTime`, `punchToEntry`) live in `server/src/httpUtil.js`.
 
 ## Pave mapping (server internal — Agent A)
 

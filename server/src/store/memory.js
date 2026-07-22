@@ -171,6 +171,10 @@ export function createMemoryStore() {
       return e ? { ...e } : null;
     },
 
+    async deleteSession(token) {
+      sessions.delete(token);
+    },
+
     async listEmployees() {
       return employees.map((e) => ({ ...e }));
     },

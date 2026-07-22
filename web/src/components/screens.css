@@ -208,3 +208,183 @@
   margin: 4px 0 0;
   white-space: pre-wrap;
 }
+
+/* ---- Log / Week / Photos (unified) ---- */
+
+.c-msg { border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+.c-msg-ok { background: #e7f5ec; color: var(--green); }
+.c-msg-queued { background: #fdf0e5; color: #a35315; }
+.c-msg-err { background: #fbeaea; color: var(--red); }
+
+.c-cc-empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+
+/* --- photo attach --- */
+.c-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.c-thumb { position: relative; width: 72px; height: 72px; }
+.c-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #dde3e8;
+  display: block;
+}
+.c-thumb-x {
+  position: absolute;
+  top: -10px; right: -10px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--red);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow);
+  /* visually 28px but with a generous hit area */
+  padding: 0;
+}
+.c-thumb-x::after { content: ''; position: absolute; inset: -8px; }
+
+/* --- log feed (Log tab) --- */
+.c-feed-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.c-feed-title { margin: 0; font-size: 18px; font-weight: 800; color: var(--navy); }
+.c-feed-filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.c-feed-search { flex: 1 1 160px; min-width: 140px; }
+.c-feed-date { flex: 0 1 150px; min-width: 130px; }
+.c-log-date { font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+/* --- concerns / complete checkboxes --- */
+.c-checkrow { display: flex; gap: 18px; flex-wrap: wrap; }
+.c-check {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 15px; font-weight: 600; color: var(--text);
+  min-height: var(--tap); cursor: pointer;
+}
+.c-check input { width: 20px; height: 20px; accent-color: var(--orange); }
+.c-check-hint { color: var(--muted); font-size: 13px; margin: -6px 0 12px; }
+
+/* --- photo tags + CompanyCam --- */
+.c-photo-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.c-thumb-wrap { display: flex; flex-direction: column; gap: 4px; width: 88px; }
+.c-thumb-wrap .c-thumb { width: 88px; height: 88px; }
+.c-tag-select {
+  width: 100%; min-height: 30px; font-size: 12px; padding: 2px 4px;
+  border: 1px solid #cfd6dd; border-radius: 6px; background: #fff; color: var(--text);
+}
+.c-thumb-cc {
+  position: absolute; bottom: 4px; left: 4px; background: var(--navy); color: #fff;
+  font-size: 10px; font-weight: 700; border-radius: 4px; padding: 1px 5px;
+}
+.c-cc-toolbar { display: flex; gap: 6px; margin-bottom: 10px; }
+.c-cc-filter {
+  min-height: 36px; padding: 0 14px; border: 1px solid #cfd6dd; background: #fff;
+  color: var(--muted); border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.c-cc-filter.active { background: var(--navy); border-color: var(--navy); color: #fff; }
+.c-cc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.c-cc-photo {
+  position: relative; border: 2px solid transparent; border-radius: 8px; padding: 0;
+  background: none; cursor: pointer; aspect-ratio: 1; overflow: hidden;
+}
+.c-cc-photo img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; display: block; }
+.c-cc-photo.selected { border-color: var(--orange); }
+.c-cc-check {
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--orange); color: #fff; font-size: 13px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* --- existing logs --- */
+.c-log-item { border-top: 1px solid #edf0f3; padding: 12px 0; }
+.c-log-item:first-of-type { border-top: 0; padding-top: 4px; }
+.c-log-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.c-log-job { font-weight: 600; font-size: 14px; }
+.c-log-weather { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.c-log-notes { font-size: 15px; white-space: pre-wrap; word-break: break-word; margin: 4px 0; }
+.c-log-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.c-log-photos img {
+  width: 64px; height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #dde3e8;
+}
+
+/* --- week --- */
+.c-week-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.c-week-nav .c-week-title { text-align: center; flex: 1; min-width: 0; }
+.c-week-range { font-weight: 700; font-size: 16px; display: block; }
+.c-week-this {
+  background: none; border: 0; padding: 4px 8px; min-height: 32px;
+  color: var(--orange); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.c-day { margin-bottom: 10px; }
+.c-day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.c-day.is-today .c-day-head {
+  background: var(--navy);
+  color: #fff;
+}
+.c-day.is-today .c-day-head .c-day-badge {
+  background: var(--orange);
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  margin-left: auto;
+}
+.c-day-empty { color: var(--muted); font-size: 13px; padding: 2px 10px 0; }
+.c-task {
+  background: var(--card);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  margin: 6px 0 0;
+  border-left: 3px solid var(--navy);
+}
+.c-day.is-today .c-task { border-left-color: var(--orange); }
+.c-task-job { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+.c-task-name { font-size: 15px; font-weight: 600; margin: 2px 0; }
+.c-task.is-done .c-task-name { text-decoration: line-through; color: var(--muted); }
+.c-task-time { font-size: 13px; color: var(--muted); }
+.c-task-todo {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--orange);
+  border: 1px solid var(--orange);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* --- job picker trigger (Log) --- */
+.c-jobbtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.c-jobbtn-text { display: flex; flex-direction: column; min-width: 0; }
+.c-jobbtn-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-jobbtn-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-jobbtn-placeholder { color: var(--muted); }
+
+.c-task-donemark { color: var(--green); font-weight: 600; }

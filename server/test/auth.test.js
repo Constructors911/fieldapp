@@ -75,6 +75,47 @@ test('punch endpoints require a session (401 without token)', async () => {
   );
 });
 
+test('logout revokes the session token', async () => {
+  const { json: login } = await api(srv.base, '/api/auth/login', {
+    method: 'POST',
+    body: { email: 'crew@constructors911.com', pin: '4321' },
+  });
+  const headers = { 'x-session-token': login.token };
+  assert.equal((await api(srv.base, '/api/auth/me', { headers })).status, 200);
+  assert.equal((await api(srv.base, '/api/auth/logout', { method: 'POST', headers })).status, 200);
+  assert.equal((await api(srv.base, '/api/auth/me', { headers })).status, 401);
+});
+
+test('canAccessAdmin follows ADMIN_EMAILS allowlist', async () => {
+  process.env.ADMIN_EMAILS = 'david@constructors911.com';
+  try {
+    const crew = await api(srv.base, '/api/auth/login', {
+      method: 'POST',
+      body: { email: 'crew@constructors911.com', pin: '4321' },
+    });
+    const crewMe = await api(srv.base, '/api/auth/me', {
+      headers: { 'x-session-token': crew.json.token },
+    });
+    assert.equal(crewMe.json.employee.canAccessAdmin, false);
+
+    const reg = await api(srv.base, '/api/auth/register', {
+      method: 'POST',
+      body: { email: 'david@constructors911.com', pin: '1234' },
+    });
+    const token = reg.status === 200 ? reg.json.token
+      : (await api(srv.base, '/api/auth/login', {
+        method: 'POST',
+        body: { email: 'david@constructors911.com', pin: '1234' },
+      })).json.token;
+    const adminMe = await api(srv.base, '/api/auth/me', {
+      headers: { 'x-session-token': token },
+    });
+    assert.equal(adminMe.json.employee.canAccessAdmin, true);
+  } finally {
+    delete process.env.ADMIN_EMAILS;
+  }
+});
+
 test('punches are attributed to the signed-in employee', async () => {
   const { json: reg } = await api(srv.base, '/api/auth/login', {
     method: 'POST',

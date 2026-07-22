@@ -6,7 +6,7 @@ import {
   startOfWeek, addDays, toISODate, todayISO,
   fmtDayShort, fmtMonthDay, fmtTimeRange, dateOnly
 } from '../lib/dates.js';
-import '../lib/screens.css';
+import '../components/screens.css';
 
 function byStartTime(a, b) {
   return (a.startTime || '99:99').localeCompare(b.startTime || '99:99') || a.name.localeCompare(b.name);
@@ -54,26 +54,26 @@ export default function Week() {
 
   return (
     <div>
-      <div className="c9-week-nav">
+      <div className="c-week-nav">
         <button
           type="button"
-          className="c9-btn c9-btn-ghost"
+          className="c-btn c-btn-ghost"
           aria-label="Previous week"
           onClick={() => setWeekStart((w) => addDays(w, -7))}
         >
           ‹
         </button>
-        <div className="c9-week-title">
-          <span className="c9-week-range">{fmtMonthDay(days[0])} – {fmtMonthDay(days[6])}</span>
+        <div className="c-week-title">
+          <span className="c-week-range">{fmtMonthDay(days[0])} – {fmtMonthDay(days[6])}</span>
           {!isCurrentWeek && (
-            <button type="button" className="c9-week-this" onClick={() => setWeekStart(startOfWeek(new Date()))}>
+            <button type="button" className="c-week-this" onClick={() => setWeekStart(startOfWeek(new Date()))}>
               Back to this week
             </button>
           )}
         </div>
         <button
           type="button"
-          className="c9-btn c9-btn-ghost"
+          className="c-btn c-btn-ghost"
           aria-label="Next week"
           onClick={() => setWeekStart((w) => addDays(w, 7))}
         >
@@ -91,31 +91,31 @@ export default function Week() {
         return (
           <section
             key={dayISO}
-            className={isToday ? 'c9-day is-today' : 'c9-day'}
+            className={isToday ? 'c-day is-today' : 'c-day'}
             ref={isToday ? todayRef : undefined}
             aria-label={`${fmtDayShort(d)} ${fmtMonthDay(d)}`}
           >
-            <div className="c9-day-head">
+            <div className="c-day-head">
               <span>{fmtDayShort(d)}</span>
               <span>{fmtMonthDay(d)}</span>
-              {isToday && <span className="c9-day-badge">Today</span>}
+              {isToday && <span className="c-day-badge">Today</span>}
             </div>
             {dayTasks.length === 0 ? (
-              <div className="c9-day-empty">Nothing scheduled</div>
+              <div className="c-day-empty">Nothing scheduled</div>
             ) : (
               dayTasks.map((t) => {
                 const done = (t.progress || 0) >= 1;
                 const time = fmtTimeRange(t.startTime, t.endTime);
                 return (
-                  <div key={t.id} className={done ? 'c9-task is-done' : 'c9-task'}>
-                    <div className="c9-task-job">{t.jobName}</div>
-                    <div className="c9-task-name">
+                  <div key={t.id} className={done ? 'c-task is-done' : 'c-task'}>
+                    <div className="c-task-job">{t.jobName}</div>
+                    <div className="c-task-name">
                       {t.name}
-                      {t.isToDo && <span className="c9-task-todo">TO-DO</span>}
+                      {t.isToDo && <span className="c-task-todo">TO-DO</span>}
                     </div>
-                    <div className="c9-task-time">
+                    <div className="c-task-time">
                       {time || 'All day'}
-                      {done && <span className="c9-task-donemark"> · ✓ done</span>}
+                      {done && <span className="c-task-donemark"> · ✓ done</span>}
                     </div>
                   </div>
                 );

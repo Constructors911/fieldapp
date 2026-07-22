@@ -336,6 +336,11 @@ export function createNeonStore(databaseUrl) {
       await sql`update app_sessions set last_seen_at = now() where token = ${token}`;
       return employeeRow(rows[0]);
     },
+
+    async deleteSession(token) {
+      await migrate();
+      await sql`delete from app_sessions where token = ${token}`;
+    },
   };
 }
 

@@ -7,14 +7,14 @@ import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import PhotoAttach, { preparePhotos } from '../components/PhotoAttach.jsx';
 import { todayISO, parseISODate, fmtMonthDay, fmtDayShort } from '../lib/dates.js';
-import '../lib/screens.css';
+import '../components/screens.css';
 
 function weatherChip(w) {
   if (!w) return null;
   const temps = [w.minTemp, w.maxTemp].filter((t) => t !== undefined && t !== null);
   const range = temps.length === 2 ? `${w.minTemp}°–${w.maxTemp}°` : temps.length === 1 ? `${temps[0]}°` : '';
   return (
-    <span className="c9-log-weather" title="Weather (from JobTread)">
+    <span className="c-log-weather" title="Weather (from JobTread)">
       ⛅ {w.condition}{range ? ` · ${range}` : ''}
     </span>
   );
@@ -97,35 +97,35 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
     <div>
       <Card
         title="New daily log"
-        action={<button type="button" className="c9-btn c9-btn-ghost c9-btn-small" onClick={onCancel}>✕ Cancel</button>}
+        action={<button type="button" className="c-btn c-btn-ghost c-btn-small" onClick={onCancel}>✕ Cancel</button>}
       >
         <form onSubmit={submit}>
-          <div className="c9-field">
-            <label className="c9-label" htmlFor="log-job">Job</label>
+          <div className="c-field">
+            <label className="c-label" htmlFor="log-job">Job</label>
             <button
               id="log-job"
               type="button"
-              className="c9-input c9-jobbtn"
+              className="c-input c-jobbtn"
               onClick={() => setPickerOpen(true)}
               aria-haspopup="dialog"
             >
               {job ? (
-                <span className="c9-jobbtn-text">
-                  <span className="c9-jobbtn-name">{job.name}</span>
-                  {job.location ? <span className="c9-jobbtn-sub">{job.location}</span> : null}
+                <span className="c-jobbtn-text">
+                  <span className="c-jobbtn-name">{job.name}</span>
+                  {job.location ? <span className="c-jobbtn-sub">{job.location}</span> : null}
                 </span>
               ) : (
-                <span className="c9-jobbtn-placeholder">Select a job…</span>
+                <span className="c-jobbtn-placeholder">Select a job…</span>
               )}
               <span aria-hidden="true">▾</span>
             </button>
           </div>
 
-          <div className="c9-field">
-            <label className="c9-label" htmlFor="log-date">Date</label>
+          <div className="c-field">
+            <label className="c-label" htmlFor="log-date">Date</label>
             <input
               id="log-date"
-              className="c9-input"
+              className="c-input"
               type="date"
               value={date}
               max={todayISO()}
@@ -133,35 +133,35 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
             />
           </div>
 
-          <div className="c9-field">
-            <label className="c9-label" htmlFor="log-notes">Notes</label>
+          <div className="c-field">
+            <label className="c-label" htmlFor="log-notes">Notes</label>
             <textarea
               id="log-notes"
-              className="c9-textarea"
+              className="c-textarea"
               placeholder="What happened on site today?"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
 
-          <div className="c9-field c9-checkrow">
-            <label className="c9-check">
+          <div className="c-field c-checkrow">
+            <label className="c-check">
               <input type="checkbox" checked={hasConcerns} onChange={(e) => setHasConcerns(e.target.checked)} />
               ⚠️ Concerns to report
             </label>
-            <label className="c9-check">
+            <label className="c-check">
               <input type="checkbox" checked={isComplete} onChange={(e) => setIsComplete(e.target.checked)} />
               ✅ Work complete
             </label>
           </div>
           {(hasConcerns || isComplete) && (
-            <p className="c9-check-hint">
+            <p className="c-check-hint">
               Remember photos tagged {[hasConcerns && '"Concerns"', isComplete && '"Completion"'].filter(Boolean).join(' and ')}.
             </p>
           )}
 
-          <div className="c9-field">
-            <span className="c9-label">Photos</span>
+          <div className="c-field">
+            <span className="c-label">Photos</span>
             <PhotoAttach
               jobId={jobId}
               photos={photos}
@@ -172,9 +172,9 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
             />
           </div>
 
-          {msg && <div className={`c9-msg c9-msg-${msg.type}`} role="status">{msg.text}</div>}
+          {msg && <div className={`c-msg c-msg-${msg.type}`} role="status">{msg.text}</div>}
 
-          <button type="submit" className="c9-btn c9-btn-primary" disabled={submitting || !jobId}>
+          <button type="submit" className="c-btn c-btn-primary" disabled={submitting || !jobId}>
             {submitting ? 'Submitting…' : (photoReminderShown && photos.length === 0 ? 'Save log' : 'Submit log')}
           </button>
         </form>
@@ -239,31 +239,31 @@ export default function Log({ boot }) {
 
   return (
     <div>
-      <div className="c9-feed-toolbar">
-        <h2 className="c9-feed-title">My daily logs</h2>
-        <button type="button" className="c9-btn c9-btn-primary c9-btn-add" onClick={() => { setMsg(null); setMode('new'); }}>
+      <div className="c-feed-toolbar">
+        <h2 className="c-feed-title">My daily logs</h2>
+        <button type="button" className="c-btn c-btn-primary c-btn-add" onClick={() => { setMsg(null); setMode('new'); }}>
           ＋ New log
         </button>
       </div>
 
-      <div className="c9-feed-filters">
+      <div className="c-feed-filters">
         <input
           type="search"
-          className="c9-input c9-feed-search"
+          className="c-input c-feed-search"
           placeholder="Search notes or jobs…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <button
           type="button"
-          className={jobFilter ? 'c9-cc-filter active' : 'c9-cc-filter'}
+          className={jobFilter ? 'c-cc-filter active' : 'c-cc-filter'}
           onClick={() => setJobPickerOpen(true)}
         >
           {jobFilterName ? jobFilterName.slice(0, 22) : 'All jobs'}
         </button>
         <input
           type="date"
-          className="c9-input c9-feed-date"
+          className="c-input c-feed-date"
           value={dateFilter}
           max={todayISO()}
           onChange={(e) => setDateFilter(e.target.value)}
@@ -271,7 +271,7 @@ export default function Log({ boot }) {
         {(jobFilter || dateFilter || search) && (
           <button
             type="button"
-            className="c9-cc-filter"
+            className="c-cc-filter"
             onClick={() => { setJobFilter(''); setDateFilter(''); setSearch(''); }}
           >
             Clear
@@ -279,7 +279,7 @@ export default function Log({ boot }) {
         )}
       </div>
 
-      {msg && <div className={`c9-msg c9-msg-${msg.type}`} role="status">{msg.text}</div>}
+      {msg && <div className={`c-msg c-msg-${msg.type}`} role="status">{msg.text}</div>}
 
       {logs === undefined && <Spinner label="Loading your logs…" />}
       {logs === null && <ErrorBanner message={logsErr} onRetry={load} />}
@@ -294,16 +294,16 @@ export default function Log({ boot }) {
       )}
       {Array.isArray(logs) && visible.map((l) => (
         <Card key={l.id}>
-          <div className="c9-log-meta">
-            <span className="c9-log-job">{l.jobName}</span>
-            <span className="c9-log-date">{fmtLogDate(l.date)}</span>
+          <div className="c-log-meta">
+            <span className="c-log-job">{l.jobName}</span>
+            <span className="c-log-date">{fmtLogDate(l.date)}</span>
           </div>
-          <div className="c9-log-meta">
+          <div className="c-log-meta">
             {weatherChip(l.weather)}
           </div>
-          {l.notes && <p className="c9-log-notes">{l.notes}</p>}
+          {l.notes && <p className="c-log-notes">{l.notes}</p>}
           {l.files?.length > 0 && (
-            <div className="c9-log-photos">
+            <div className="c-log-photos">
               {l.files.map((f) => (
                 <img key={f.id} src={f.url} alt={f.name || 'log photo'} loading="lazy" />
               ))}

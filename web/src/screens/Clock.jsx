@@ -1,65 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getLogs, createLog, getFileTags, getCompanyCamStatus, getTasks, updateTask, clockIn, clockOut } from '../api.js';
-import PhotoAttach, { preparePhotos } from '../components/PhotoAttach.jsx';
-import Checkbox from '../components/Checkbox.jsx';
+import { preparePhotos } from '../components/PhotoAttach.jsx';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
 import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
+import ClockOutSheet from './ClockOutSheet.jsx';
+import { todayRange, fmtTime, localToday, fmtMins, fmtElapsed, getGps } from '../lib/clockHelpers.js';
 import '../components/screens.css';
-
-// ---- helpers ----
-function todayRange() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { from: start.toISOString(), to: end.toISOString() };
-}
-
-function fmtTime(iso) {
-  if (!iso) return '';
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
-
-function localToday() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function fmtMins(mins) {
-  const m = Math.max(0, Math.round(mins));
-  const h = Math.floor(m / 60);
-  return h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
-}
-
-function fmtElapsed(startedAt, now) {
-  const s = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
-}
-
-// Best-effort GPS: resolves {lat,lng} or null. Never rejects, never blocks past 6s.
-function getGps() {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) { resolve(null); return; }
-    const timer = setTimeout(() => resolve(null), 6000);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        clearTimeout(timer);
-        resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      },
-      () => { clearTimeout(timer); resolve(null); },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
-    );
-  });
-}
 
 export default function Clock({ boot }) {
   const jobs = boot?.jobs || [];
@@ -488,168 +438,36 @@ export default function Clock({ boot }) {
       </Sheet>
 
       {/* Clock-out confirm sheet */}
-      <Sheet open={step === 'out'} title="Clock out?" onClose={resetFlow}>
-        {current && (
-          <div className="clk-review">
-            <p><strong>{current.jobName}</strong></p>
-            <p className="muted">
-              {current.costItemName} · started {fmtTime(current.startedAt)} · {fmtMins(runningMins)} so far
-            </p>
-          </div>
-        )}
-
-        {/* Step 1: why are you clocking out? */}
-        {outMode === null && (
-          <>
-            <p className="clk-outq">Done at this job for today?</p>
-            <button
-              type="button"
-              className="c-btn c-btn-big c-btn-block"
-              onClick={() => chooseOutMode('done')}
-            >
-              ✅ Done for the day
-            </button>
-            <button
-              type="button"
-              className="c-btn c-btn-big c-btn-block c-btn-ghost"
-              style={{ marginTop: 8 }}
-              onClick={() => chooseOutMode('break')}
-            >
-              🥪 Just a break — I&apos;ll be back
-            </button>
-          </>
-        )}
-
-        {/* Step 2: done-for-the-day requires today's daily log for this job */}
-        {outMode === 'done' && logExists === undefined && <Spinner label="Checking today's log…" />}
-        {outMode === 'done' && logExists === true && (
-          <p className="clk-logok">✓ Daily log already submitted for this job today.</p>
-        )}
-        {outMode === 'done' && logExists === false && (
-          <>
-            <p className="clk-logreq">
-              A quick daily log is required before you leave. Photos help: Before, During, After, Concerns.
-            </p>
-
-            {outTasks === null && <Spinner label="Loading today's tasks…" />}
-            {Array.isArray(outTasks) && outTasks.length > 0 && (
-              <>
-                <p className="c-label">Today&apos;s tasks on this job — check off what you finished</p>
-                <div className="clk-tasklist">
-                  {outTasks.map((t) => (
-                    <div key={t.id}>
-                      <div className="clk-taskline">
-                        <Checkbox
-                          checked={t.progress >= 1}
-                          onChange={() => toggleOutTask(t)}
-                          label={`Mark ${t.name} ${t.progress >= 1 ? 'incomplete' : 'complete'}`}
-                        />
-                        <span className={t.progress >= 1 ? 'clk-taskname done' : 'clk-taskname'}>{t.name}</span>
-                      </div>
-                      {(t.subtasks || []).map((sub) => (
-                        <div key={sub.id} className="clk-taskline clk-subline-task">
-                          <Checkbox
-                            checked={!!sub.isComplete}
-                            onChange={() => toggleOutSubtask(t, sub)}
-                            label={`Mark subtask ${sub.name} ${sub.isComplete ? 'incomplete' : 'complete'}`}
-                          />
-                          <span className={sub.isComplete ? 'clk-taskname done' : 'clk-taskname'}>{sub.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-            <label className="c-label" htmlFor="clk-done">What got done today?</label>
-            <textarea
-              id="clk-done"
-              className="c-input"
-              rows={3}
-              placeholder="Plain words are fine — tore off north slope, dried in, staged shingles…"
-              value={doneText}
-              onChange={(e) => setDoneText(e.target.value)}
-            />
-            <label className="c-label" htmlFor="clk-needed">What&apos;s still needed? (optional)</label>
-            <textarea
-              id="clk-needed"
-              className="c-input"
-              rows={2}
-              placeholder="Ridge cap, final cleanup, inspection…"
-              value={neededText}
-              onChange={(e) => setNeededText(e.target.value)}
-            />
-
-            <div className="c9-checkrow" style={{ marginTop: 10 }}>
-              <label className="c9-check">
-                <input type="checkbox" checked={outConcerns} onChange={(e) => setOutConcerns(e.target.checked)} />
-                ⚠️ Concerns
-              </label>
-              <label className="c9-check">
-                <input type="checkbox" checked={outComplete} onChange={(e) => setOutComplete(e.target.checked)} />
-                ✅ Work complete
-              </label>
-            </div>
-            {(outConcerns || outComplete) && (
-              <p className="c9-check-hint">
-                Remember photos tagged {[outConcerns && '"Concerns"', outComplete && '"Completion"'].filter(Boolean).join(' and ')}.
-              </p>
-            )}
-            <PhotoAttach
-              jobId={current?.jobId}
-              photos={outPhotos}
-              setPhotos={setOutPhotos}
-              tags={tags}
-              ccAvailable={ccAvailable}
-              onError={setActionErr}
-            />
-          </>
-        )}
-
-        {/* Errors must be visible inside the sheet, not behind it. */}
-        {actionErr && step === 'out' && <p className="login-err" role="alert">{actionErr}</p>}
-
-        {outMode !== null && (
-          <>
-            <label className="c-label" htmlFor="clk-break">Break minutes (optional)</label>
-            <input
-              id="clk-break"
-              className="c-input"
-              type="number"
-              inputMode="numeric"
-              min="0"
-              step="5"
-              placeholder="0"
-              value={breakMin}
-              onChange={(e) => setBreakMin(e.target.value)}
-            />
-            <button
-              type="button"
-              className="c-btn c-btn-big c-btn-block c-btn-red"
-              style={{ marginTop: 12 }}
-              disabled={busy || (outMode === 'done' && logExists === undefined)}
-              onClick={submitClockOut}
-            >
-              {busy && <Spinner inline size={18} />}
-              {busy
-                ? 'Clocking out…'
-                : outMode === 'done' && logExists === false
-                  ? 'Submit log & clock out'
-                  : 'Confirm Clock Out'}
-            </button>
-          </>
-        )}
-
-        <button
-          type="button"
-          className="c-btn c-btn-block c-btn-ghost"
-          style={{ marginTop: 8 }}
-          disabled={busy}
-          onClick={resetFlow}
-        >
-          Keep working
-        </button>
-      </Sheet>
+      <ClockOutSheet
+        open={step === 'out'}
+        onClose={resetFlow}
+        current={current}
+        runningMins={runningMins}
+        outMode={outMode}
+        onChooseOutMode={chooseOutMode}
+        logExists={logExists}
+        outTasks={outTasks}
+        onToggleTask={toggleOutTask}
+        onToggleSubtask={toggleOutSubtask}
+        doneText={doneText}
+        onDoneTextChange={setDoneText}
+        neededText={neededText}
+        onNeededTextChange={setNeededText}
+        outConcerns={outConcerns}
+        onConcernsChange={setOutConcerns}
+        outComplete={outComplete}
+        onCompleteChange={setOutComplete}
+        outPhotos={outPhotos}
+        setOutPhotos={setOutPhotos}
+        tags={tags}
+        ccAvailable={ccAvailable}
+        actionErr={step === 'out' ? actionErr : null}
+        onPhotoError={setActionErr}
+        breakMin={breakMin}
+        onBreakMinChange={setBreakMin}
+        busy={busy}
+        onSubmit={submitClockOut}
+      />
     </div>
   );
 }

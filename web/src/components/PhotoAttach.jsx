@@ -3,7 +3,7 @@ import Sheet from './Sheet.jsx';
 import Spinner from './Spinner.jsx';
 import { getCompanyCamPhotos, importCompanyCamPhotos, uploadFile } from '../api.js';
 import './components.css';
-import '../lib/screens.css'; // c9-* photo strip + CC grid styles
+import './screens.css'; // c-* photo strip + CC grid styles
 
 // Shared photo attach strip: camera/gallery + CompanyCam pull + per-photo
 // JobTread tag selects. Used by the Log form and the clock-out mini-log.
@@ -133,26 +133,26 @@ export default function PhotoAttach({ jobId, photos, setPhotos, tags, ccAvailabl
         aria-hidden="true"
         tabIndex={-1}
       />
-      <div className="c9-photo-btns">
-        <button type="button" className="c9-btn c9-btn-ghost" onClick={() => fileInputRef.current?.click()}>
+      <div className="c-photo-btns">
+        <button type="button" className="c-btn c-btn-ghost" onClick={() => fileInputRef.current?.click()}>
           📷 Add photos
         </button>
         {ccAvailable && (
-          <button type="button" className="c9-btn c9-btn-ghost" disabled={!jobId} onClick={() => openCompanyCam()}>
+          <button type="button" className="c-btn c-btn-ghost" disabled={!jobId} onClick={() => openCompanyCam()}>
             🗂 Pull from CompanyCam
           </button>
         )}
       </div>
       {photos.length > 0 && (
-        <div className="c9-thumbs">
+        <div className="c-thumbs">
           {photos.map((p) => (
-            <div key={p.key} className="c9-thumb-wrap">
-              <div className="c9-thumb">
+            <div key={p.key} className="c-thumb-wrap">
+              <div className="c-thumb">
                 <img src={p.url} alt={p.file?.name || 'attached photo'} />
-                {p.cc && <span className="c9-thumb-cc" title="From CompanyCam">CC</span>}
+                {p.cc && <span className="c-thumb-cc" title="From CompanyCam">CC</span>}
                 <button
                   type="button"
-                  className="c9-thumb-x"
+                  className="c-thumb-x"
                   aria-label={`Remove ${p.file?.name || 'photo'}`}
                   onClick={() => removePhoto(p.key)}
                 >
@@ -160,7 +160,7 @@ export default function PhotoAttach({ jobId, photos, setPhotos, tags, ccAvailabl
                 </button>
               </div>
               <select
-                className="c9-tag-select"
+                className="c-tag-select"
                 value={p.tagId ?? ''}
                 aria-label="Photo tag"
                 onChange={(e) => setPhotoTag(p.key, e.target.value)}
@@ -175,17 +175,17 @@ export default function PhotoAttach({ jobId, photos, setPhotos, tags, ccAvailabl
 
       {/* CompanyCam photo picker */}
       <Sheet open={ccOpen} title={`CompanyCam — ${ccProject?.name || ''}`} onClose={() => setCcOpen(false)}>
-        <div className="c9-cc-toolbar">
+        <div className="c-cc-toolbar">
           <button
             type="button"
-            className={ccMine ? 'c9-cc-filter' : 'c9-cc-filter active'}
+            className={ccMine ? 'c-cc-filter' : 'c-cc-filter active'}
             onClick={() => openCompanyCam(false)}
           >
             All photos
           </button>
           <button
             type="button"
-            className={ccMine ? 'c9-cc-filter active' : 'c9-cc-filter'}
+            className={ccMine ? 'c-cc-filter active' : 'c-cc-filter'}
             onClick={() => openCompanyCam(true)}
           >
             Mine
@@ -193,17 +193,17 @@ export default function PhotoAttach({ jobId, photos, setPhotos, tags, ccAvailabl
         </div>
         {ccPhotos === undefined && <Spinner label="Loading photos…" />}
         {Array.isArray(ccPhotos) && ccPhotos.length === 0 && (
-          <p className="c9-empty">
+          <p className="c-cc-empty">
             {ccProject ? 'No photos on this CompanyCam project yet.' : 'No CompanyCam project matches this job.'}
           </p>
         )}
         {Array.isArray(ccPhotos) && ccPhotos.length > 0 && (
-          <div className="c9-cc-grid">
+          <div className="c-cc-grid">
             {ccPhotos.map((p) => (
               <button
                 key={p.id}
                 type="button"
-                className={ccSelected.has(p.id) ? 'c9-cc-photo selected' : 'c9-cc-photo'}
+                className={ccSelected.has(p.id) ? 'c-cc-photo selected' : 'c-cc-photo'}
                 onClick={() => setCcSelected((prev) => {
                   const next = new Set(prev);
                   if (next.has(p.id)) next.delete(p.id); else if (next.size < 10) next.add(p.id);
@@ -211,14 +211,14 @@ export default function PhotoAttach({ jobId, photos, setPhotos, tags, ccAvailabl
                 })}
               >
                 <img src={p.thumbnail || p.web} alt={`CompanyCam ${p.creatorName || ''}`} loading="lazy" />
-                {ccSelected.has(p.id) && <span className="c9-cc-check">✓</span>}
+                {ccSelected.has(p.id) && <span className="c-cc-check">✓</span>}
               </button>
             ))}
           </div>
         )}
         <button
           type="button"
-          className="c9-btn c9-btn-primary"
+          className="c-btn c-btn-primary"
           style={{ marginTop: 12 }}
           disabled={ccBusy || ccSelected.size === 0}
           onClick={importSelected}

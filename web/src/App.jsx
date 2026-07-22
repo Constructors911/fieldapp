@@ -5,7 +5,7 @@ import Log from './screens/Log.jsx';
 import Week from './screens/Week.jsx';
 import Admin from './screens/Admin.jsx';
 import Login from './screens/Login.jsx';
-import { getBootstrap, authMe, getToken } from './api.js';
+import { getBootstrap, authMe, getToken, authLogout } from './api.js';
 import { pendingCount, subscribePending, flushQueue } from './lib/offlineQueue.js';
 
 const TABS = [
@@ -44,6 +44,14 @@ export default function App() {
     flushQueue();
     return () => { un(); window.removeEventListener('online', onOnline); };
   }, [me]);
+
+  async function signOut() {
+    await authLogout();
+    setMe(null);
+    setBoot(null);
+    setTab('clock');
+    if (window.location.hash) window.location.hash = '';
+  }
 
   // Manager dashboard: /#/admin (no bottom tabs, own auth via Google/key)
   if (route.startsWith('#/admin')) {
@@ -84,17 +92,42 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <button
-          type="button"
-          className="topbar-btn"
-          aria-label="Manager dashboard"
-          title="Manager dashboard"
-          onClick={() => { window.location.hash = '#/admin'; }}
-        >
-          ⚙
-        </button>
+        {me.canAccessAdmin ? (
+          <button
+            type="button"
+            className="topbar-btn"
+            aria-label="Manager dashboard"
+            title="Manager dashboard"
+            onClick={() => { window.location.hash = '#/admin'; }}
+          >
+            ⚙
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="topbar-btn"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={signOut}
+          >
+            ⎋
+          </button>
+        )}
         <img className="brand-logo" src="/logo-white.png" alt="Constructors911 Field" />
-        {pending > 0 && <span className="badge" title="Queued offline actions">{pending} pending</span>}
+        <div className="topbar-right">
+          {pending > 0 && <span className="badge" title="Queued offline actions">{pending} pending</span>}
+          {me.canAccessAdmin && (
+            <button
+              type="button"
+              className="topbar-btn topbar-btn-right"
+              aria-label="Sign out"
+              title="Sign out"
+              onClick={signOut}
+            >
+              ⎋
+            </button>
+          )}
+        </div>
       </header>
       <main className="screen">
         {tab === 'clock' && <Clock boot={boot} />}
@@ -102,10 +135,18 @@ export default function App() {
         {tab === 'log' && <Log boot={boot} />}
         {tab === 'week' && <Week boot={boot} />}
       </main>
-      <nav className="tabbar">
+      <nav className="tabbar" role="tablist" aria-label="Main">
         {TABS.map(t => (
-          <button key={t.id} className={tab === t.id ? 'tab active' : 'tab'} onClick={() => setTab(t.id)}>
-            <span className="tab-icon">{t.icon}</span>
+          <button
+            key={t.id}
+            role="tab"
+            type="button"
+            aria-selected={tab === t.id}
+            aria-current={tab === t.id ? 'page' : undefined}
+            className={tab === t.id ? 'tab active' : 'tab'}
+            onClick={() => setTab(t.id)}
+          >
+            <span className="tab-icon" aria-hidden="true">{t.icon}</span>
             <span className="tab-label">{t.label}</span>
           </button>
         ))}

@@ -1,10 +1,15 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, api } from './helpers.js';
+import { startServer, api, crewToken, withAuth } from './helpers.js';
 import { todayString } from '../src/util/dates.js';
 
 let srv;
-before(async () => { srv = await startServer(); });
+let authed;
+before(async () => {
+  srv = await startServer();
+  const token = await crewToken(srv.base, { email: 'david@constructors911.com', pin: '1234' });
+  authed = withAuth(srv.base, token);
+});
 after(async () => { await srv.close(); });
 
 test('bootstrap has user, 3 jobs (no cost items — fetched per job), timeEntryTypes', async () => {
@@ -34,8 +39,16 @@ test('GET /api/jobs/:id/cost-items 404s for an unknown job', async () => {
   assert.equal(status, 404);
 });
 
+test('logs, uploads, and file-tags require a session', async () => {
+  assert.equal((await api(srv.base, '/api/file-tags')).status, 401);
+  assert.equal((await api(srv.base, '/api/logs')).status, 401);
+  const fd = new FormData();
+  fd.append('file', new Blob([Buffer.from('x')], { type: 'image/jpeg' }), 'x.jpg');
+  assert.equal((await api(srv.base, '/api/uploads', { method: 'POST', body: fd })).status, 401);
+});
+
 test('GET /api/file-tags returns the org tag list', async () => {
-  const { status, json } = await api(srv.base, '/api/file-tags');
+  const { status, json } = await authed('/api/file-tags');
   assert.equal(status, 200);
   assert.ok(json.tags.length >= 3);
   assert.ok(json.tags.every((t) => t.id && t.name));
@@ -45,10 +58,10 @@ test('GET /api/file-tags returns the org tag list', async () => {
 test('POST /api/logs attaches native file tags to photos', async () => {
   const fd = new FormData();
   fd.append('file', new Blob([Buffer.from('fake image bytes')], { type: 'image/jpeg' }), 'tagged.jpg');
-  const up = await api(srv.base, '/api/uploads', { method: 'POST', body: fd });
+  const up = await authed('/api/uploads', { method: 'POST', body: fd });
   assert.equal(up.status, 200);
 
-  const { status, json } = await api(srv.base, '/api/logs', {
+  const { status, json } = await authed('/api/logs', {
     method: 'POST',
     body: {
       jobId: 'job_maplewood',
@@ -62,7 +75,7 @@ test('POST /api/logs attaches native file tags to photos', async () => {
   assert.equal(json.log.files.length, 1);
   assert.deepEqual(json.log.files[0].tagIds, ['tag_completion']);
 
-  const bad = await api(srv.base, '/api/logs', {
+  const bad = await authed('/api/logs', {
     method: 'POST',
     body: { jobId: 'job_maplewood', notes: 'x', fileTags: { a: 'not-an-array' } },
   });
@@ -70,7 +83,7 @@ test('POST /api/logs attaches native file tags to photos', async () => {
 });
 
 test('original pre-compose text is preserved and retrievable by admins', async () => {
-  await api(srv.base, '/api/logs', {
+  await authed('/api/logs', {
     method: 'POST',
     body: {
       jobId: 'job_sunset',
@@ -88,7 +101,7 @@ test('original pre-compose text is preserved and retrievable by admins', async (
 });
 
 test('original crew text also lands in the JT Internal Notes field', async () => {
-  const { status, json } = await api(srv.base, '/api/logs', {
+  const { status, json } = await authed('/api/logs', {
     method: 'POST',
     body: {
       jobId: 'job_riverside',
@@ -107,7 +120,7 @@ test('CompanyCam endpoints degrade cleanly when unconfigured', async () => {
 });
 
 test('POST /api/logs with compose builds structured bullet notes (fallback path)', async () => {
-  const { status, json } = await api(srv.base, '/api/logs', {
+  const { status, json } = await authed('/api/logs', {
     method: 'POST',
     body: {
       jobId: 'job_riverside',
@@ -131,7 +144,7 @@ test('POST /api/logs with compose builds structured bullet notes (fallback path)
   assert.match(notes, /📷 Photos: 1 Before · 2 During · 1 After · 1 Concerns/);
   assert.doesNotMatch(notes, /WORK COMPLETE/);
 
-  const bad = await api(srv.base, '/api/logs', {
+  const bad = await authed('/api/logs', {
     method: 'POST',
     body: { jobId: 'job_riverside', compose: { tasksCompleted: 'nope' } },
   });
@@ -139,7 +152,7 @@ test('POST /api/logs with compose builds structured bullet notes (fallback path)
 });
 
 test('GET /api/logs?date=today returns the seeded log with weather', async () => {
-  const { status, json } = await api(srv.base, `/api/logs?date=${todayString()}`);
+  const { status, json } = await authed(`/api/logs?date=${todayString()}`);
   assert.equal(status, 200);
   assert.equal(json.logs.length, 1);
   const log = json.logs[0];
@@ -151,7 +164,7 @@ test('GET /api/logs?date=today returns the seeded log with weather', async () =>
 });
 
 test('POST /api/logs creates a log (date defaults to today) and it lists back', async () => {
-  const { status, json } = await api(srv.base, '/api/logs', {
+  const { status, json } = await authed('/api/logs', {
     method: 'POST',
     body: { jobId: 'job_sunset', notes: 'Drywall stocked in all five suites.' },
   });
@@ -160,7 +173,7 @@ test('POST /api/logs creates a log (date defaults to today) and it lists back', 
   assert.equal(json.log.jobName, 'Sunset Plaza Office TI Buildout');
   assert.deepEqual(json.log.files, []);
 
-  const list = await api(srv.base, `/api/logs?date=${todayString()}&jobId=job_sunset`);
+  const list = await authed(`/api/logs?date=${todayString()}&jobId=job_sunset`);
   assert.equal(list.json.logs.length, 1);
   assert.equal(list.json.logs[0].id, json.log.id);
 });
@@ -170,14 +183,14 @@ test('upload -> create log with photo -> photo served back via GET /uploads/:id'
   const form = new FormData();
   form.append('file', new Blob([bytes], { type: 'image/png' }), 'formwork.png');
 
-  const up = await api(srv.base, '/api/uploads', { method: 'POST', body: form });
+  const up = await authed('/api/uploads', { method: 'POST', body: form });
   assert.equal(up.status, 200);
   assert.ok(up.json.fileId);
   assert.equal(up.json.url, `/api/uploads/${up.json.fileId}`);
   // contract route (unprefixed) serves the same bytes
   assert.equal((await fetch(`${srv.base}/uploads/${up.json.fileId}`)).status, 200);
 
-  const created = await api(srv.base, '/api/logs', {
+  const created = await authed('/api/logs', {
     method: 'POST',
     body: {
       jobId: 'job_riverside',
@@ -199,12 +212,12 @@ test('upload -> create log with photo -> photo served back via GET /uploads/:id'
 });
 
 test('log/upload validation: bad job 404, bad fileId 400, bad date 400, missing file 400, unknown upload 404', async () => {
-  assert.equal((await api(srv.base, '/api/logs', { method: 'POST', body: { jobId: 'job_nope', notes: 'x' } })).status, 404);
-  assert.equal((await api(srv.base, '/api/logs', { method: 'POST', body: { jobId: 'job_sunset', fileIds: ['file_nope'] } })).status, 400);
-  assert.equal((await api(srv.base, '/api/logs', { method: 'POST', body: { jobId: 'job_sunset', date: 'tomorrow' } })).status, 400);
-  assert.equal((await api(srv.base, '/api/logs?date=17-07-2026')).status, 400);
+  assert.equal((await authed('/api/logs', { method: 'POST', body: { jobId: 'job_nope', notes: 'x' } })).status, 404);
+  assert.equal((await authed('/api/logs', { method: 'POST', body: { jobId: 'job_sunset', fileIds: ['file_nope'] } })).status, 400);
+  assert.equal((await authed('/api/logs', { method: 'POST', body: { jobId: 'job_sunset', date: 'tomorrow' } })).status, 400);
+  assert.equal((await authed('/api/logs?date=17-07-2026')).status, 400);
   const form = new FormData();
-  assert.equal((await api(srv.base, '/api/uploads', { method: 'POST', body: form })).status, 400);
+  assert.equal((await authed('/api/uploads', { method: 'POST', body: form })).status, 400);
   assert.equal((await fetch(`${srv.base}/uploads/file_nope`)).status, 404);
   assert.equal((await fetch(`${srv.base}/api/uploads/file_nope`)).status, 404);
 });

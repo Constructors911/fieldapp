@@ -192,6 +192,25 @@
   border: 1px solid var(--muted);
   font-weight: 600;
 }
+.c-btn-primary { background: var(--orange); width: 100%; }
+.c-btn-add { width: auto; padding: 8px 16px; }
+.c-btn-small { min-height: 36px; padding: 6px 12px; font-size: 13px; width: auto; }
+.c-select, .c-textarea {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  font-size: 16px;
+  color: var(--text);
+  background: var(--card);
+  font-family: inherit;
+}
+.c-textarea { min-height: 96px; resize: vertical; }
+.c-select:focus, .c-textarea:focus { outline: 2px solid var(--orange); outline-offset: -1px; }
+.c-field { margin-bottom: 14px; }
+.c-h2 { margin: 0 0 12px; font-size: 18px; }
+.c-h3 { margin: 16px 0 8px; font-size: 15px; color: var(--muted); font-weight: 600; }
 
 /* Checkbox (44px touch target) */
 .c-checkbox {

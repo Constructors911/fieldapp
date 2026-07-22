@@ -9,50 +9,9 @@ import { hashPin, verifyPin, isValidPin, normalizeEmail, isValidEmail } from './
 import { verifyGoogleIdToken, adminAllowlist } from './googleAuth.js';
 import { composeLogNotes } from './compose.js';
 import { createCompanyCam } from './connectors/companycam.js';
-
-const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
-
-// Query params arrive as '' when the client sends `?date=`; treat as absent.
-const qp = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
-
-function validateCoordinates(coordinates) {
-  if (coordinates === undefined || coordinates === null) return;
-  const { lat, lng } = coordinates;
-  if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-    throw new HttpError(400, 'coordinates must be {lat, lng} numbers');
-  }
-}
-
-// Tap-time from the client ('at'): trusted within sanity bounds so offline
-// replays record when the tap happened, not when the queue flushed.
-function validatePunchTime(at) {
-  if (at === undefined || at === null || at === '') return new Date().toISOString();
-  if (!isValidISO(at)) throw new HttpError(400, 'at must be an ISO timestamp');
-  const t = new Date(at).getTime();
-  const now = Date.now();
-  if (t > now + 2 * 60_000) throw new HttpError(400, 'at cannot be in the future');
-  if (t < now - 7 * 24 * 3600_000) throw new HttpError(400, 'at is too far in the past');
-  return new Date(t).toISOString();
-}
-
-/** Wire shape the web app renders; punches masquerade as time entries. */
-function punchToEntry(p) {
-  const gross = p.endedAt ? Math.round((new Date(p.endedAt) - new Date(p.startedAt)) / 60000) : 0;
-  return {
-    id: p.id,
-    jobId: p.jobId,
-    jobName: p.jobName,
-    activity: p.activity,
-    costItemId: p.costItemId,
-    costItemName: p.costItemName || p.activity, // show the activity until a manager maps it
-    startedAt: p.startedAt,
-    endedAt: p.endedAt,
-    minutes: p.endedAt ? Math.max(0, gross - (p.breakMinutes || 0)) : 0,
-    notes: p.notes,
-    coordinates: p.coordinates,
-    status: p.status,
-  };
-}
+import { wrap, qp, validateCoordinates, validatePunchTime, punchToEntry } from './httpUtil.js';
+import { registerTasks } from './routes/tasks.js';
+import { registerLogs } from './routes/logs.js';
 
 export function createApp(adapter, store = createStore(), { verifyGoogle = verifyGoogleIdToken } = {}) {
   const app = express();
@@ -143,6 +102,13 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ employee: publicEmployee(employee) });
   }));
 
+  // Best-effort revoke; client always clears its token regardless.
+  app.post('/api/auth/logout', wrap(async (req, res) => {
+    const token = req.get('x-session-token');
+    if (token) await store.deleteSession(token).catch(() => {});
+    res.json({ ok: true });
+  }));
+
   function publicEmployee(e) {
     return {
       id: e.id,
@@ -152,6 +118,8 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       jtUserId: e.jtUserId,
       jtLinked: Boolean(e.jtUserId),
       ccLinked: Boolean(e.ccUserId),
+      // Crew topbar shows Admin only for allowlisted emails (not ADMIN_KEY).
+      canAccessAdmin: adminAllowlist().includes(String(e.email || '').toLowerCase()),
     };
   }
 
@@ -174,11 +142,6 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const token = await store.createAdminSession(identity.email, identity.name);
     res.json({ token, admin: identity });
   }));
-
-  const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 25 * 1024 * 1024, files: 1 },
-  });
 
   // ---- bootstrap -------------------------------------------------------
   app.get('/api/bootstrap', wrap(async (req, res) => {
@@ -433,52 +396,10 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ results });
   }));
 
-  // ---- tasks -----------------------------------------------------------
-  app.get('/api/tasks', wrap(async (req, res) => {
-    const scope = qp(req.query.scope) ?? 'today';
-    if (scope !== 'today' && scope !== 'week') {
-      throw new HttpError(400, "scope must be 'today' or 'week'");
-    }
-    const weekStart = qp(req.query.weekStart);
-    if (weekStart !== undefined && !isValidDateString(weekStart)) {
-      throw new HttpError(400, 'weekStart must be YYYY-MM-DD');
-    }
-    // Signed-in crew see their own JT-assigned tasks; fallback is the grant user.
-    const employee = await sessionEmployee(req);
-    res.json({ tasks: await adapter.listTasks({ scope, weekStart, jtUserId: employee?.jtUserId }) });
-  }));
-
-  app.patch('/api/tasks/:id', wrap(async (req, res) => {
-    const { progress, subtasks } = req.body ?? {};
-    if (progress === undefined && subtasks === undefined) {
-      throw new HttpError(400, 'Provide progress and/or subtasks');
-    }
-    if (progress !== undefined) {
-      if (typeof progress !== 'number' || !Number.isFinite(progress) || progress < 0 || progress > 1) {
-        throw new HttpError(400, 'progress must be a number between 0 and 1');
-      }
-    }
-    if (subtasks !== undefined) {
-      if (!Array.isArray(subtasks)) throw new HttpError(400, 'subtasks must be an array');
-      if (subtasks.length > 50) throw new HttpError(400, 'subtasks is limited to 50 items');
-      for (const s of subtasks) {
-        if (!s || typeof s.name !== 'string' || !s.name.trim()) {
-          throw new HttpError(400, 'each subtask needs a non-empty name');
-        }
-      }
-    }
-    const task = await adapter.updateTask(req.params.id, { progress, subtasks });
-    res.json({ task });
-  }));
-
-  // ---- file tags (JobTread's org tag list, shown as photo tag options) ---
-  let tagCache = { at: 0, data: null };
-  app.get('/api/file-tags', wrap(async (req, res) => {
-    if (!tagCache.data || Date.now() - tagCache.at > 5 * 60_000) {
-      tagCache = { at: Date.now(), data: await adapter.listFileTags() };
-    }
-    res.json({ tags: tagCache.data });
-  }));
+  // ---- tasks + daily logs (extracted route modules) ---------------------
+  const routeCtx = { adapter, store, requireSession, HttpError, wrap, qp, isValidDateString, composeLogNotes };
+  registerTasks(app, routeCtx);
+  registerLogs(app, routeCtx);
 
   // ---- CompanyCam photo pull ---------------------------------------------
   const ccProjectCache = new Map(); // jobId -> {at, project}
@@ -558,117 +479,6 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   app.post('/api/admin/compose-preview', requireAdmin, wrap(async (req, res) => {
     res.json({ notes: await composeLogNotes(req.body?.compose ?? {}) });
   }));
-
-  // ---- daily logs ------------------------------------------------------
-  app.get('/api/logs', wrap(async (req, res) => {
-    const date = qp(req.query.date);
-    const jobId = qp(req.query.jobId);
-    if (date !== undefined && !isValidDateString(date)) {
-      throw new HttpError(400, 'date must be YYYY-MM-DD');
-    }
-    // mine=1: only the signed-in employee's logs (the Log tab feed).
-    let jtUserId;
-    if (qp(req.query.mine) === '1') {
-      const employee = await sessionEmployee(req);
-      if (!employee) throw new HttpError(401, 'Sign in to continue');
-      jtUserId = employee.jtUserId;
-    }
-    res.json({ logs: await adapter.listLogs({ date, jobId, jtUserId }) });
-  }));
-
-  app.post('/api/logs', wrap(async (req, res) => {
-    const { jobId, date, fileIds, fileTags, compose } = req.body ?? {};
-    let { notes } = req.body ?? {};
-    if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'jobId is required');
-    // compose: structured crew input -> Haiku-polished bullet log (with a
-    // deterministic fallback). When present it wins over raw notes.
-    if (compose !== undefined) {
-      if (typeof compose !== 'object' || compose === null || Array.isArray(compose)) {
-        throw new HttpError(400, 'compose must be an object');
-      }
-      for (const k of ['done', 'needed', 'notes']) {
-        if (compose[k] !== undefined && typeof compose[k] !== 'string') {
-          throw new HttpError(400, `compose.${k} must be a string`);
-        }
-      }
-      if (compose.tasksCompleted !== undefined
-          && (!Array.isArray(compose.tasksCompleted) || compose.tasksCompleted.some((t) => typeof t !== 'string'))) {
-        throw new HttpError(400, 'compose.tasksCompleted must be an array of strings');
-      }
-      notes = await composeLogNotes(compose);
-    }
-    const composedNotes = notes;
-    // The crew's original words also land in JT's "Internal Notes" custom field.
-    const internalNotes = compose !== undefined
-      ? [
-        compose.done && `Done: ${compose.done}`,
-        compose.needed && `Needed: ${compose.needed}`,
-        compose.notes,
-      ].filter(Boolean).join('\n\n') || undefined
-      : undefined;
-    if (date !== undefined && date !== null && date !== '' && !isValidDateString(date)) {
-      throw new HttpError(400, 'date must be YYYY-MM-DD');
-    }
-    if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
-    if (fileIds !== undefined) {
-      if (!Array.isArray(fileIds) || fileIds.some((f) => typeof f !== 'string')) {
-        throw new HttpError(400, 'fileIds must be an array of strings');
-      }
-    }
-    // fileTags: {fileId: [tagId, ...]} — native JT file tags per photo.
-    if (fileTags !== undefined) {
-      if (typeof fileTags !== 'object' || fileTags === null || Array.isArray(fileTags)
-          || Object.values(fileTags).some((v) => !Array.isArray(v) || v.some((t) => typeof t !== 'string'))) {
-        throw new HttpError(400, 'fileTags must map fileId to an array of tag ids');
-      }
-    }
-    const log = await adapter.createLog({ jobId, date: date || undefined, notes, fileIds, fileTags: fileTags ?? {}, internalNotes });
-    // Preserve the crew's ORIGINAL words (pre-Haiku) alongside the composed
-    // version — JT gets the clean log, nothing the crew wrote is lost.
-    if (compose !== undefined) {
-      const employee = await sessionEmployee(req);
-      await store.saveLogText({
-        jtLogId: log?.id ?? null,
-        jobId,
-        jobName: log?.jobName ?? '',
-        date: log?.date ?? date ?? '',
-        employeeEmail: employee?.email ?? '',
-        raw: compose,
-        composed: composedNotes ?? '',
-      }).catch((e) => console.error('[log_texts] save failed', e));
-    }
-    res.json({ log });
-  }));
-
-  // ---- uploads ---------------------------------------------------------
-  app.post('/api/uploads', upload.single('file'), wrap(async (req, res) => {
-    if (!req.file) throw new HttpError(400, "multipart 'file' field is required");
-    const { fileId, url } = await adapter.storeUpload({
-      name: req.file.originalname || 'upload',
-      type: req.file.mimetype || 'application/octet-stream',
-      buffer: req.file.buffer,
-    });
-    res.json({ fileId, url });
-  }));
-
-  // Serve stored uploads. Registered at /uploads/:id (contract route) and at
-  // /api/uploads/:id so the Vite dev proxy (which only forwards /api) can
-  // display photos in the web app.
-  const serveUpload = wrap(async (req, res) => {
-    const file = await adapter.getUpload(req.params.id);
-    if (!file) throw new HttpError(404, 'Upload not found');
-    if (file.buffer) {
-      res.set('Content-Type', file.type || 'application/octet-stream');
-      res.set('Content-Disposition', `inline; filename="${encodeURIComponent(file.name || 'file')}"`);
-      res.send(file.buffer);
-    } else if (file.url) {
-      res.redirect(file.url); // live adapter: bytes live at the hosted URL
-    } else {
-      throw new HttpError(404, 'Upload not found');
-    }
-  });
-  app.get('/uploads/:id', serveUpload);
-  app.get('/api/uploads/:id', serveUpload);
 
   // ---- webhook receiver -------------------------------------------------
   app.post('/api/webhooks/jt', (req, res) => {

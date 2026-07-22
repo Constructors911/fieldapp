@@ -1,7 +1,11 @@
-# Shared components (Agent B)
+# Shared components
 
-Reusable, mobile-first building blocks. All styling lives in `components.css` (plus
-`screens.css` for Clock/Today screen layouts) and uses only `styles/tokens.css` variables.
+Reusable, mobile-first building blocks. All app styling lives under this directory,
+using only `styles/tokens.css` variables, with every class under the single `c-` prefix:
+
+- `components.css` — shared building blocks (Card, Sheet, buttons, form fields, pills, etc.)
+- `screens.css` — screen-level layouts (Clock, Today, Log, Week) and the shared photo-attach/CompanyCam styles
+
 Touch targets are >= 44px (`--tap`). Import any component individually:
 
 ```js
@@ -74,5 +78,7 @@ Renders `null` when `message` is falsy.
 
 ## Button classes (CSS only, no component)
 Use `<button className="c-btn">` with modifiers: `c-btn-block` (full width),
-`c-btn-big` (56px tall), `c-btn-green`, `c-btn-red`, `c-btn-ghost`.
-Form helpers: `c-label`, `c-input`. Status pills: `c-pill` + `c-pill-red|orange|muted`.
+`c-btn-big` (56px tall), `c-btn-green`, `c-btn-red`, `c-btn-ghost`, `c-btn-primary`,
+`c-btn-add` (auto-width, compact), `c-btn-small` (36px tall, compact).
+Form helpers: `c-label`, `c-input`, `c-select`, `c-textarea`, `c-field` (field wrapper
+margin), `c-h2`, `c-h3` (section headings). Status pills: `c-pill` + `c-pill-red|orange|muted`.

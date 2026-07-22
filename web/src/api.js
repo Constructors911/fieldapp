@@ -6,6 +6,7 @@ const TOKEN_KEY = 'c911_session'; // also read by lib/offlineQueue.js send()
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY));
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 const authHeaders = () => {
   const t = getToken();
   return t ? { 'x-session-token': t } : {};
@@ -31,6 +32,12 @@ async function post(path, body) {
 export const authRegister = (email, pin, name) => post('/api/auth/register', { email, pin, name });
 export const authLogin = (email, pin) => post('/api/auth/login', { email, pin });
 export const authMe = () => get('/api/auth/me');
+export const authLogout = async () => {
+  try {
+    await post('/api/auth/logout', {});
+  } catch { /* revoke is best-effort */ }
+  clearToken();
+};
 
 export const getBootstrap = () => get('/api/bootstrap');
 export const getActivities = () => get('/api/activities');
