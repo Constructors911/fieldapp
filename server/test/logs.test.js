@@ -236,6 +236,24 @@ test('webhook responds 200, enforces secret only when WEBHOOK_SECRET is set', as
   }
 });
 
+test('POST /api/logs attributes the log to the signed-in employee (not grant default)', async () => {
+  const crew = withAuth(srv.base, await crewToken(srv.base));
+  const { status, json } = await crew('/api/logs', {
+    method: 'POST',
+    body: { jobId: 'job_maplewood', notes: 'Casey wrote this log.' },
+  });
+  assert.equal(status, 200);
+  assert.equal(json.log.userId, 'user_crew');
+
+  const mine = await crew(`/api/logs?mine=1&date=${todayString()}`);
+  assert.equal(mine.status, 200);
+  assert.ok(mine.json.logs.some((l) => l.id === json.log.id));
+
+  // David's session should not see Casey's log under mine=1.
+  const davidMine = await authed(`/api/logs?mine=1&date=${todayString()}`);
+  assert.ok(!davidMine.json.logs.some((l) => l.id === json.log.id));
+});
+
 test('unknown API routes return JSON 404; malformed JSON body returns 400', async () => {
   const nf = await api(srv.base, '/api/nope');
   assert.equal(nf.status, 404);

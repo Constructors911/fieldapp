@@ -76,7 +76,19 @@ export function registerLogs(app, ctx) {
         throw new HttpError(400, 'fileTags must map fileId to an array of tag ids');
       }
     }
-    const log = await adapter.createLog({ jobId, date: date || undefined, notes, fileIds, fileTags: fileTags ?? {}, internalNotes });
+    // Attribute the JT daily log to the signed-in employee — without userId
+    // Pave defaults to the grant-key owner (whoever created JT_GRANT_KEY).
+    const userId = req.employee.jtUserId;
+    if (!userId) throw new HttpError(400, 'Employee is not linked to a JobTread user');
+    const log = await adapter.createLog({
+      jobId,
+      date: date || undefined,
+      notes,
+      fileIds,
+      fileTags: fileTags ?? {},
+      internalNotes,
+      userId,
+    });
     // Preserve the crew's ORIGINAL words (pre-Haiku) alongside the composed
     // version — JT gets the clean log, nothing the crew wrote is lost.
     if (compose !== undefined) {

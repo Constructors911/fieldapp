@@ -644,7 +644,7 @@ export function createLiveAdapter({
       return (data?.organization?.dailyLogs?.nodes ?? []).map(mapLog);
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId }) {
       const cfId = internalNotes ? await internalNotesFieldId() : null;
       const data = await pave({
         createDailyLog: {
@@ -653,6 +653,9 @@ export function createLiveAdapter({
             date: date || todayString(),
             notes: notes ?? '',
             files: [],
+            // Same pattern as createTimeEntry: without this, JT attributes the
+            // log to the grant-key owner instead of the crew member who wrote it.
+            userId: logUserId || userId,
             ...(cfId ? { customFieldValues: { [cfId]: internalNotes } } : {}),
           },
           createdDailyLog: logFields,
@@ -685,7 +688,11 @@ export function createLiveAdapter({
           },
         });
       }
-      const [log] = await this.listLogs({ date: created.date, jobId });
+      const [log] = await this.listLogs({
+        date: created.date,
+        jobId,
+        jtUserId: logUserId || userId,
+      });
       return log ?? mapLog(created);
     },
 

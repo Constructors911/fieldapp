@@ -76,7 +76,7 @@ Wake pings (`POST /api/time/location`) also evaluate leave/return transitions ag
 - PATCH /api/tasks/:id { progress?, subtasks? } -> { task } (session required)
 - GET /api/file-tags -> { tags: [] } (session required; JobTread org tag list for photo tagging)
 - GET /api/logs?date=YYYY-MM-DD&jobId= -> { logs: [] } (session required)
-- POST /api/logs { jobId, date, notes, fileIds? [] } -> { log } (session required)
+- POST /api/logs { jobId, date, notes, fileIds? [] } -> { log } (session required; attributed in JobTread to the employee's jt_user_id)
 - POST /api/uploads multipart form (file) -> { fileId, url } (session required; mock stores to disk/memory)
 - GET /uploads/:id, GET /api/uploads/:id -> serves the stored upload bytes/redirect (no session — plain image src)
 - POST /api/webhooks/jt?secret= -> 200 immediately, logs event (mock)
@@ -102,7 +102,7 @@ Server has an adapter interface paveAdapter with two impls: mockAdapter (default
 - Clock out: updateTimeEntry {$: {id, endNow: true | {breakDuration}}}.
 - Open entry: query timeEntries filtered client-side for endedAt == null (Pave where cannot compare null).
 - Tasks: tasks connection, where assignee + date range, size <= 100, paginate via nextPage. Complete = updateTask {$: {id, progress: 1}}. Subtasks = full array rewrite {name, isComplete}.
-- Daily log: createDailyLog {$: {jobId, date, notes, files}}.
+- Daily log: createDailyLog {$: {jobId, date, notes, files, userId}} (userId = signed-in employee's jt_user_id; without it JT attributes the log to the grant-key owner).
 - Upload: createUploadRequest {$: {size, type}} -> PUT bytes to returned url/headers -> createFile {$: {uploadRequestId, targetType: 'dailyLog', targetId}}.
 - Live adapter must exist and compile but is NOT exercised by tests (no key). Mock adapter mirrors identical function signatures.
 

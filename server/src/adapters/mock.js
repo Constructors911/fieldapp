@@ -122,6 +122,7 @@ function seed() {
       notes: 'Crew of 3 on site. Uppers staged in garage; found minor drywall bow on range wall, shimmed flat. Inspector confirmed for tomorrow.',
       weather: weatherFor(today),
       files: [],
+      userId: user.id,
     },
     {
       id: uid('log'),
@@ -131,6 +132,7 @@ function seed() {
       notes: 'Formwork complete on Unit B addition. Rebar chairs set at 3ft grid. Pump scheduled Friday 6am, 28 yd of 4000psi.',
       weather: weatherFor(yesterday),
       files: [],
+      userId: user.id,
     },
   ];
 
@@ -329,14 +331,15 @@ export function createMockAdapter() {
       return task;
     },
 
-    async listLogs({ date, jobId } = {}) {
+    async listLogs({ date, jobId, jtUserId } = {}) {
       let logs = db.logs.slice();
       if (date) logs = logs.filter((l) => l.date === date);
       if (jobId) logs = logs.filter((l) => l.jobId === jobId);
+      if (jtUserId) logs = logs.filter((l) => l.userId === jtUserId);
       return logs.sort((a, b) => b.date.localeCompare(a.date));
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId }) {
       const job = findJob(jobId);
       if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
       const files = fileIds.map((fid) => {
@@ -353,6 +356,7 @@ export function createMockAdapter() {
         internalNotes: internalNotes ?? undefined, // mirrors JT's Internal Notes custom field
         weather: weatherFor(date || todayString()),
         files,
+        userId: logUserId || db.user.id,
       };
       db.logs.push(log);
       return log;
