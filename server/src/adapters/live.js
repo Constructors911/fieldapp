@@ -14,11 +14,15 @@ export function createLiveAdapter({
   if (!grantKey) throw new Error('createLiveAdapter requires a grant key');
 
   // Every request is a POST with {"query": {"$": {"grantKey": KEY}, ...}}.
-  async function pave(fields) {
+  // viaUserId on the root $ attributes creates/updates to that JT user
+  // (createDailyLog has no userId input — unlike createTimeEntry).
+  async function pave(fields, { viaUserId } = {}) {
+    const $ = { grantKey };
+    if (viaUserId) $.viaUserId = viaUserId;
     const res = await fetch(PAVE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: { $: { grantKey }, ...fields } }),
+      body: JSON.stringify({ query: { $, ...fields } }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -646,6 +650,8 @@ export function createLiveAdapter({
 
     async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId }) {
       const cfId = internalNotes ? await internalNotesFieldId() : null;
+      // createDailyLog rejects userId on $ — attribute via root viaUserId instead.
+      const asUser = logUserId || userId;
       const data = await pave({
         createDailyLog: {
           $: {
@@ -653,14 +659,11 @@ export function createLiveAdapter({
             date: date || todayString(),
             notes: notes ?? '',
             files: [],
-            // Same pattern as createTimeEntry: without this, JT attributes the
-            // log to the grant-key owner instead of the crew member who wrote it.
-            userId: logUserId || userId,
             ...(cfId ? { customFieldValues: { [cfId]: internalNotes } } : {}),
           },
           createdDailyLog: logFields,
         },
-      });
+      }, { viaUserId: asUser });
       const created = data?.createDailyLog?.createdDailyLog;
       if (!created) throw new HttpError(502, 'Pave did not return the created daily log');
 
@@ -686,12 +689,12 @@ export function createLiveAdapter({
             },
             createdFile: { id: {}, name: {}, url: {} },
           },
-        });
+        }, { viaUserId: asUser });
       }
       const [log] = await this.listLogs({
         date: created.date,
         jobId,
-        jtUserId: logUserId || userId,
+        jtUserId: asUser,
       });
       return log ?? mapLog(created);
     },
