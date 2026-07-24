@@ -87,7 +87,34 @@ export function createLiveAdapter({
     job: { id: {}, number: {}, name: {} },
   };
 
+  // Assignees / predecessors — optional; Pave 400s unknown fields, so we
+  // probe once and fall back to taskFields alone if JT rejects them.
+  const taskRelationFields = {
+    assignedMemberships: {
+      $: { size: 25 },
+      nodes: { id: {}, user: { id: {}, name: {} } },
+    },
+    predecessors: {
+      $: { size: 25 },
+      nodes: { id: {}, name: {}, progress: {} },
+    },
+  };
+  let relationsSupported = null; // null = unknown, true/false after first try
+
   function mapTask(t) {
+    const assignees = (t.assignedMemberships?.nodes ?? [])
+      .map((m) => ({
+        id: m.user?.id || m.id,
+        name: m.user?.name || m.name || '',
+      }))
+      .filter((a) => a.name);
+    const dependencies = (t.predecessors?.nodes ?? [])
+      .map((p) => ({
+        id: p.id,
+        name: p.name || 'Dependency',
+        progress: typeof p.progress === 'number' ? p.progress : null,
+      }))
+      .filter((d) => d.id);
     return {
       id: t.id,
       jobId: t.job?.id ?? null,
@@ -105,6 +132,8 @@ export function createLiveAdapter({
         name: s.name,
         isComplete: Boolean(s.isComplete),
       })),
+      assignees,
+      dependencies,
     };
   }
 
@@ -561,42 +590,64 @@ export function createLiveAdapter({
       const rangeStart = scope === 'week' ? (weekStart || mondayOf()) : addDays(today, -14);
       const rangeEnd = scope === 'week' ? addDays(rangeStart, 6) : today;
 
-      // Tasks assigned to the user hang off their org membership
-      // (task has no assigneeUserIds field). Paginate via nextPage cursors.
-      const nodes = [];
-      let page = null;
-      do {
-        const data = await pave({
-          organization: {
-            $: { id: organizationId },
-            id: {},
-            memberships: {
-              $: { size: 1, where: { and: [[['user', 'id'], '=', taskUserId]] } },
-              nodes: {
-                id: {},
-                assignedTasks: {
-                  $: {
-                    size: 100,
-                    ...(page ? { page } : {}),
-                    where: {
-                      and: [
-                        ['startDate', '<=', rangeEnd],
-                        ['endDate', '>=', rangeStart],
-                      ],
+      async function fetchPages(nodeFields) {
+        const nodes = [];
+        let page = null;
+        do {
+          const data = await pave({
+            organization: {
+              $: { id: organizationId },
+              id: {},
+              memberships: {
+                $: { size: 1, where: { and: [[['user', 'id'], '=', taskUserId]] } },
+                nodes: {
+                  id: {},
+                  assignedTasks: {
+                    $: {
+                      size: 100,
+                      ...(page ? { page } : {}),
+                      where: {
+                        and: [
+                          ['startDate', '<=', rangeEnd],
+                          ['endDate', '>=', rangeStart],
+                        ],
+                      },
+                      sortBy: [{ field: 'startDate' }, { field: 'startTime' }],
                     },
-                    sortBy: [{ field: 'startDate' }, { field: 'startTime' }],
+                    nextPage: {},
+                    nodes: nodeFields,
                   },
-                  nextPage: {},
-                  nodes: taskFields,
                 },
               },
             },
-          },
-        });
-        const conn = data?.organization?.memberships?.nodes?.[0]?.assignedTasks ?? {};
-        nodes.push(...(conn.nodes ?? []));
-        page = conn.nextPage ?? null;
-      } while (page);
+          });
+          const conn = data?.organization?.memberships?.nodes?.[0]?.assignedTasks ?? {};
+          nodes.push(...(conn.nodes ?? []));
+          page = conn.nextPage ?? null;
+        } while (page);
+        return nodes;
+      }
+
+      // Prefer assignee/predecessor fields; fall back if Pave rejects them.
+      let nodes;
+      const withRelations = { ...taskFields, ...taskRelationFields };
+      if (relationsSupported === false) {
+        nodes = await fetchPages(taskFields);
+      } else {
+        try {
+          nodes = await fetchPages(withRelations);
+          relationsSupported = true;
+        } catch (e) {
+          const msg = String(e?.message || e);
+          if (/does not exist|not expected/i.test(msg)) {
+            relationsSupported = false;
+            console.warn('[listTasks] assignee/predecessor fields unsupported; retrying without', msg);
+            nodes = await fetchPages(taskFields);
+          } else {
+            throw e;
+          }
+        }
+      }
 
       const tasks = nodes.map(mapTask);
       if (scope === 'today') {

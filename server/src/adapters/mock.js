@@ -75,6 +75,8 @@ function seed() {
     startTime: null,
     endTime: null,
     subtasks: [],
+    assignees: [{ id: user.id, name: user.name }],
+    dependencies: [],
     jobName: jobName(t.jobId),
     ...t,
   });
@@ -94,7 +96,9 @@ function seed() {
       { id: uid('sub'), name: 'Label circuits at panel', isComplete: false },
     ] }),
     // Pinned to *today* so the Today screen always has work
-    task({ jobId: 'job_maplewood', name: 'Install upper cabinets', startDate: today, endDate: today, startTime: '07:00', endTime: '15:00', description: 'Start on the range wall; shim to laser line.', subtasks: [
+    task({ jobId: 'job_maplewood', name: 'Install upper cabinets', startDate: today, endDate: today, startTime: '07:00', endTime: '15:00', description: 'Start on the range wall; shim to laser line.',
+      assignees: [{ id: user.id, name: user.name }, { id: 'user_crew', name: 'Casey Crew' }],
+      subtasks: [
       { id: uid('sub'), name: 'Snap level line & locate studs', isComplete: false },
       { id: uid('sub'), name: 'Hang corner unit first', isComplete: false },
       { id: uid('sub'), name: 'Set crown blocking', isComplete: false },
@@ -102,12 +106,20 @@ function seed() {
     task({ jobId: 'job_riverside', name: 'Foundation formwork inspection walkthrough', startDate: today, endDate: today, startTime: '09:30', endTime: '10:30', description: 'City inspector on site 9:30am. Have compaction report printed.' }),
     task({ jobId: 'job_maplewood', name: 'Order cabinet hardware pulls', isToDo: true, startDate: today, endDate: today, description: '42x satin brass pulls - confirm 3in centers with designer first.' }),
     task({ jobId: 'job_riverside', name: 'Submit electrical permit revision', isToDo: true, startDate: yesterday, endDate: yesterday, description: 'Overdue: city portal, attach stamped one-line diagram.' }),
-    task({ jobId: 'job_riverside', name: 'Frame exterior walls - Unit B', startDate: d(3), endDate: d(4), startTime: '07:00', endTime: '16:00', subtasks: [
+    task({ id: 'task_frame_b', jobId: 'job_riverside', name: 'Frame exterior walls - Unit B', startDate: d(3), endDate: d(4), startTime: '07:00', endTime: '16:00', subtasks: [
       { id: uid('sub'), name: 'Plate layout on slab', isComplete: false },
       { id: uid('sub'), name: 'Stand & brace long wall', isComplete: false },
       { id: uid('sub'), name: 'Header king/jack at patio door', isComplete: false },
     ] }),
-    task({ jobId: 'job_riverside', name: 'Sheathing & house wrap', startDate: d(4), endDate: d(4), startTime: '08:00', endTime: '16:30' }),
+    task({
+      jobId: 'job_riverside',
+      name: 'Sheathing & house wrap',
+      startDate: d(4),
+      endDate: d(4),
+      startTime: '08:00',
+      endTime: '16:30',
+      dependencies: [{ id: 'task_frame_b', name: 'Frame exterior walls - Unit B', progress: 0 }],
+    }),
     task({ jobId: 'job_sunset', name: 'Drywall delivery & stock suites', startDate: d(4), endDate: d(4), startTime: '06:30', endTime: '09:00', description: 'Boom truck - coordinate loading dock with property manager.' }),
     task({ jobId: 'job_sunset', name: 'Paint first coat - suites 210-214', startDate: d(5), endDate: d(5), startTime: '07:00', endTime: '15:00' }),
   ];

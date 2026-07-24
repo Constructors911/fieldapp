@@ -65,7 +65,7 @@ test('task shape matches the contract', async () => {
   const { json } = await authed('/api/tasks?scope=week');
   const t = json.tasks.find((x) => x.subtasks.length > 0);
   assert.ok(t, 'seed has tasks with subtasks');
-  for (const key of ['id', 'jobId', 'jobName', 'name', 'description', 'isToDo', 'progress', 'startDate', 'endDate', 'startTime', 'endTime', 'subtasks']) {
+  for (const key of ['id', 'jobId', 'jobName', 'name', 'description', 'isToDo', 'progress', 'startDate', 'endDate', 'startTime', 'endTime', 'subtasks', 'assignees', 'dependencies']) {
     assert.ok(key in t, `task has ${key}`);
   }
   for (const s of t.subtasks) {

@@ -27,8 +27,16 @@ function hasDetails(t) {
   return Boolean(
     (t.description && t.description.trim())
     || (t.subtasks && t.subtasks.length)
+    || (t.assignees && t.assignees.length)
+    || (t.dependencies && t.dependencies.length)
     || (dateOnly(t.startDate) && dateOnly(t.endDate) && dateOnly(t.startDate) !== dateOnly(t.endDate))
   );
+}
+
+function depLabel(d) {
+  if (typeof d.progress === 'number' && d.progress >= 1) return `${d.name} (done)`;
+  if (typeof d.progress === 'number') return `${d.name} (${Math.round(d.progress * 100)}%)`;
+  return d.name;
 }
 
 export default function Week() {
@@ -138,13 +146,19 @@ export default function Week() {
                 const open = expanded.has(t.id);
                 const details = hasDetails(t);
                 const subs = t.subtasks || [];
+                const assignees = t.assignees || [];
+                const dependencies = t.dependencies || [];
                 const doneSubs = subs.filter((s) => s.isComplete).length;
                 const range = fmtDateRange(t.startDate, t.endDate);
                 const multiDay = dateOnly(t.startDate) && dateOnly(t.endDate)
                   && dateOnly(t.startDate) !== dateOnly(t.endDate);
+                const typeLabel = t.isToDo ? 'To-do' : 'Task';
 
                 return (
                   <div key={t.id} className={done ? 'c-task is-done' : 'c-task'}>
+                    <span className={t.isToDo ? 'c-task-type is-todo' : 'c-task-type is-task'}>
+                      {typeLabel}
+                    </span>
                     <button
                       type="button"
                       className="c-task-summary"
@@ -153,10 +167,7 @@ export default function Week() {
                       disabled={!details}
                     >
                       <div className="c-task-job">{t.jobName}</div>
-                      <div className="c-task-name">
-                        {t.name}
-                        {t.isToDo && <span className="c-task-todo">TO-DO</span>}
-                      </div>
+                      <div className="c-task-name">{t.name}</div>
                       <div className="c-task-time">
                         {time || 'All day'}
                         {subs.length > 0 && <span> · {doneSubs}/{subs.length} subtasks</span>}
@@ -172,6 +183,24 @@ export default function Week() {
                         {multiDay && range && (
                           <p className="c-task-detail-meta">Scheduled {range}</p>
                         )}
+                        {assignees.length > 0 && (
+                          <div className="c-task-detail-block">
+                            <div className="c-task-detail-label">Assigned to</div>
+                            <p className="c-task-detail-value">
+                              {assignees.map((a) => a.name).filter(Boolean).join(', ') || '—'}
+                            </p>
+                          </div>
+                        )}
+                        {dependencies.length > 0 && (
+                          <div className="c-task-detail-block">
+                            <div className="c-task-detail-label">Dependencies</div>
+                            <ul className="c-task-deps">
+                              {dependencies.map((dep) => (
+                                <li key={dep.id || dep.name}>{depLabel(dep)}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                         {t.description?.trim() && (
                           <p className="c-task-desc">{t.description.trim()}</p>
                         )}
@@ -184,9 +213,6 @@ export default function Week() {
                               </li>
                             ))}
                           </ul>
-                        )}
-                        {!t.description?.trim() && subs.length === 0 && multiDay && (
-                          <p className="c-task-detail-meta">No notes or checklist on this task.</p>
                         )}
                       </div>
                     )}

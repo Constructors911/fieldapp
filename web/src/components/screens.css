@@ -349,6 +349,7 @@
 }
 .c-day-empty { color: var(--muted); font-size: 13px; padding: 2px 10px 0; }
 .c-task {
+  position: relative;
   background: var(--card);
   border-radius: 8px;
   box-shadow: var(--shadow);
@@ -358,13 +359,35 @@
   overflow: hidden;
 }
 .c-day.is-today .c-task { border-left-color: var(--orange); }
+.c-task-type {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 1;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 2px 7px;
+  line-height: 1.3;
+  pointer-events: none;
+}
+.c-task-type.is-task {
+  background: #e8eef5;
+  color: var(--navy);
+}
+.c-task-type.is-todo {
+  background: #fdf0e5;
+  color: #a35315;
+}
 .c-task-summary {
   display: block;
   width: 100%;
   text-align: left;
   background: none;
   border: 0;
-  padding: 10px 12px;
+  padding: 10px 72px 10px 12px;
   cursor: pointer;
   color: inherit;
   font: inherit;
@@ -372,7 +395,7 @@
 }
 .c-task-summary:disabled { cursor: default; }
 .c-task-job { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
-.c-task-name { font-size: 15px; font-weight: 600; margin: 2px 0; }
+.c-task-name { font-size: 15px; font-weight: 600; margin: 2px 0; padding-right: 4px; }
 .c-task.is-done .c-task-name { text-decoration: line-through; color: var(--muted); }
 .c-task-time { font-size: 13px; color: var(--muted); }
 .c-task-chevron { float: right; color: var(--navy); font-size: 11px; }
@@ -381,6 +404,29 @@
   border-top: 1px solid #eef1f4;
 }
 .c-task-detail-meta { margin: 10px 0 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+.c-task-detail-block { margin: 10px 0 0; }
+.c-task-detail-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.c-task-detail-value { margin: 0; font-size: 14px; color: var(--text); }
+.c-task-deps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.c-task-deps li {
+  font-size: 14px;
+  padding: 4px 0;
+  color: var(--text);
+  border-left: 2px solid #cfd6dd;
+  padding-left: 8px;
+  margin: 4px 0 0;
+}
 .c-task-desc {
   margin: 10px 0 0;
   font-size: 14px;
@@ -404,17 +450,6 @@
 }
 .c-task-subs li span { color: var(--navy); font-weight: 700; line-height: 1.3; }
 .c-task-subs li.is-done { color: var(--muted); text-decoration: line-through; }
-.c-task-todo {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--orange);
-  border: 1px solid var(--orange);
-  border-radius: 4px;
-  padding: 0 5px;
-  margin-left: 6px;
-  vertical-align: middle;
-}
 
 /* --- job picker trigger (Log) --- */
 .c-jobbtn {

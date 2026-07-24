@@ -85,7 +85,7 @@ Wake pings (`POST /api/time/location`) also evaluate leave/return transitions ag
 - POST /api/webhooks/jt?secret= -> 200 immediately, logs event (mock)
 
 TimeEntry: { id, jobId, jobName, costItemId, costItemName, startedAt, endedAt, minutes, notes, coordinates }
-Task: { id, jobId, jobName, name, description, isToDo, progress, startDate, endDate, startTime, endTime, subtasks: [{id, name, isComplete}] }
+Task: { id, jobId, jobName, name, description, isToDo, progress, startDate, endDate, startTime, endTime, subtasks: [{id, name, isComplete}], assignees: [{id, name}], dependencies: [{id, name, progress?}] }
 Log: { id, jobId, jobName, date, notes, weather?: {condition, minTemp, maxTemp}, files: [{id, url, name}] }
 
 ## Server layout (internal)
