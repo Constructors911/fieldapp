@@ -2,7 +2,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
-import { loadGoogleMaps, PIN_COLORS } from '../lib/googleMaps.js';
+import { loadGoogleMaps, PIN_COLORS, trackColor } from '../lib/googleMaps.js';
+
+function localToday() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 function fmtWhen(iso) {
   if (!iso) return '';
@@ -24,12 +32,18 @@ function pinBody(p) {
 }
 
 /**
- * Admin-only crew map. Pins are punch GPS (open by default; toggle for
- * today's in + out). Geofence circles only for jobs in the current view.
+ * Admin-only crew map.
+ * - Clocked in now: live pins + wake tracks for open punches
+ * - By date: in/out pins for that day + wake-ping tracks, filterable by user
  */
 export default function AdminMap({ adminFetch }) {
-  const [view, setView] = useState('open'); // 'open' | 'today'
+  const [view, setView] = useState('open'); // 'open' | 'day'
+  const [date, setDate] = useState(localToday);
+  const [userId, setUserId] = useState('');
+  const [showTracks, setShowTracks] = useState(true);
   const [pins, setPins] = useState(undefined); // undefined loading
+  const [tracks, setTracks] = useState([]);
+  const [users, setUsers] = useState([]);
   const [fences, setFences] = useState([]);
   const [withoutGps, setWithoutGps] = useState(0);
   const [err, setErr] = useState(null);
@@ -38,6 +52,7 @@ export default function AdminMap({ adminFetch }) {
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const circlesRef = useRef([]);
+  const polylinesRef = useRef([]);
   const infoRef = useRef(null);
   const [paintTick, setPaintTick] = useState(0);
 
@@ -55,16 +70,23 @@ export default function AdminMap({ adminFetch }) {
     setPins(undefined);
     setErr(null);
     try {
-      const data = await adminFetch(`/api/admin/map/pins?view=${view}`);
+      const q = new URLSearchParams({ view });
+      if (view === 'day') q.set('date', date);
+      if (userId) q.set('userId', userId);
+      const data = await adminFetch(`/api/admin/map/pins?${q}`);
       setPins(data.pins || []);
+      setTracks(data.tracks || []);
+      setUsers(data.users || []);
       setFences(data.fences || []);
       setWithoutGps(data.withoutGps || 0);
     } catch (e) {
       setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
       setPins([]);
+      setTracks([]);
+      setUsers([]);
       setFences([]);
     }
-  }, [adminFetch, view]);
+  }, [adminFetch, view, date, userId]);
 
   useEffect(() => { loadConfig(); }, [loadConfig]);
   useEffect(() => { loadPins(); }, [loadPins]);
@@ -90,7 +112,7 @@ export default function AdminMap({ adminFetch }) {
     return () => { cancelled = true; };
   }, [mapsKey]);
 
-  // Paint markers + fence circles whenever data or map changes.
+  // Paint markers, fence circles, and wake tracks.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.google?.maps || !Array.isArray(pins)) return;
@@ -99,6 +121,8 @@ export default function AdminMap({ adminFetch }) {
     markersRef.current = [];
     circlesRef.current.forEach((c) => c.setMap(null));
     circlesRef.current = [];
+    polylinesRef.current.forEach((l) => l.setMap(null));
+    polylinesRef.current = [];
 
     const bounds = new window.google.maps.LatLngBounds();
     let hasBounds = false;
@@ -117,6 +141,26 @@ export default function AdminMap({ adminFetch }) {
       circlesRef.current.push(circle);
       bounds.extend({ lat: f.lat, lng: f.lng });
       hasBounds = true;
+    }
+
+    if (showTracks) {
+      for (const t of tracks) {
+        if (!t.points?.length) continue;
+        const path = t.points.map((pt) => ({ lat: pt.lat, lng: pt.lng }));
+        const line = new window.google.maps.Polyline({
+          map,
+          path,
+          geodesic: true,
+          strokeColor: trackColor(t.userId),
+          strokeOpacity: 0.85,
+          strokeWeight: 4,
+        });
+        polylinesRef.current.push(line);
+        for (const pt of path) {
+          bounds.extend(pt);
+          hasBounds = true;
+        }
+      }
     }
 
     for (const p of pins) {
@@ -146,15 +190,17 @@ export default function AdminMap({ adminFetch }) {
     }
 
     if (!hasBounds) return;
-    if (pins.length === 1 && fences.length === 0) {
+    if (pins.length === 1 && fences.length === 0 && (!showTracks || tracks.length === 0)) {
       map.setCenter({ lat: pins[0].lat, lng: pins[0].lng });
       map.setZoom(14);
     } else {
       map.fitBounds(bounds, 48);
     }
-  }, [pins, fences, paintTick]);
+  }, [pins, fences, tracks, showTracks, paintTick]);
 
-  const showCanvas = Array.isArray(pins) && (pins.length > 0 || fences.length > 0);
+  const showCanvas = Array.isArray(pins) && (
+    pins.length > 0 || fences.length > 0 || (showTracks && tracks.length > 0)
+  );
 
   if (mapsKey === undefined) return <Spinner label="Loading map…" />;
 
@@ -183,12 +229,50 @@ export default function AdminMap({ adminFetch }) {
           </button>
           <button
             type="button"
-            className={view === 'today' ? 'adm-map-tog active' : 'adm-map-tog'}
-            onClick={() => setView('today')}
+            className={view === 'day' ? 'adm-map-tog active' : 'adm-map-tog'}
+            onClick={() => setView('day')}
           >
-            Today&apos;s in &amp; outs
+            By date
           </button>
         </div>
+
+        {view === 'day' && (
+          <label className="adm-map-filter">
+            <span className="adm-map-filter-label">Date</span>
+            <input
+              type="date"
+              className="adm-map-date"
+              value={date}
+              max={localToday()}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </label>
+        )}
+
+        <label className="adm-map-filter">
+          <span className="adm-map-filter-label">Crew</span>
+          <select
+            className="adm-select adm-userfilter"
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            aria-label="Filter by crew member"
+          >
+            <option value="">Everyone</option>
+            {users.map((u) => (
+              <option key={u.userId} value={u.userId}>{u.userName}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="adm-map-tracks">
+          <input
+            type="checkbox"
+            checked={showTracks}
+            onChange={(e) => setShowTracks(e.target.checked)}
+          />
+          Tracks
+        </label>
+
         <div className="adm-map-legend" aria-hidden="true">
           <span><i style={{ background: PIN_COLORS.open }} /> Open / last seen</span>
           <span><i style={{ background: PIN_COLORS.in }} /> In</span>
@@ -201,13 +285,13 @@ export default function AdminMap({ adminFetch }) {
 
       {pins === undefined && <Spinner label="Loading locations…" />}
 
-      {Array.isArray(pins) && pins.length === 0 && fences.length === 0 && (
+      {Array.isArray(pins) && pins.length === 0 && fences.length === 0 && tracks.length === 0 && (
         <EmptyState
           icon="📍"
-          title={view === 'open' ? 'No open punches with GPS' : 'No punch locations today'}
+          title={view === 'open' ? 'No open punches with GPS' : 'No punch locations for this date'}
           hint={withoutGps > 0
             ? `${withoutGps} punch${withoutGps === 1 ? '' : 'es'} without GPS (crew may have denied location).`
-            : 'Crew GPS is captured at clock-in/out when the device allows it.'}
+            : 'Crew GPS is captured at clock-in/out when the device allows it. Tracks appear from wake pings while clocked in.'}
         />
       )}
 
@@ -219,9 +303,13 @@ export default function AdminMap({ adminFetch }) {
         aria-label="Crew location map"
       />
 
-      {Array.isArray(pins) && pins.length > 0 && withoutGps > 0 && (
+      {Array.isArray(pins) && (pins.length > 0 || tracks.length > 0) && (
         <p className="adm-map-note">
-          Showing {pins.length} pin{pins.length === 1 ? '' : 's'}. {withoutGps} punch{withoutGps === 1 ? '' : 'es'} had no GPS.
+          {pins.length > 0 && <>Showing {pins.length} pin{pins.length === 1 ? '' : 's'}. </>}
+          {showTracks && tracks.length > 0 && (
+            <>{tracks.length} track{tracks.length === 1 ? '' : 's'} from wake pings. </>
+          )}
+          {withoutGps > 0 && <>{withoutGps} punch{withoutGps === 1 ? '' : 'es'} had no GPS.</>}
         </p>
       )}
     </div>

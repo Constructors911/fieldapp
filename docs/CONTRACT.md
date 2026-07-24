@@ -55,9 +55,12 @@ Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_UR
 Admin-only Google Maps view of crew punch locations. Requires `GOOGLE_MAPS_API_KEY` — see docs/GOOGLE_MAPS.md.
 
 - GET /api/admin/map/config -> { mapsApiKey: string | null } (admin)
-- GET /api/admin/map/pins?view=open|today -> { view, pins, withoutGps, punchCount, fences: [{jobId, lat, lng, radiusM, active}] } (admin)
+- GET /api/admin/map/pins?view=open|day&date=YYYY-MM-DD&userId= -> { view, date, userId, pins, tracks, users, withoutGps, punchCount, fences } (admin)
   - `open` (default): one pin per open punch — last wake breadcrumb if any, else clock-in GPS
-  - `today`: clock-in + clock-out pins; open pins prefer last wake
+  - `day` (alias: `today`): clock-in + clock-out pins for punches that started/ended on `date` (default today); open punches still prefer last wake. Still-open punches are included when `date` is today.
+  - `userId`: optional filter to one JT user
+  - `users`: distinct crew on that view (for the filter dropdown; not narrowed by userId)
+  - `tracks`: per-punch paths `[clock-in → wake pings → clock-out]` (2+ points only). Wake pings come from `POST /api/time/location` while clocked in.
   - `fences`: active geofences for jobs in this view's punches only (circles clear from "Clocked in now" after clock-out)
 
 ### Geofences (silent admin log — no crew warnings)

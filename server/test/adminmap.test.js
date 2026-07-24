@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, api, crewToken, withAuth } from './helpers.js';
-import { punchesToPins } from '../src/routes/adminMap.js';
+import { punchesToPins, buildTracks, punchesForDay } from '../src/routes/adminMap.js';
 
 let srv;
 let authed;
@@ -97,18 +97,67 @@ test('today view includes in and out pins', async () => {
     body: { coordinates: { lat: 30.21, lng: -97.81 } },
   });
 
-  const { status, json } = await api(srv.base, '/api/admin/map/pins?view=today');
+  const { status, json } = await api(srv.base, '/api/admin/map/pins?view=day');
   assert.equal(status, 200);
-  assert.equal(json.view, 'today');
+  assert.equal(json.view, 'day');
+  assert.ok(json.date);
   assert.ok(json.pins.some((p) => p.kind === 'in' || p.kind === 'open'));
   assert.ok(json.pins.some((p) => p.kind === 'out'));
   const out = json.pins.find((p) => p.kind === 'out' && p.jobId === 'job_sunset');
   assert.ok(out);
   assert.equal(out.lat, 30.21);
+  assert.ok(Array.isArray(json.tracks));
+  assert.ok(Array.isArray(json.users));
+  assert.ok(json.users.length >= 1);
 });
 
-test('invalid view returns 400', async () => {
+test('day view filters by userId and builds wake-ping tracks', async () => {
+  await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: {
+      jobId: 'job_riverside',
+      activity: 'Laborer',
+      coordinates: { lat: 30.24, lng: -97.73 },
+    },
+  });
+  // Wake breadcrumbs along a short path
+  await authed('/api/time/location', {
+    method: 'POST',
+    body: { coordinates: { lat: 30.241, lng: -97.731 } },
+  });
+  await authed('/api/time/location', {
+    method: 'POST',
+    body: { coordinates: { lat: 30.242, lng: -97.732 } },
+  });
+  await authed('/api/time/clock-out', {
+    method: 'POST',
+    body: { coordinates: { lat: 30.243, lng: -97.733 } },
+  });
+
+  const all = await api(srv.base, '/api/admin/map/pins?view=day');
+  assert.equal(all.status, 200);
+  const track = all.json.tracks.find((t) => t.jobId === 'job_riverside');
+  assert.ok(track, 'expected a track for the riverside punch');
+  assert.ok(track.points.length >= 3, 'in + wakes + out');
+  assert.equal(track.points[0].source, 'in');
+  assert.ok(track.points.some((p) => p.source === 'wake'));
+  assert.equal(track.points[track.points.length - 1].source, 'out');
+
+  const userId = track.userId;
+  const filtered = await api(srv.base, `/api/admin/map/pins?view=day&userId=${encodeURIComponent(userId)}`);
+  assert.equal(filtered.status, 200);
+  assert.ok(filtered.json.pins.every((p) => p.userId === userId));
+  assert.ok(filtered.json.tracks.every((t) => t.userId === userId));
+  // Dropdown still lists everyone for that day (not narrowed by filter)
+  assert.ok(filtered.json.users.some((u) => u.userId === userId));
+});
+
+test('view=today aliases to day; invalid view returns 400', async () => {
+  const alias = await api(srv.base, '/api/admin/map/pins?view=today');
+  assert.equal(alias.status, 200);
+  assert.equal(alias.json.view, 'day');
   assert.equal((await api(srv.base, '/api/admin/map/pins?view=week')).status, 400);
+  assert.equal((await api(srv.base, '/api/admin/map/pins?view=day&date=nope')).status, 400);
 });
 
 test('punchesToPins helper expands correctly', () => {
@@ -141,6 +190,16 @@ test('punchesToPins helper expands correctly', () => {
   const today = punchesToPins(punches, 'today');
   assert.equal(today.pins.length, 2);
   assert.deepEqual(today.pins.map((p) => p.kind).sort(), ['in', 'out']);
+
+  const track = buildTracks(punches, {
+    p1: [{ coordinates: { lat: 1.5, lng: 2.5 }, recordedAt: '2026-07-22T16:00:00.000Z' }],
+  });
+  assert.equal(track.length, 1);
+  assert.equal(track[0].points.length, 3);
+  assert.deepEqual(track[0].points.map((p) => p.source), ['in', 'wake', 'out']);
+
+  assert.equal(punchesForDay(punches, '2026-07-22').length, 1);
+  assert.equal(punchesForDay(punches, '2026-07-21').length, 0);
 });
 
 test('wake location ping requires session and open punch', async () => {

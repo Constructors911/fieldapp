@@ -344,6 +344,24 @@ export function createNeonStore(databaseUrl) {
       return out;
     },
 
+    /** All pings for punches, oldest→newest (for map tracks). Cap per punch. */
+    async listLocationPings(punchIds, { limitPerPunch = 200 } = {}) {
+      await migrate();
+      const out = {};
+      for (const id of punchIds || []) {
+        const rows = await sql`select lat, lng, recorded_at from location_pings
+          where punch_id = ${id}
+          order by recorded_at desc
+          limit ${limitPerPunch}`;
+        // Query newest-first for the cap, then reverse to chronological.
+        out[id] = rows.reverse().map((r) => ({
+          coordinates: { lat: Number(r.lat), lng: Number(r.lng) },
+          recordedAt: r.recorded_at instanceof Date ? r.recorded_at.toISOString() : r.recorded_at,
+        }));
+      }
+      return out;
+    },
+
     async previousLocationCoordinates(punchId) {
       await migrate();
       const rows = await sql`select lat, lng from location_pings

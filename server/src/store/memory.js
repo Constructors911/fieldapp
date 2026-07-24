@@ -180,6 +180,24 @@ export function createMemoryStore() {
       return out;
     },
 
+    /** All pings for punches, oldest→newest (for map tracks). Cap per punch. */
+    async listLocationPings(punchIds, { limitPerPunch = 200 } = {}) {
+      const out = {};
+      for (const id of punchIds || []) {
+        const matches = locationPings
+          .filter((p) => p.punchId === id)
+          .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
+        const sliced = matches.length > limitPerPunch
+          ? matches.slice(matches.length - limitPerPunch)
+          : matches;
+        out[id] = sliced.map((p) => ({
+          coordinates: { ...p.coordinates },
+          recordedAt: p.recordedAt,
+        }));
+      }
+      return out;
+    },
+
     /** Prior sample before the newest ping (or null). Used for leave/return detection. */
     async previousLocationCoordinates(punchId, excludingNewestCoords) {
       const matches = locationPings

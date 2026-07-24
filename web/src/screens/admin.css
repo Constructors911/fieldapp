@@ -106,6 +106,17 @@
 }
 .adm-map-tog + .adm-map-tog { border-left: 1px solid #cfd6dd; }
 .adm-map-tog.active { background: var(--navy); color: #fff; }
+.adm-map-filter { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.adm-map-filter-label { color: var(--muted); font-weight: 600; }
+.adm-map-date {
+  min-height: 36px; padding: 4px 8px; border: 1px solid #cfd6dd; border-radius: 6px;
+  font-size: 13px; color: var(--text); background: #fff;
+}
+.adm-map-tracks {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600;
+  color: var(--navy); cursor: pointer; user-select: none;
+}
+.adm-map-tracks input { width: 16px; height: 16px; accent-color: var(--navy); }
 .adm-map-legend {
   display: flex; gap: 14px; font-size: 12px; color: var(--muted); font-weight: 600;
 }

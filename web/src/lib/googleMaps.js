@@ -35,6 +35,16 @@ export function loadGoogleMaps(apiKey) {
 /** Marker colors for pin kinds. */
 export const PIN_COLORS = {
   open: '#2e9e5b', // clocked in now
-  in: '#0f2740',   // today's clock-in
-  out: '#e8792b',  // today's clock-out
+  in: '#0f2740',   // day's clock-in
+  out: '#e8792b',  // day's clock-out
 };
+
+/** Distinct colors for wake-ping tracks (stable per userId). */
+const TRACK_PALETTE = ['#0f2740', '#e8792b', '#2e9e5b', '#5b6abf', '#c44b4b', '#0d9488', '#a16207'];
+
+export function trackColor(userId) {
+  const s = String(userId || '');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return TRACK_PALETTE[h % TRACK_PALETTE.length];
+}
