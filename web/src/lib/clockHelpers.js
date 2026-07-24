@@ -34,6 +34,25 @@ export function fmtElapsed(startedAt, now) {
   return `${pad(h)}:${pad(m)}:${pad(sec)}`;
 }
 
+/** Names of completed tasks + completed subtasks (for daily-log auto-seed). */
+export function completedTaskNames(tasks = []) {
+  const names = [];
+  for (const t of tasks) {
+    if ((t.progress || 0) >= 1 && t.name) names.push(t.name);
+    for (const s of t.subtasks || []) {
+      if (s.isComplete && s.name) names.push(s.name);
+    }
+  }
+  return names;
+}
+
+/** Incomplete parent tasks still assigned on this job today. */
+export function remainingTaskNames(tasks = []) {
+  return tasks
+    .filter((t) => (t.progress || 0) < 1 && t.name)
+    .map((t) => t.name);
+}
+
 // Best-effort GPS: resolves {lat,lng} or null. Never rejects, never blocks past 6s.
 export function getGps() {
   return new Promise((resolve) => {

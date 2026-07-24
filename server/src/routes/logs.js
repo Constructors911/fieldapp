@@ -49,6 +49,10 @@ export function registerLogs(app, ctx) {
           && (!Array.isArray(compose.tasksCompleted) || compose.tasksCompleted.some((t) => typeof t !== 'string'))) {
         throw new HttpError(400, 'compose.tasksCompleted must be an array of strings');
       }
+      if (compose.tasksRemaining !== undefined
+          && (!Array.isArray(compose.tasksRemaining) || compose.tasksRemaining.some((t) => typeof t !== 'string'))) {
+        throw new HttpError(400, 'compose.tasksRemaining must be an array of strings');
+      }
       notes = await composeLogNotes(compose);
     }
     const composedNotes = notes;

@@ -8,7 +8,7 @@ import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import ClockOutSheet from './ClockOutSheet.jsx';
-import { todayRange, fmtTime, localToday, fmtMins, fmtElapsed, getGps } from '../lib/clockHelpers.js';
+import { todayRange, fmtTime, localToday, fmtMins, fmtElapsed, getGps, completedTaskNames, remainingTaskNames } from '../lib/clockHelpers.js';
 import '../components/screens.css';
 
 export default function Clock({ boot }) {
@@ -56,11 +56,16 @@ export default function Clock({ boot }) {
     getLogs(localToday(), current.jobId)
       .then((r) => setLogExists((r.logs || []).length > 0))
       .catch(() => setLogExists(false)); // can't verify -> require the log
-    // This job's tasks for today, so finished checklist items get checked off
-    // right in the log flow (server already filters to this employee).
+    // This job's tasks for today (assigned to this employee). Pre-seed the
+    // log's "tasks checked off" list from anything already completed on Today.
     setOutTasks(null);
+    setCheckedNames(new Set());
     getTasks('today')
-      .then((r) => setOutTasks((r.tasks || []).filter((t) => t.jobId === current.jobId)))
+      .then((r) => {
+        const list = (r.tasks || []).filter((t) => t.jobId === current.jobId);
+        setOutTasks(list);
+        setCheckedNames(new Set(completedTaskNames(list)));
+      })
       .catch(() => setOutTasks([]));
   }
 
@@ -245,7 +250,10 @@ export default function Clock({ boot }) {
             concerns: outConcerns,
             complete: outComplete,
             photoTags: photoTagCounts,
+            // Includes Today completions auto-seeded into checkedNames, plus
+            // anything toggled in this sheet. Remaining = still-open on this job.
             tasksCompleted: [...checkedNames],
+            tasksRemaining: remainingTaskNames(Array.isArray(outTasks) ? outTasks : []),
           },
         });
       } catch (e) {

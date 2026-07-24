@@ -85,7 +85,7 @@ export default function ClockOutSheet({
           {outTasks === null && <Spinner label="Loading today's tasks…" />}
           {Array.isArray(outTasks) && outTasks.length > 0 && (
             <>
-              <p className="c-label">Today&apos;s tasks on this job — check off what you finished</p>
+              <p className="c-label">Today&apos;s tasks on this job — already finished on Today stay checked and go into the log</p>
               <div className="clk-tasklist">
                 {outTasks.map((t) => (
                   <div key={t.id}>

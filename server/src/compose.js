@@ -22,12 +22,13 @@ function photoLine(photoTags = {}) {
 }
 
 /** Deterministic formatting — also the shape we ask Haiku to produce. */
-export function fallbackCompose({ done, needed, notes, concerns, complete, photoTags, tasksCompleted }) {
+export function fallbackCompose({ done, needed, notes, concerns, complete, photoTags, tasksCompleted, tasksRemaining }) {
   const sections = [
     concerns ? '⚠️ CONCERNS FLAGGED' : '',
     complete ? '✅ WORK COMPLETE' : '',
     done || notes ? `✅ Completed:\n${bullets(done || notes)}` : '',
     tasksCompleted?.length ? `☑ Tasks checked off:\n${tasksCompleted.map((t) => `• ${t}`).join('\n')}` : '',
+    tasksRemaining?.length ? `◻ Tasks still open:\n${tasksRemaining.map((t) => `• ${t}`).join('\n')}` : '',
     needed ? `🔲 Still needed:\n${bullets(needed)}` : '',
     photoLine(photoTags),
   ];
@@ -45,6 +46,7 @@ export async function composeLogNotes(input, env = process.env) {
     concerns_flagged: Boolean(input.concerns),
     work_complete: Boolean(input.complete),
     tasks_checked_off: input.tasksCompleted || [],
+    tasks_still_open: input.tasksRemaining || [],
     photos_attached: input.photoTags || {},
   });
 
@@ -72,6 +74,8 @@ export async function composeLogNotes(input, env = process.env) {
           '• one short bullet per distinct item',
           '☑ Tasks checked off:',
           '• task name   (only if tasks_checked_off is non-empty; copy names verbatim)',
+          '◻ Tasks still open:',
+          '• task name   (only if tasks_still_open is non-empty; copy names verbatim)',
           '🔲 Still needed:',
           '• one short bullet per distinct item',
           '📷 Photos: N Tag · N Tag   (only if photos_attached is non-empty)',

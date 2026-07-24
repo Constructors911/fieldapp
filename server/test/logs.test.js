@@ -133,6 +133,7 @@ test('POST /api/logs with compose builds structured bullet notes (fallback path)
         complete: false,
         photoTags: { Before: 1, During: 2, After: 1, Concerns: 1 },
         tasksCompleted: ['Frame exterior walls - Unit B'],
+        tasksRemaining: ['Sheathing & house wrap'],
       },
     },
   });
@@ -141,6 +142,7 @@ test('POST /api/logs with compose builds structured bullet notes (fallback path)
   assert.match(notes, /⚠️ CONCERNS FLAGGED/);
   assert.match(notes, /✅ Completed:\n• Stood walls on unit B\n• Sheathed the east side/);
   assert.match(notes, /☑ Tasks checked off:\n• Frame exterior walls - Unit B/);
+  assert.match(notes, /◻ Tasks still open:\n• Sheathing & house wrap/);
   assert.match(notes, /🔲 Still needed:\n• House wrap/);
   assert.match(notes, /📷 Photos: 1 Before · 2 During · 1 After · 1 Concerns/);
   assert.doesNotMatch(notes, /WORK COMPLETE/);
@@ -150,6 +152,11 @@ test('POST /api/logs with compose builds structured bullet notes (fallback path)
     body: { jobId: 'job_riverside', compose: { tasksCompleted: 'nope' } },
   });
   assert.equal(bad.status, 400);
+  const badRemain = await authed('/api/logs', {
+    method: 'POST',
+    body: { jobId: 'job_riverside', compose: { tasksRemaining: 'nope' } },
+  });
+  assert.equal(badRemain.status, 400);
 });
 
 test('GET /api/logs?date=today returns the seeded log with weather', async () => {
