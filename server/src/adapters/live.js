@@ -14,8 +14,8 @@ export function createLiveAdapter({
   if (!grantKey) throw new Error('createLiveAdapter requires a grant key');
 
   // Every request is a POST with {"query": {"$": {"grantKey": KEY}, ...}}.
-  // viaUserId on the root $ attributes creates/updates to that JT user
-  // (createDailyLog has no userId input — unlike createTimeEntry).
+  // Optional viaUserId runs the request under that user's JT permissions
+  // (useful for reads; createDailyLog via crew users often 400s — see createLog).
   async function pave(fields, { viaUserId } = {}) {
     const $ = { grantKey };
     if (viaUserId) $.viaUserId = viaUserId;
@@ -116,6 +116,7 @@ export function createLiveAdapter({
     weatherCondition: {},
     minTemperature: {},
     maxTemperature: {},
+    user: { id: {}, name: {} },
     job: { id: {}, number: {}, name: {} },
     // files size must be capped: Pave rejects queries whose worst-case
     // response is too large (413), based on requested sizes, not actual data.
@@ -136,6 +137,8 @@ export function createLiveAdapter({
       jobName: l.job ? jobLabel(l.job) : '',
       date: l.date,
       notes: l.notes ?? '',
+      userId: l.user?.id ?? null,
+      userName: l.user?.name ?? '',
       weather: hasWeather
         ? { condition: prettyCondition(l.weatherCondition), minTemp: toF(l.minTemperature), maxTemp: toF(l.maxTemperature) }
         : undefined,
@@ -648,10 +651,15 @@ export function createLiveAdapter({
       return (data?.organization?.dailyLogs?.nodes ?? []).map(mapLog);
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId }) {
-      const cfId = internalNotes ? await internalNotesFieldId() : null;
-      // createDailyLog rejects userId on $ — attribute via root viaUserId instead.
-      const asUser = logUserId || userId;
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId, authorName }) {
+      // Stamp who wrote it in Internal Notes — createDailyLog has no userId
+      // input, and viaUserId fails when the crew member lacks JT permission
+      // on the job (grant-key owner can create; field users often cannot).
+      const author = authorName || null;
+      const stampedInternal = [author && `Logged by: ${author}`, internalNotes]
+        .filter(Boolean)
+        .join('\n\n') || undefined;
+      const cfId = stampedInternal ? await internalNotesFieldId() : null;
       const data = await pave({
         createDailyLog: {
           $: {
@@ -659,13 +667,29 @@ export function createLiveAdapter({
             date: date || todayString(),
             notes: notes ?? '',
             files: [],
-            ...(cfId ? { customFieldValues: { [cfId]: internalNotes } } : {}),
+            ...(cfId ? { customFieldValues: { [cfId]: stampedInternal } } : {}),
           },
           createdDailyLog: logFields,
         },
-      }, { viaUserId: asUser });
+      });
       const created = data?.createDailyLog?.createdDailyLog;
       if (!created) throw new HttpError(502, 'Pave did not return the created daily log');
+
+      // Best-effort: reassign the daily log's user under grant permissions
+      // (no viaUserId). If Pave rejects this, the log still exists as the
+      // grant owner — author is in Internal Notes.
+      if (logUserId) {
+        try {
+          await pave({
+            updateDailyLog: {
+              $: { id: created.id, userId: logUserId },
+              updatedDailyLog: { id: {}, user: { id: {}, name: {} } },
+            },
+          });
+        } catch (e) {
+          console.warn('[createLog] could not reassign daily log user:', e.message || e);
+        }
+      }
 
       // Attach uploaded files: createFile from each earlier uploadRequest,
       // carrying the crew's photo tags as native JT file tags. createFile
@@ -689,14 +713,10 @@ export function createLiveAdapter({
             },
             createdFile: { id: {}, name: {}, url: {} },
           },
-        }, { viaUserId: asUser });
+        });
       }
-      const [log] = await this.listLogs({
-        date: created.date,
-        jobId,
-        jtUserId: asUser,
-      });
-      return log ?? mapLog(created);
+      const listed = await this.listLogs({ date: created.date, jobId });
+      return listed.find((l) => l.id === created.id) ?? mapLog(created);
     },
 
     async storeUpload({ name, type, buffer }) {

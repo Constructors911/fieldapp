@@ -102,7 +102,7 @@ Server has an adapter interface paveAdapter with two impls: mockAdapter (default
 - Clock out: updateTimeEntry {$: {id, endNow: true | {breakDuration}}}.
 - Open entry: query timeEntries filtered client-side for endedAt == null (Pave where cannot compare null).
 - Tasks: tasks connection, where assignee + date range, size <= 100, paginate via nextPage. Complete = updateTask {$: {id, progress: 1}}. Subtasks = full array rewrite {name, isComplete}.
-- Daily log: createDailyLog {$: {jobId, date, notes, files}} with root `$`: {grantKey, viaUserId} (viaUserId = signed-in employee's jt_user_id). createDailyLog rejects userId on its own `$`; without viaUserId JT attributes the log to the grant-key owner.
+- Daily log: createDailyLog {$: {jobId, date, notes, files}} as the grant-key owner (createDailyLog rejects userId; viaUserId fails when the crew member lacks JT permission on the job). Then best-effort updateDailyLog {$: {id, userId}} to reassign authorship. Author is always stamped into the Internal Notes custom field as "Logged by: …".
 - Upload: createUploadRequest {$: {size, type}} -> PUT bytes to returned url/headers -> createFile {$: {uploadRequestId, targetType: 'dailyLog', targetId}}.
 - Live adapter must exist and compile but is NOT exercised by tests (no key). Mock adapter mirrors identical function signatures.
 

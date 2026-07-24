@@ -339,7 +339,7 @@ export function createMockAdapter() {
       return logs.sort((a, b) => b.date.localeCompare(a.date));
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId, authorName }) {
       const job = findJob(jobId);
       if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
       const files = fileIds.map((fid) => {
@@ -347,16 +347,20 @@ export function createMockAdapter() {
         if (!up) throw new HttpError(400, `Unknown fileId: ${fid}`);
         return { id: up.id, url: up.url, name: up.name, tagIds: fileTags[fid] ?? [] };
       });
+      const stampedInternal = [authorName && `Logged by: ${authorName}`, internalNotes]
+        .filter(Boolean)
+        .join('\n\n') || undefined;
       const log = {
         id: uid('log'),
         jobId: job.id,
         jobName: job.name,
         date: date || todayString(),
         notes: typeof notes === 'string' ? notes : '',
-        internalNotes: internalNotes ?? undefined, // mirrors JT's Internal Notes custom field
+        internalNotes: stampedInternal, // mirrors JT's Internal Notes custom field
         weather: weatherFor(date || todayString()),
         files,
         userId: logUserId || db.user.id,
+        userName: authorName || db.user.name,
       };
       db.logs.push(log);
       return log;

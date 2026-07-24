@@ -76,10 +76,12 @@ export function registerLogs(app, ctx) {
         throw new HttpError(400, 'fileTags must map fileId to an array of tag ids');
       }
     }
-    // Attribute the JT daily log to the signed-in employee — without userId
-    // Pave defaults to the grant-key owner (whoever created JT_GRANT_KEY).
+    // Attribute the JT daily log to the signed-in employee when Pave allows.
+    // createDailyLog has no userId; viaUserId fails for crew without job
+    // permission — live adapter creates as the grant and best-effort updates.
     const userId = req.employee.jtUserId;
     if (!userId) throw new HttpError(400, 'Employee is not linked to a JobTread user');
+    const authorName = req.employee.jtUserName || req.employee.name || req.employee.email || '';
     const log = await adapter.createLog({
       jobId,
       date: date || undefined,
@@ -88,6 +90,7 @@ export function registerLogs(app, ctx) {
       fileTags: fileTags ?? {},
       internalNotes,
       userId,
+      authorName,
     });
     // Preserve the crew's ORIGINAL words (pre-Haiku) alongside the composed
     // version — JT gets the clean log, nothing the crew wrote is lost.

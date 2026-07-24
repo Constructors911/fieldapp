@@ -110,6 +110,7 @@ test('original crew text also lands in the JT Internal Notes field', async () =>
     },
   });
   assert.equal(status, 200);
+  assert.match(json.log.internalNotes, /Logged by:/);
   assert.match(json.log.internalNotes, /Done: set trusses/);
   assert.match(json.log.internalNotes, /Needed: sheath roof/);
 });
