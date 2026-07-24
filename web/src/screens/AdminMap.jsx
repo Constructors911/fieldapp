@@ -25,7 +25,7 @@ function pinBody(p) {
 
 /**
  * Admin-only crew map. Pins are punch GPS (open by default; toggle for
- * today's in + out). Active geofences draw as circles.
+ * today's in + out). Geofence circles only for jobs in the current view.
  */
 export default function AdminMap({ adminFetch }) {
   const [view, setView] = useState('open'); // 'open' | 'today'

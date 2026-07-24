@@ -58,7 +58,7 @@ Admin-only Google Maps view of crew punch locations. Requires `GOOGLE_MAPS_API_K
 - GET /api/admin/map/pins?view=open|today -> { view, pins, withoutGps, punchCount, fences: [{jobId, lat, lng, radiusM, active}] } (admin)
   - `open` (default): one pin per open punch — last wake breadcrumb if any, else clock-in GPS
   - `today`: clock-in + clock-out pins; open pins prefer last wake
-  - `fences`: active geofences for map circles
+  - `fences`: active geofences for jobs in this view's punches only (circles clear from "Clocked in now" after clock-out)
 
 ### Geofences (silent admin log — no crew warnings)
 

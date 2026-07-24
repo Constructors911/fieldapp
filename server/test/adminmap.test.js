@@ -68,11 +68,18 @@ test('open view returns clock-in pins for open punches with GPS', async () => {
 
   // No out pins in open view
   assert.ok(json.pins.every((p) => p.kind === 'open'));
+  // Fence for the open job is included
+  assert.ok(json.fences.some((f) => f.jobId === 'job_maplewood'));
 
   await authed('/api/time/clock-out', {
     method: 'POST',
     body: { coordinates: { lat: 30.2920, lng: -97.7210 } },
   });
+
+  const after = await api(srv.base, '/api/admin/map/pins?view=open');
+  assert.equal(after.status, 200);
+  assert.ok(!after.json.fences.some((f) => f.jobId === 'job_maplewood'),
+    'geofence circle should clear from open view after clock-out');
 });
 
 test('today view includes in and out pins', async () => {

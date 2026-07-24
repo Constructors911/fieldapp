@@ -97,9 +97,13 @@ export function registerAdminMap(app, ctx) {
       : {};
 
     const { pins, withoutGps } = punchesToPins(punches, view, latestByPunch);
+    // Only draw fences for jobs on this map view — otherwise circles linger
+    // after everyone clocks out (fences are persistent job records).
+    const jobIds = new Set(punches.map((p) => p.jobId).filter(Boolean));
     let fences = [];
     try {
-      fences = (await store.listGeofences()).filter((f) => f.active && f.lat != null && f.lng != null);
+      fences = (await store.listGeofences())
+        .filter((f) => f.active && f.lat != null && f.lng != null && jobIds.has(f.jobId));
     } catch { /* older stores */ }
     res.json({ view, pins, withoutGps, punchCount: punches.length, fences });
   }));
