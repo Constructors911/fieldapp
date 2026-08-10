@@ -252,6 +252,7 @@ test('POST /api/logs attributes the log to the signed-in employee (not grant def
   });
   assert.equal(status, 200);
   assert.equal(json.log.userId, 'user_crew');
+  assert.equal(json.attributedInJobTread, false); // no personal grant yet
 
   const mine = await crew(`/api/logs?mine=1&date=${todayString()}`);
   assert.equal(mine.status, 200);
@@ -260,6 +261,33 @@ test('POST /api/logs attributes the log to the signed-in employee (not grant def
   // David's session should not see Casey's log under mine=1.
   const davidMine = await authed(`/api/logs?mine=1&date=${todayString()}`);
   assert.ok(!davidMine.json.logs.some((l) => l.id === json.log.id));
+});
+
+test('personal JT grant links and marks attributedInJobTread', async () => {
+  const crew = withAuth(srv.base, await crewToken(srv.base));
+  const bad = await crew('/api/auth/jt-grant', {
+    method: 'POST',
+    body: { grantKey: 'office_grant_key' }, // mock maps non-crew_ keys to David
+  });
+  assert.equal(bad.status, 400);
+
+  const ok = await crew('/api/auth/jt-grant', {
+    method: 'POST',
+    body: { grantKey: 'crew_casey_grant' },
+  });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.employee.hasJtGrant, true);
+
+  const me = await crew('/api/auth/me');
+  assert.equal(me.json.employee.hasJtGrant, true);
+
+  const { status, json } = await crew('/api/logs', {
+    method: 'POST',
+    body: { jobId: 'job_maplewood', notes: 'Casey with personal grant.' },
+  });
+  assert.equal(status, 200);
+  assert.equal(json.log.userId, 'user_crew');
+  assert.equal(json.attributedInJobTread, true);
 });
 
 test('unknown API routes return JSON 404; malformed JSON body returns 400', async () => {

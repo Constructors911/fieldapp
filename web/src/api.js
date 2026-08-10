@@ -38,6 +38,14 @@ export const authLogout = async () => {
   } catch { /* revoke is best-effort */ }
   clearToken();
 };
+/** Save personal JobTread API grant so daily logs attribute to this user in JT. */
+export const saveJtGrant = (grantKey) => post('/api/auth/jt-grant', { grantKey });
+export const clearJtGrant = async () => {
+  const r = await fetch('/api/auth/jt-grant', { method: 'DELETE', headers: authHeaders() });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(json.error || r.statusText);
+  return json;
+};
 
 export const getBootstrap = () => get('/api/bootstrap');
 export const getActivities = () => get('/api/activities');

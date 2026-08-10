@@ -112,6 +112,27 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ ok: true });
   }));
 
+  // Save the signed-in employee's personal JobTread API grant. Daily logs
+  // created with this key attribute to them in JT (service grant cannot).
+  app.post('/api/auth/jt-grant', requireSession, wrap(async (req, res) => {
+    const grantKey = typeof req.body?.grantKey === 'string' ? req.body.grantKey.trim() : '';
+    if (!grantKey) throw new HttpError(400, 'grantKey is required');
+    if (typeof adapter.identifyGrantUser !== 'function') {
+      throw new HttpError(503, 'Grant linking is not available');
+    }
+    const identified = await adapter.identifyGrantUser(grantKey);
+    if (!req.employee.jtUserId || identified.userId !== req.employee.jtUserId) {
+      throw new HttpError(400, 'That grant belongs to a different JobTread user — create one while signed into JobTread as yourself');
+    }
+    const updated = await store.setEmployeeGrantKey(req.employee.id, grantKey);
+    res.json({ employee: publicEmployee(updated) });
+  }));
+
+  app.delete('/api/auth/jt-grant', requireSession, wrap(async (req, res) => {
+    const updated = await store.setEmployeeGrantKey(req.employee.id, null);
+    res.json({ employee: publicEmployee(updated) });
+  }));
+
   function publicEmployee(e) {
     return {
       id: e.id,
@@ -120,6 +141,11 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       role: e.role,
       jtUserId: e.jtUserId,
       jtLinked: Boolean(e.jtUserId),
+      // Personal JT grant required for dailyLog.user attribution (Pave locks
+      // authorship to the grant owner; shared service grant = office user).
+      // Service-grant owner already attributes correctly without a second key.
+      hasJtGrant: Boolean(e.jtGrantKey)
+        || Boolean(e.jtUserId && process.env.JT_USER_ID && e.jtUserId === process.env.JT_USER_ID),
       ccLinked: Boolean(e.ccUserId),
       // Crew topbar shows Admin only for allowlisted emails (not ADMIN_KEY).
       canAccessAdmin: adminAllowlist().includes(String(e.email || '').toLowerCase()),

@@ -34,6 +34,8 @@ Registration links the employee to JobTread (required: org membership matched by
 - POST /api/auth/login { email, pin } -> { token, employee }
 - GET /api/auth/me -> { employee } (401 without valid session)
 - POST /api/auth/logout -> { ok: true } (best-effort session revoke; client always clears its local token)
+- POST /api/auth/jt-grant { grantKey } -> { employee } (session; stores personal JT grant for daily-log authorship; 400 if key is for a different JT user)
+- DELETE /api/auth/jt-grant -> { employee } (session; clears personal grant)
 
 - GET /api/activities -> { activities: [string] } (standard labor list crews punch against)
 - GET /api/time/current -> { entry: TimeEntry | null }
@@ -105,8 +107,9 @@ Server has an adapter interface paveAdapter with two impls: mockAdapter (default
 - Clock out: updateTimeEntry {$: {id, endNow: true | {breakDuration}}}.
 - Open entry: query timeEntries filtered client-side for endedAt == null (Pave where cannot compare null).
 - Tasks: tasks connection, where assignee + date range, size <= 100, paginate via nextPage. Complete = updateTask {$: {id, progress: 1}}. Subtasks = full array rewrite {name, isComplete}.
-- Daily log: createDailyLog {$: {jobId, date, notes, files}} as the grant-key owner (createDailyLog rejects userId; viaUserId fails when the crew member lacks JT permission on the job). Then best-effort updateDailyLog {$: {id, userId}} to reassign authorship. Author is always stamped into the Internal Notes custom field as "Logged by: …".
+- Daily log: createDailyLog {$: {jobId, date, notes, files}} using the **employee's personal JT grant key** when saved (POST /api/auth/jt-grant). Pave always attributes dailyLog.user to the grant owner — createDailyLog rejects userId, viaUserId does not change authorship, and updateDailyLog cannot reassign user. Without a personal grant, the service grant (JT_GRANT_KEY) is used and Internal Notes is stamped "Logged by: …". Authorship is also stored in Neon so mine=1 keeps working.
 - Upload: createUploadRequest {$: {size, type}} -> PUT bytes to returned url/headers -> createFile {$: {uploadRequestId, targetType: 'dailyLog', targetId}}.
+- Auth: POST /api/auth/jt-grant { grantKey } (session) validates the key belongs to the signed-in JT user and stores it; DELETE clears it. Employee public shape includes hasJtGrant.
 - Live adapter must exist and compile but is NOT exercised by tests (no key). Mock adapter mirrors identical function signatures.
 
 ## Working agreement

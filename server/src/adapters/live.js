@@ -14,10 +14,11 @@ export function createLiveAdapter({
   if (!grantKey) throw new Error('createLiveAdapter requires a grant key');
 
   // Every request is a POST with {"query": {"$": {"grantKey": KEY}, ...}}.
-  // Optional viaUserId runs the request under that user's JT permissions
-  // (useful for reads; createDailyLog via crew users often 400s — see createLog).
-  async function pave(fields, { viaUserId } = {}) {
-    const $ = { grantKey };
+  // Optional viaUserId scopes permissions (does NOT change write attribution).
+  // Optional grantKeyOverride: dailyLog.user is always the grant owner — use the
+  // crew member's own grant when creating logs so JT attributes them correctly.
+  async function pave(fields, { viaUserId, grantKey: grantKeyOverride } = {}) {
+    const $ = { grantKey: grantKeyOverride || grantKey };
     if (viaUserId) $.viaUserId = viaUserId;
     const res = await fetch(PAVE_URL, {
       method: 'POST',
@@ -702,16 +703,44 @@ export function createLiveAdapter({
       return (data?.organization?.dailyLogs?.nodes ?? []).map(mapLog);
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId, authorName }) {
-      // Stamp who wrote it in Internal Notes — createDailyLog has no userId
-      // input, and viaUserId fails when the crew member lacks JT permission
-      // on the job (grant-key owner can create; field users often cannot).
+    /**
+     * Resolve which JT user a grant key belongs to. Used when saving a
+     * crew member's personal grant so daily logs attribute to them.
+     * Returns { userId, name } or throws HttpError.
+     */
+    async identifyGrantUser(candidateGrantKey) {
+      if (typeof candidateGrantKey !== 'string' || !candidateGrantKey.trim()) {
+        throw new HttpError(400, 'grantKey is required');
+      }
+      const gk = candidateGrantKey.trim();
+      // Root `user` resolves to the grant owner.
+      try {
+        const data = await pave({ user: { id: {}, name: {}, emailAddress: {} } }, { grantKey: gk });
+        if (data?.user?.id) {
+          return { userId: data.user.id, name: data.user.name || '', email: data.user.emailAddress || '' };
+        }
+      } catch { /* invalid key or schema mismatch */ }
+      throw new HttpError(400, 'That JobTread grant key is invalid or expired');
+    },
+
+    async createLog({
+      jobId, date, notes, fileIds = [], fileTags = {}, internalNotes,
+      userId: logUserId, authorName, grantKey: authorGrantKey,
+    }) {
+      // JT attributes dailyLog.user to whoever owns the grant key used for
+      // createDailyLog — there is no userId input and updateDailyLog cannot
+      // reassign it. Prefer the crew member's personal grant when present.
+      const authorGk = typeof authorGrantKey === 'string' && authorGrantKey.trim()
+        ? authorGrantKey.trim()
+        : null;
+      const paveOpts = authorGk ? { grantKey: authorGk } : {};
+
       const author = authorName || null;
       const stampedInternal = [author && `Logged by: ${author}`, internalNotes]
         .filter(Boolean)
         .join('\n\n') || undefined;
       const cfId = stampedInternal ? await internalNotesFieldId() : null;
-      const data = await pave({
+      const createPayload = {
         createDailyLog: {
           $: {
             jobId,
@@ -722,29 +751,26 @@ export function createLiveAdapter({
           },
           createdDailyLog: logFields,
         },
-      });
-      const created = data?.createDailyLog?.createdDailyLog;
-      if (!created) throw new HttpError(502, 'Pave did not return the created daily log');
-
-      // Best-effort: reassign the daily log's user under grant permissions
-      // (no viaUserId). If Pave rejects this, the log still exists as the
-      // grant owner — author is in Internal Notes.
-      if (logUserId) {
-        try {
-          await pave({
-            updateDailyLog: {
-              $: { id: created.id, userId: logUserId },
-              updatedDailyLog: { id: {}, user: { id: {}, name: {} } },
-            },
-          });
-        } catch (e) {
-          console.warn('[createLog] could not reassign daily log user:', e.message || e);
+      };
+      let data;
+      try {
+        data = await pave(createPayload, paveOpts);
+      } catch (e) {
+        // Personal grant may lack job permission — fall back to service grant.
+        if (authorGk) {
+          console.warn('[createLog] personal grant create failed, using service grant:', e.message || e);
+          data = await pave(createPayload);
+        } else {
+          throw e;
         }
       }
+      const created = data?.createDailyLog?.createdDailyLog;
+      if (!created) throw new HttpError(502, 'Pave did not return the created daily log');
 
       // Attach uploaded files: createFile from each earlier uploadRequest,
       // carrying the crew's photo tags as native JT file tags. createFile
       // requires a name: prefer the original upload name, else tag + date.
+      // Use the service grant for files (upload requests were created with it).
       const orgTags = await this.listFileTags().catch(() => []);
       let photoIndex = 0;
       for (const uploadRequestId of fileIds) {
@@ -767,7 +793,13 @@ export function createLiveAdapter({
         });
       }
       const listed = await this.listLogs({ date: created.date, jobId });
-      return listed.find((l) => l.id === created.id) ?? mapLog(created);
+      const mapped = listed.find((l) => l.id === created.id) ?? mapLog(created);
+      // Prefer the signed-in employee when JT still shows the service grant owner
+      // (no personal grant yet) so our API / mine feed stay correct.
+      if (logUserId && mapped.userId !== logUserId) {
+        return { ...mapped, userId: logUserId, userName: authorName || mapped.userName };
+      }
+      return mapped;
     },
 
     async storeUpload({ name, type, buffer }) {

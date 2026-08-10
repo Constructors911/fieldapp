@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getMyLogs, createLog, getFileTags, getCompanyCamStatus } from '../api.js';
+import { getMyLogs, createLog, getFileTags, getCompanyCamStatus, saveJtGrant } from '../api.js';
 import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import PickerSheet from '../components/PickerSheet.jsx';
@@ -193,7 +193,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
 }
 
 // ---- Log tab: the user's daily-log feed ------------------------------------
-export default function Log({ boot }) {
+export default function Log({ boot, me, onMeUpdate }) {
   const jobs = boot?.jobs || [];
   const [mode, setMode] = useState('list'); // 'list' | 'new'
 
@@ -209,6 +209,10 @@ export default function Log({ boot }) {
   const [jobFilter, setJobFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [jobPickerOpen, setJobPickerOpen] = useState(false);
+  const [grantKey, setGrantKey] = useState('');
+  const [grantBusy, setGrantBusy] = useState(false);
+  const [grantMsg, setGrantMsg] = useState(null);
+  const [grantDismissed, setGrantDismissed] = useState(false);
 
   const load = useCallback(() => {
     setLogs(undefined);
@@ -219,6 +223,23 @@ export default function Log({ boot }) {
   }, [jobFilter, dateFilter]);
 
   useEffect(() => { if (mode === 'list') load(); }, [mode, load]);
+
+  async function connectGrant(e) {
+    e.preventDefault();
+    if (grantBusy || !grantKey.trim()) return;
+    setGrantBusy(true);
+    setGrantMsg(null);
+    try {
+      const r = await saveJtGrant(grantKey.trim());
+      setGrantKey('');
+      onMeUpdate?.(r.employee);
+      setGrantMsg({ type: 'ok', text: 'Connected — new daily logs will show as you in JobTread.' });
+    } catch (err) {
+      setGrantMsg({ type: 'err', text: err.message || 'Could not save grant key.' });
+    } finally {
+      setGrantBusy(false);
+    }
+  }
 
   if (mode === 'new') {
     return (
@@ -236,6 +257,7 @@ export default function Log({ boot }) {
   const visible = (logs || []).filter((l) =>
     !q || `${l.jobName} ${l.notes ?? ''}`.toLowerCase().includes(q));
   const jobFilterName = jobs.find((j) => j.id === jobFilter)?.name;
+  const needsGrant = me && !me.hasJtGrant && !grantDismissed;
 
   return (
     <div>
@@ -245,6 +267,40 @@ export default function Log({ boot }) {
           ＋ New log
         </button>
       </div>
+
+      {needsGrant && (
+        <Card title="Show as you in JobTread">
+          <p style={{ marginTop: 0, color: 'var(--muted)', fontSize: 14, lineHeight: 1.45 }}>
+            JobTread attributes each daily log to the API grant owner. Paste your personal grant so logs are saved under your name — not the office account.
+          </p>
+          <ol style={{ paddingLeft: '1.2rem', marginTop: 0, color: 'var(--muted)', fontSize: 14, lineHeight: 1.45 }}>
+            <li>In JobTread: Settings → Integrations → JobTread API → Grants</li>
+            <li>Create a grant while signed in as yourself</li>
+            <li>Paste the key below</li>
+          </ol>
+          <form onSubmit={connectGrant}>
+            <label className="c-label" htmlFor="jt-grant-key">Your JobTread grant key</label>
+            <input
+              id="jt-grant-key"
+              className="c-input"
+              type="password"
+              autoComplete="off"
+              value={grantKey}
+              onChange={(ev) => setGrantKey(ev.target.value)}
+              placeholder="Paste grant key"
+            />
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+              <button type="submit" className="c-btn c-btn-primary" disabled={grantBusy || !grantKey.trim()}>
+                {grantBusy ? 'Connecting…' : 'Connect'}
+              </button>
+              <button type="button" className="c-btn c-btn-ghost" onClick={() => setGrantDismissed(true)}>
+                Not now
+              </button>
+            </div>
+          </form>
+          {grantMsg && <div className={`c-msg c-msg-${grantMsg.type}`} role="status" style={{ marginTop: '0.75rem' }}>{grantMsg.text}</div>}
+        </Card>
+      )}
 
       <div className="c-feed-filters">
         <input

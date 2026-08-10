@@ -25,9 +25,23 @@ export function registerLogs(app, ctx) {
     if (date !== undefined && !isValidDateString(date)) {
       throw new HttpError(400, 'date must be YYYY-MM-DD');
     }
-    // mine=1: only this employee's logs (the Log tab feed).
-    const jtUserId = qp(req.query.mine) === '1' ? req.employee.jtUserId : undefined;
-    res.json({ logs: await adapter.listLogs({ date, jobId, jtUserId }) });
+    const mine = qp(req.query.mine) === '1';
+    // With a shared service grant, JT stamps dailyLog.user as the grant owner,
+    // so filtering JT by user id would hide the crew's own logs. Fetch broadly
+    // then keep rows that match JT user OR our authorship records.
+    let logs = await adapter.listLogs({ date, jobId });
+    if (mine) {
+      const jtUserId = req.employee.jtUserId;
+      const authored = await store.listLogTexts({
+        date,
+        jobId,
+        employeeEmail: req.employee.email,
+        jtUserId,
+      }).catch(() => []);
+      const authoredIds = new Set(authored.map((r) => r.jtLogId).filter(Boolean));
+      logs = logs.filter((l) => l.userId === jtUserId || authoredIds.has(l.id));
+    }
+    res.json({ logs });
   }));
 
   app.post('/api/logs', requireSession, wrap(async (req, res) => {
@@ -80,9 +94,8 @@ export function registerLogs(app, ctx) {
         throw new HttpError(400, 'fileTags must map fileId to an array of tag ids');
       }
     }
-    // Attribute the JT daily log to the signed-in employee when Pave allows.
-    // createDailyLog has no userId; viaUserId fails for crew without job
-    // permission — live adapter creates as the grant and best-effort updates.
+    // JT dailyLog.user = owner of the grant used for createDailyLog. Prefer the
+    // employee's personal grant; otherwise service grant + Internal Notes stamp.
     const userId = req.employee.jtUserId;
     if (!userId) throw new HttpError(400, 'Employee is not linked to a JobTread user');
     const authorName = req.employee.jtUserName || req.employee.name || req.employee.email || '';
@@ -95,21 +108,26 @@ export function registerLogs(app, ctx) {
       internalNotes,
       userId,
       authorName,
+      grantKey: req.employee.jtGrantKey || undefined,
     });
-    // Preserve the crew's ORIGINAL words (pre-Haiku) alongside the composed
-    // version — JT gets the clean log, nothing the crew wrote is lost.
-    if (compose !== undefined) {
-      await store.saveLogText({
-        jtLogId: log?.id ?? null,
-        jobId,
-        jobName: log?.jobName ?? '',
-        date: log?.date ?? date ?? '',
-        employeeEmail: req.employee.email ?? '',
-        raw: compose,
-        composed: composedNotes ?? '',
-      }).catch((e) => console.error('[log_texts] save failed', e));
-    }
-    res.json({ log });
+    // Always record authorship so mine=1 works even when JT stamps the service grant.
+    await store.saveLogText({
+      jtLogId: log?.id ?? null,
+      jobId,
+      jobName: log?.jobName ?? '',
+      date: log?.date ?? date ?? '',
+      employeeEmail: req.employee.email ?? '',
+      jtUserId: userId,
+      raw: compose !== undefined ? compose : { notes: composedNotes ?? '' },
+      composed: composedNotes ?? '',
+    }).catch((e) => console.error('[log_texts] save failed', e));
+    const attributedInJobTread = Boolean(req.employee.jtGrantKey)
+      || Boolean(userId && process.env.JT_USER_ID && userId === process.env.JT_USER_ID);
+    res.json({
+      log,
+      // True when JT dailyLog.user will match the employee (personal grant or service-grant owner).
+      attributedInJobTread,
+    });
   }));
 
   // ---- uploads ---------------------------------------------------------

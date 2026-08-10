@@ -136,9 +136,12 @@ export function createMemoryStore() {
       logTexts.push({ id: randomUUID(), at: new Date().toISOString(), ...r });
     },
 
-    async listLogTexts({ jobId, date } = {}) {
+    async listLogTexts({ jobId, date, employeeEmail, jtUserId } = {}) {
       return logTexts
-        .filter((r) => (!jobId || r.jobId === jobId) && (!date || r.date === date))
+        .filter((r) => (!jobId || r.jobId === jobId)
+          && (!date || r.date === date)
+          && (!employeeEmail || String(r.employeeEmail || '').toLowerCase() === String(employeeEmail).toLowerCase())
+          && (!jtUserId || r.jtUserId === jtUserId))
         .slice()
         .reverse();
     },
@@ -297,6 +300,7 @@ export function createMemoryStore() {
         pinHash: e.pinHash,
         jtUserId: e.jtUserId ?? null,
         jtUserName: e.jtUserName ?? null,
+        jtGrantKey: e.jtGrantKey ?? null,
         ccUserId: e.ccUserId ?? null,
         ccUserName: e.ccUserName ?? null,
         role: e.role ?? 'crew',
@@ -304,6 +308,13 @@ export function createMemoryStore() {
       };
       employees.push(employee);
       return { ...employee };
+    },
+
+    async setEmployeeGrantKey(employeeId, grantKey) {
+      const e = employees.find((x) => x.id === employeeId);
+      if (!e) throw new HttpError(404, 'Employee not found');
+      e.jtGrantKey = grantKey;
+      return { ...e };
     },
 
     async createSession(employeeId) {

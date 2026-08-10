@@ -138,7 +138,7 @@ export default function App() {
       <main className="screen">
         {tab === 'clock' && <Clock boot={boot} />}
         {tab === 'today' && <Today boot={boot} />}
-        {tab === 'log' && <Log boot={boot} />}
+        {tab === 'log' && <Log boot={boot} me={me} onMeUpdate={setMe} />}
         {tab === 'week' && <Week boot={boot} />}
       </main>
       <nav className="tabbar" role="tablist" aria-label="Main">

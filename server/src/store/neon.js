@@ -115,6 +115,7 @@ export function createNeonStore(databaseUrl) {
           pin_hash text not null,
           jt_user_id text,
           jt_user_name text,
+          jt_grant_key text,
           cc_user_id text,
           cc_user_name text,
           role text not null default 'crew',
@@ -122,6 +123,9 @@ export function createNeonStore(databaseUrl) {
           created_at timestamptz not null default now(),
           last_login_at timestamptz
         )`;
+        // Existing DBs created before jt_grant_key / log authorship columns.
+        await sql`alter table employees add column if not exists jt_grant_key text`;
+        await sql`alter table log_texts add column if not exists jt_user_id text`;
         await sql`create table if not exists app_sessions (
           token uuid primary key default gen_random_uuid(),
           employee_id uuid not null,
@@ -268,16 +272,19 @@ export function createNeonStore(databaseUrl) {
     // ---- original (pre-Haiku) log text ------------------------------------
     async saveLogText(r) {
       await migrate();
-      await sql`insert into log_texts (jt_log_id, job_id, job_name, log_date, employee_email, raw, composed)
+      await sql`insert into log_texts (jt_log_id, job_id, job_name, log_date, employee_email, jt_user_id, raw, composed)
         values (${r.jtLogId ?? null}, ${r.jobId ?? ''}, ${r.jobName ?? ''}, ${r.date ?? ''},
-                ${r.employeeEmail ?? ''}, ${JSON.stringify(r.raw ?? {})}::jsonb, ${r.composed ?? ''})`;
+                ${r.employeeEmail ?? ''}, ${r.jtUserId ?? null},
+                ${JSON.stringify(r.raw ?? {})}::jsonb, ${r.composed ?? ''})`;
     },
 
-    async listLogTexts({ jobId, date } = {}) {
+    async listLogTexts({ jobId, date, employeeEmail, jtUserId } = {}) {
       await migrate();
       const rows = await sql`select * from log_texts
         where (${jobId ?? null}::text is null or job_id = ${jobId ?? null})
           and (${date ?? null}::text is null or log_date = ${date ?? null})
+          and (${employeeEmail ?? null}::text is null or lower(employee_email) = lower(${employeeEmail ?? null}))
+          and (${jtUserId ?? null}::text is null or jt_user_id = ${jtUserId ?? null})
         order by created_at desc limit 200`;
       return rows.map((r) => ({
         id: r.id,
@@ -286,10 +293,19 @@ export function createNeonStore(databaseUrl) {
         jobName: r.job_name,
         date: r.log_date,
         employeeEmail: r.employee_email,
+        jtUserId: r.jt_user_id,
         raw: r.raw,
         composed: r.composed,
         at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
       }));
+    },
+
+    async setEmployeeGrantKey(employeeId, grantKey) {
+      await migrate();
+      const rows = await sql`update employees set jt_grant_key = ${grantKey}
+        where id = ${employeeId} returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Employee not found');
+      return employeeRow(rows[0]);
     },
 
     // ---- audit log --------------------------------------------------------
@@ -513,6 +529,7 @@ function employeeRow(r) {
     pinHash: r.pin_hash,
     jtUserId: r.jt_user_id,
     jtUserName: r.jt_user_name,
+    jtGrantKey: r.jt_grant_key || null,
     ccUserId: r.cc_user_id,
     ccUserName: r.cc_user_name,
     role: r.role,

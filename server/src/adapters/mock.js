@@ -351,7 +351,7 @@ export function createMockAdapter() {
       return logs.sort((a, b) => b.date.localeCompare(a.date));
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId, authorName }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId, authorName, grantKey: _grantKey }) {
       const job = findJob(jobId);
       if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
       const files = fileIds.map((fid) => {
@@ -376,6 +376,18 @@ export function createMockAdapter() {
       };
       db.logs.push(log);
       return log;
+    },
+
+    /** Mock: any non-empty key identifies as the seeded user unless it starts with crew_. */
+    async identifyGrantUser(candidateGrantKey) {
+      if (typeof candidateGrantKey !== 'string' || !candidateGrantKey.trim()) {
+        throw new HttpError(400, 'grantKey is required');
+      }
+      const gk = candidateGrantKey.trim();
+      if (gk.startsWith('crew_')) {
+        return { userId: 'user_crew', name: 'Casey Crew', email: 'crew@constructors911.com' };
+      }
+      return { userId: db.user.id, name: db.user.name, email: db.user.email };
     },
 
     async storeUploadFromUrl({ url, name }) {
