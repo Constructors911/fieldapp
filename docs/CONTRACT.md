@@ -17,14 +17,14 @@ Mobile-first PWA for field crews. Users are paid JobTread internal users. Mock P
 
 1. **Clock screen**: shows current status (clocked in/out). Big single-tap clock-in: pick job -> pick cost code (only isTimeTrackable cost items) -> optional note -> captures GPS if permitted. Clock-out with optional break minutes. Leaving for the day can require a daily log for that job; the log auto-seeds tasks/to-dos assigned to me on that job (completed → "Tasks checked off", still-open → "Tasks still open"), including work already marked done on Today. Shows today's total hours + list of today's entries. Must prevent double clock-in (server enforces one open entry per user).
 2. **Today screen**: tasks + to-dos assigned to me due/scheduled today (or overdue). Check off = progress 1. Subtask checklists toggleable (max 50). Refresh button. Completions carry into that job's clock-out daily log automatically.
-3. **Log screen**: create daily log for a job: date (default today), notes, photo attach (camera or gallery, multiple), shows previously submitted logs for the day. Weather shown read-only on existing logs (mock provides it).
+3. **Log screen**: create daily log for a job: date (default today), notes, yes/no capture (materials → photo prompt; delays → type dropdown; safety concerns + safety incident → text, copied verbatim; work concerns → text), photo attach (camera or gallery, multiple), shows previously submitted logs for the day. Weather shown read-only on existing logs (mock provides it).
 4. **Week screen**: 7-day view (Mon-Sun) of my scheduled tasks grouped by day, job name + time range, today highlighted. Tap a task to expand JobTread details (description, multi-day range, subtask checklist — read-only; complete work on Today).
 5. **Offline**: mutations (clock in/out, task check-off, log submit incl. photos) queue in IndexedDB when offline and replay in order when back online. Visible pending badge. App shell cached by service worker; last-fetched data available offline.
 6. **General**: 4-tab bottom nav (Clock, Today, Log, Week). Touch targets >=44px. Works at 360px width. No console errors. `npm run build` passes in `web/`; server starts and all endpoints respond.
 
 ## REST API (server <-> web) — all JSON under /api
 
-- GET /api/bootstrap -> { user, jobs: [{id, name, location}], timeEntryTypes: [string] } (no costItems — real orgs 413 the Pave response; fetch per job below)
+- GET /api/bootstrap -> { user, jobs: [{id, name, location}], timeEntryTypes: [string] } (no costItems — real orgs 413 the Pave response; fetch per job below). Live jobs are paged (size 100 + nextPage). Open vs closed is filtered client-side (Pave where cannot compare closedOn to null). GET /api/bootstrap always refreshes from JobTread.
 - GET /api/jobs/:jobId/cost-items -> { costItems: [{id, name, costCode, isTimeTrackable: true}] } (time-trackable only; 404 unknown job)
 ### Employee auth (sessions)
 
@@ -107,7 +107,7 @@ Server has an adapter interface paveAdapter with two impls: mockAdapter (default
 - Clock out: updateTimeEntry {$: {id, endNow: true | {breakDuration}}}.
 - Open entry: query timeEntries filtered client-side for endedAt == null (Pave where cannot compare null).
 - Tasks: tasks connection, where assignee + date range, size <= 100, paginate via nextPage. Complete = updateTask {$: {id, progress: 1}}. Subtasks = full array rewrite {name, isComplete}.
-- Daily log: createDailyLog {$: {jobId, date, notes, files}} using the **employee's personal JT grant key** when saved (POST /api/auth/jt-grant). Pave always attributes dailyLog.user to the grant owner — createDailyLog rejects userId, viaUserId does not change authorship, and updateDailyLog cannot reassign user. Without a personal grant, the service grant (JT_GRANT_KEY) is used and Internal Notes is stamped "Logged by: …". Authorship is also stored in Neon so mine=1 keeps working.
+- Daily log: createDailyLog {$: {jobId, date, notes, files, customFieldValues}} using the **employee's personal JT grant key** when saved (POST /api/auth/jt-grant). Capture flags write to dailyLog CFs when those names exist in the org: Materials Received, Delays, Delay Type, Safety Concerns, Safety Concerns Detail, Safety Incident, Safety Incident Detail, Work Concerns, Work Concerns Detail (Yes/No + text). Missing CFs are skipped; notes still include the sections. Safety text is appended verbatim (never sent to Haiku). Without a personal grant, the service grant (JT_GRANT_KEY) is used and Internal Notes is stamped "Logged by: …". Authorship is also stored in Neon so mine=1 keeps working.
 - Upload: createUploadRequest {$: {size, type}} -> PUT bytes to returned url/headers -> createFile {$: {uploadRequestId, targetType: 'dailyLog', targetId}}.
 - Auth: POST /api/auth/jt-grant { grantKey } (session) validates the key belongs to the signed-in JT user and stores it; DELETE clears it. Employee public shape includes hasJtGrant.
 - Live adapter must exist and compile but is NOT exercised by tests (no key). Mock adapter mirrors identical function signatures.

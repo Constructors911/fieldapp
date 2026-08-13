@@ -3,6 +3,7 @@ import Sheet from '../components/Sheet.jsx';
 import Spinner from '../components/Spinner.jsx';
 import Checkbox from '../components/Checkbox.jsx';
 import PhotoAttach from '../components/PhotoAttach.jsx';
+import LogCaptureFields from '../components/LogCaptureFields.jsx';
 import { fmtTime, fmtMins } from '../lib/clockHelpers.js';
 
 // Clock-out confirm sheet: "just a break" vs "done for the day" (which gates
@@ -23,10 +24,8 @@ export default function ClockOutSheet({
   onDoneTextChange,
   neededText,
   onNeededTextChange,
-  outConcerns,
-  onConcernsChange,
-  outComplete,
-  onCompleteChange,
+  outCapture,
+  onCaptureChange,
   outPhotos,
   setOutPhotos,
   tags,
@@ -131,21 +130,7 @@ export default function ClockOutSheet({
             onChange={(e) => onNeededTextChange(e.target.value)}
           />
 
-          <div className="c-checkrow" style={{ marginTop: 10 }}>
-            <label className="c-check">
-              <input type="checkbox" checked={outConcerns} onChange={(e) => onConcernsChange(e.target.checked)} />
-              ⚠️ Concerns
-            </label>
-            <label className="c-check">
-              <input type="checkbox" checked={outComplete} onChange={(e) => onCompleteChange(e.target.checked)} />
-              ✅ Work complete
-            </label>
-          </div>
-          {(outConcerns || outComplete) && (
-            <p className="c-check-hint">
-              Remember photos tagged {[outConcerns && '"Concerns"', outComplete && '"Completion"'].filter(Boolean).join(' and ')}.
-            </p>
-          )}
+          <LogCaptureFields idPrefix="clk" capture={outCapture} onChange={onCaptureChange} />
           <PhotoAttach
             jobId={current?.jobId}
             photos={outPhotos}

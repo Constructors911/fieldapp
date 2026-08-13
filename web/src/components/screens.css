@@ -254,6 +254,28 @@
 .c-feed-date { flex: 0 1 150px; min-width: 130px; }
 .c-log-date { font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
 
+/* --- daily-log capture (yes/no gates) --- */
+.c-capture { margin: 8px 0 12px; }
+.c-capture-row { margin: 10px 0 6px; }
+.c-yesno { display: flex; gap: 8px; margin: 4px 0 8px; }
+.c-yesno-btn {
+  min-height: var(--tap);
+  min-width: 72px;
+  padding: 0 16px;
+  border: 1px solid rgba(15, 39, 64, 0.18);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.c-yesno-btn.on {
+  background: var(--navy);
+  color: #fff;
+  border-color: var(--navy);
+}
+
 /* --- concerns / complete checkboxes --- */
 .c-checkrow { display: flex; gap: 18px; flex-wrap: wrap; }
 .c-check {

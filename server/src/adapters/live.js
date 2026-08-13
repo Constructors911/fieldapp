@@ -276,11 +276,24 @@ export function createLiveAdapter({
     return cachedEmployeeLaborTypeId;
   }
 
-  // "Internal Notes" custom field on daily logs — the crew's original,
-  // pre-cleanup words land there. Cached per instance.
-  let cachedInternalNotesFieldId;
-  async function internalNotesFieldId() {
-    if (cachedInternalNotesFieldId !== undefined) return cachedInternalNotesFieldId;
+  // Daily-log custom fields, cached per instance. Internal Notes is always
+  // written when present; capture fields are matched by name if the office
+  // created them in JT (Yes/No + text).
+  const CAPTURE_CF_NAMES = {
+    materials: 'Materials Received',
+    delays: 'Delays',
+    delayType: 'Delay Type',
+    safetyConcerns: 'Safety Concerns',
+    safetyConcernsText: 'Safety Concerns Detail',
+    safetyIncident: 'Safety Incident',
+    safetyIncidentText: 'Safety Incident Detail',
+    workConcerns: 'Work Concerns',
+    workConcernsText: 'Work Concerns Detail',
+  };
+
+  let cachedDailyLogCfs;
+  async function dailyLogCustomFields() {
+    if (cachedDailyLogCfs) return cachedDailyLogCfs;
     const data = await pave({
       organization: {
         $: { id: organizationId },
@@ -288,9 +301,35 @@ export function createLiveAdapter({
         customFields: { $: { size: 100 }, nodes: { id: {}, name: {}, targetType: {} } },
       },
     });
-    cachedInternalNotesFieldId = (data?.organization?.customFields?.nodes ?? [])
-      .find((f) => f.targetType === 'dailyLog' && f.name === 'Internal Notes')?.id ?? null;
-    return cachedInternalNotesFieldId;
+    cachedDailyLogCfs = (data?.organization?.customFields?.nodes ?? [])
+      .filter((f) => f.targetType === 'dailyLog');
+    return cachedDailyLogCfs;
+  }
+
+  function captureCustomFieldValues(fields, capture) {
+    if (!capture) return {};
+    const byName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
+    const yn = (v) => (v ? 'Yes' : 'No');
+    const wanted = {
+      [CAPTURE_CF_NAMES.materials]: yn(capture.materials),
+      [CAPTURE_CF_NAMES.delays]: yn(capture.delays),
+      [CAPTURE_CF_NAMES.delayType]: capture.delays ? (capture.delayType || '') : '',
+      [CAPTURE_CF_NAMES.safetyConcerns]: yn(capture.safetyConcerns),
+      [CAPTURE_CF_NAMES.safetyConcernsText]: capture.safetyConcerns
+        ? String(capture.safetyConcernsText || '').trim() : '',
+      [CAPTURE_CF_NAMES.safetyIncident]: yn(capture.safetyIncident),
+      [CAPTURE_CF_NAMES.safetyIncidentText]: capture.safetyIncident
+        ? String(capture.safetyIncidentText || '').trim() : '',
+      [CAPTURE_CF_NAMES.workConcerns]: yn(capture.workConcerns),
+      [CAPTURE_CF_NAMES.workConcernsText]: capture.workConcerns
+        ? String(capture.workConcernsText || '').trim() : '',
+    };
+    const out = {};
+    for (const [name, value] of Object.entries(wanted)) {
+      const id = byName[name];
+      if (id && value !== '') out[id] = value;
+    }
+    return out;
   }
 
   // createTimeEntry requires a non-null `type` matching one of the user's
@@ -318,38 +357,74 @@ export function createLiveAdapter({
     name: 'live',
 
     async getBootstrap() {
-      const data = await pave({
+      // Pave `where` cannot compare to null, so `closedOn = null` is invalid and
+      // can drop brand-new jobs (Approved/open, never closed). Page all jobs
+      // (size max 100) and drop closed ones here.
+      const jobNodeFields = {
+        id: {},
+        number: {},
+        name: {},
+        closedOn: {},
+        location: { id: {}, formattedAddress: {}, latitude: {}, longitude: {} },
+      };
+
+      async function fetchJobPages(sortBy) {
+        const nodes = [];
+        let page = null;
+        let pages = 0;
+        do {
+          const data = await pave({
+            organization: {
+              $: { id: organizationId },
+              id: {},
+              jobs: {
+                $: {
+                  size: 100,
+                  ...(page ? { page } : {}),
+                  ...(sortBy ? { sortBy } : {}),
+                },
+                nextPage: {},
+                nodes: jobNodeFields,
+              },
+            },
+          });
+          const conn = data?.organization?.jobs ?? {};
+          nodes.push(...(conn.nodes ?? []));
+          page = conn.nextPage ?? null;
+          pages += 1;
+          // Newest-first: a few pages is enough for new Approved jobs.
+          // Unsorted: keep paging so a new job at the end is not dropped.
+        } while (page && (sortBy ? pages < 20 : pages < 50));
+        return nodes;
+      }
+
+      let jobNodes;
+      try {
+        jobNodes = await fetchJobPages([{ field: 'createdAt', order: 'desc' }]);
+      } catch (e) {
+        console.warn('[getBootstrap] createdAt sort rejected, paging unsorted:', e.message || e);
+        jobNodes = await fetchJobPages(null);
+      }
+
+      const grant = await pave({
         currentGrant: {
           id: {},
           user: { id: {}, name: {}, emailAddress: {} },
         },
-        organization: {
-          $: { id: organizationId },
-          id: {},
-          jobs: {
-            $: { size: 100, where: { and: [['closedOn', '=', null]] } },
-            nodes: {
-              id: {},
-              number: {},
-              name: {},
-              location: { id: {}, formattedAddress: {}, latitude: {}, longitude: {} },
-            },
-          },
-        },
       });
-      const u = data?.currentGrant?.user ?? null;
+      const u = grant?.currentGrant?.user ?? null;
       const user = u ? { id: u.id, name: u.name, email: u.emailAddress ?? '' } : null;
-      // No costItems here: 98 open jobs x full cost item lists 413s the Pave
-      // response. The clock-in picker fetches them per job (getJobCostItems).
-      const jobs = (data?.organization?.jobs?.nodes ?? []).map((j) => ({
-        id: j.id,
-        name: jobLabel(j),
-        rawName: j.name, // unprefixed, for CompanyCam project matching
-        location: j.location?.formattedAddress ?? '',
-        coordinates: (typeof j.location?.latitude === 'number' && typeof j.location?.longitude === 'number')
-          ? { lat: j.location.latitude, lng: j.location.longitude }
-          : null,
-      }));
+      const jobs = jobNodes
+        .filter((j) => !j.closedOn)
+        .map((j) => ({
+          id: j.id,
+          name: jobLabel(j),
+          rawName: j.name,
+          location: j.location?.formattedAddress ?? '',
+          coordinates: (typeof j.location?.latitude === 'number' && typeof j.location?.longitude === 'number')
+            ? { lat: j.location.latitude, lng: j.location.longitude }
+            : null,
+        }));
       const types = await timeEntryTypeNames();
       return { user, jobs, timeEntryTypes: types.length ? types : ['Standard'] };
     },
@@ -733,7 +808,7 @@ export function createLiveAdapter({
     },
 
     async createLog({
-      jobId, date, notes, fileIds = [], fileTags = {}, internalNotes,
+      jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, capture,
       userId: logUserId, authorName, grantKey: authorGrantKey,
     }) {
       // JT attributes dailyLog.user to whoever owns the grant key used for
@@ -748,29 +823,42 @@ export function createLiveAdapter({
       const stampedInternal = [author && `Logged by: ${author}`, internalNotes]
         .filter(Boolean)
         .join('\n\n') || undefined;
-      const cfId = stampedInternal ? await internalNotesFieldId() : null;
-      const createPayload = {
+      const fields = await dailyLogCustomFields().catch(() => []);
+      const cfId = stampedInternal
+        ? (fields.find((f) => f.name === 'Internal Notes')?.id ?? null)
+        : null;
+      const extraCf = captureCustomFieldValues(fields, capture);
+      const customFieldValues = {
+        ...(cfId ? { [cfId]: stampedInternal } : {}),
+        ...extraCf,
+      };
+      const createPayload = (cfValues) => ({
         createDailyLog: {
           $: {
             jobId,
             date: date || todayString(),
             notes: notes ?? '',
             files: [],
-            ...(cfId ? { customFieldValues: { [cfId]: stampedInternal } } : {}),
+            ...(Object.keys(cfValues).length ? { customFieldValues: cfValues } : {}),
           },
           createdDailyLog: logFields,
         },
-      };
+      });
       let data;
       try {
-        data = await pave(createPayload, paveOpts);
+        data = await pave(createPayload(customFieldValues), paveOpts);
       } catch (e) {
-        // Personal grant may lack job permission — fall back to service grant.
-        if (authorGk) {
-          console.warn('[createLog] personal grant create failed, using service grant:', e.message || e);
-          data = await pave(createPayload);
-        } else {
-          throw e;
+        // Extra capture CFs may not match JT types — retry without them.
+        const core = cfId ? { [cfId]: stampedInternal } : {};
+        try {
+          data = await pave(createPayload(core), paveOpts);
+        } catch (e2) {
+          if (authorGk) {
+            console.warn('[createLog] personal grant create failed, using service grant:', e2.message || e2);
+            data = await pave(createPayload(core));
+          } else {
+            throw e2;
+          }
         }
       }
       const created = data?.createDailyLog?.createdDailyLog;

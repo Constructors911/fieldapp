@@ -6,6 +6,8 @@ import PickerSheet from '../components/PickerSheet.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import PhotoAttach, { preparePhotos } from '../components/PhotoAttach.jsx';
+import LogCaptureFields from '../components/LogCaptureFields.jsx';
+import { emptyLogCapture, captureToCompose, validateLogCapture } from '../lib/logCapture.js';
 import { todayISO, parseISODate, fmtMonthDay, fmtDayShort } from '../lib/dates.js';
 import '../components/screens.css';
 
@@ -33,8 +35,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
   const [date, setDate] = useState(todayISO());
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState([]);
-  const [hasConcerns, setHasConcerns] = useState(false);
-  const [isComplete, setIsComplete] = useState(false);
+  const [capture, setCapture] = useState(() => emptyLogCapture());
   const [submitting, setSubmitting] = useState(false);
   const [photoReminderShown, setPhotoReminderShown] = useState(false);
   const [msg, setMsg] = useState(null); // errors stay here; success reports via onDone
@@ -50,10 +51,21 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
       setMsg({ type: 'err', text: 'Add some notes or a photo before submitting.' });
       return;
     }
+    const captureErr = validateLogCapture(capture);
+    if (captureErr) { setMsg({ type: 'err', text: captureErr }); return; }
     // Photos aren't mandatory — but remind once before an all-text log goes out.
     if (photos.length === 0 && !photoReminderShown) {
       setPhotoReminderShown(true);
       setMsg({ type: 'queued', text: '📸 Don’t forget relevant photos — Before, During, After, Concerns. Add them now, or tap "Save log" to submit without.' });
+      return;
+    }
+    const hasMaterialsTag = photos.some((p) => {
+      const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
+      return nm && String(nm).toLowerCase() === 'materials';
+    });
+    if (capture.materials && !hasMaterialsTag && photoReminderShown !== 'materials') {
+      setPhotoReminderShown('materials');
+      setMsg({ type: 'queued', text: '📦 Tag a pick-ticket photo Materials if you have it — or tap "Save log" to continue without.' });
       return;
     }
 
@@ -75,9 +87,8 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
         fileTags: fileTagsMap,
         compose: {
           notes: notes.trim(),
-          concerns: hasConcerns,
-          complete: isComplete,
           photoTags: photoTagCounts,
+          ...captureToCompose(capture),
         },
       });
       photos.forEach((p) => { if (p.file) URL.revokeObjectURL(p.url); });
@@ -144,21 +155,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
             />
           </div>
 
-          <div className="c-field c-checkrow">
-            <label className="c-check">
-              <input type="checkbox" checked={hasConcerns} onChange={(e) => setHasConcerns(e.target.checked)} />
-              ⚠️ Concerns to report
-            </label>
-            <label className="c-check">
-              <input type="checkbox" checked={isComplete} onChange={(e) => setIsComplete(e.target.checked)} />
-              ✅ Work complete
-            </label>
-          </div>
-          {(hasConcerns || isComplete) && (
-            <p className="c-check-hint">
-              Remember photos tagged {[hasConcerns && '"Concerns"', isComplete && '"Completion"'].filter(Boolean).join(' and ')}.
-            </p>
-          )}
+          <LogCaptureFields idPrefix="log" capture={capture} onChange={setCapture} />
 
           <div className="c-field">
             <span className="c-label">Photos</span>

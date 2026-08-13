@@ -352,7 +352,7 @@ export function createMockAdapter() {
       return logs.sort((a, b) => b.date.localeCompare(a.date));
     },
 
-    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, userId: logUserId, authorName, grantKey: _grantKey }) {
+    async createLog({ jobId, date, notes, fileIds = [], fileTags = {}, internalNotes, capture: _capture, userId: logUserId, authorName, grantKey: _grantKey }) {
       const job = findJob(jobId);
       if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
       const files = fileIds.map((fid) => {

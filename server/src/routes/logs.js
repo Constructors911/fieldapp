@@ -1,5 +1,6 @@
 // Daily log routes (session-gated): file tags, list/create logs, uploads.
 import multer from 'multer';
+import { DELAY_TYPES } from '../compose.js';
 
 export function registerLogs(app, ctx) {
   const { adapter, store, requireSession, HttpError, wrap, qp, isValidDateString, composeLogNotes } = ctx;
@@ -67,6 +68,19 @@ export function registerLogs(app, ctx) {
           && (!Array.isArray(compose.tasksRemaining) || compose.tasksRemaining.some((t) => typeof t !== 'string'))) {
         throw new HttpError(400, 'compose.tasksRemaining must be an array of strings');
       }
+      for (const k of ['materials', 'delays', 'safetyConcerns', 'safetyIncident', 'workConcerns', 'complete']) {
+        if (compose[k] !== undefined && typeof compose[k] !== 'boolean') {
+          throw new HttpError(400, `compose.${k} must be a boolean`);
+        }
+      }
+      for (const k of ['delayType', 'safetyConcernsText', 'safetyIncidentText', 'workConcernsText']) {
+        if (compose[k] !== undefined && typeof compose[k] !== 'string') {
+          throw new HttpError(400, `compose.${k} must be a string`);
+        }
+      }
+      if (compose.delays && compose.delayType && !DELAY_TYPES.includes(compose.delayType)) {
+        throw new HttpError(400, `compose.delayType must be one of: ${DELAY_TYPES.join(', ')}`);
+      }
       notes = await composeLogNotes(compose);
     }
     const composedNotes = notes;
@@ -76,6 +90,11 @@ export function registerLogs(app, ctx) {
         compose.done && `Done: ${compose.done}`,
         compose.needed && `Needed: ${compose.needed}`,
         compose.notes,
+        compose.workConcerns && compose.workConcernsText && `Work concerns: ${compose.workConcernsText}`,
+        compose.safetyConcerns && compose.safetyConcernsText && `Safety concerns: ${compose.safetyConcernsText}`,
+        compose.safetyIncident && compose.safetyIncidentText && `Safety incident: ${compose.safetyIncidentText}`,
+        compose.delays && compose.delayType && `Delay: ${compose.delayType}`,
+        compose.materials && 'Materials received',
       ].filter(Boolean).join('\n\n') || undefined
       : undefined;
     if (date !== undefined && date !== null && date !== '' && !isValidDateString(date)) {
@@ -106,6 +125,7 @@ export function registerLogs(app, ctx) {
       fileIds,
       fileTags: fileTags ?? {},
       internalNotes,
+      capture: compose ?? null,
       userId,
       authorName,
       grantKey: req.employee.jtGrantKey || undefined,

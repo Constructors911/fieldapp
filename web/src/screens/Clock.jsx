@@ -9,9 +9,10 @@ import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import ClockOutSheet from './ClockOutSheet.jsx';
 import { todayRange, fmtTime, localToday, fmtMins, fmtElapsed, getGps, completedTaskNames, remainingTaskNames } from '../lib/clockHelpers.js';
+import { emptyLogCapture, captureToCompose, validateLogCapture } from '../lib/logCapture.js';
 import '../components/screens.css';
 
-export default function Clock({ boot }) {
+export default function Clock({ boot, onRefreshJobs }) {
   const jobs = boot?.jobs || [];
 
   const [current, setCurrent] = useState(undefined); // undefined = loading, null = clocked out
@@ -20,6 +21,7 @@ export default function Clock({ boot }) {
   const [actionErr, setActionErr] = useState(null);
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [jobsRefreshing, setJobsRefreshing] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   // Clock-in flow state
@@ -37,8 +39,7 @@ export default function Clock({ boot }) {
   const [doneText, setDoneText] = useState('');
   const [neededText, setNeededText] = useState('');
   const [outPhotos, setOutPhotos] = useState([]);
-  const [outConcerns, setOutConcerns] = useState(false);
-  const [outComplete, setOutComplete] = useState(false);
+  const [outCapture, setOutCapture] = useState(() => emptyLogCapture());
   const [outTasks, setOutTasks] = useState(undefined); // undefined idle, null loading
   const [checkedNames, setCheckedNames] = useState(() => new Set());
   const [photoReminderShown, setPhotoReminderShown] = useState(false);
@@ -154,16 +155,22 @@ export default function Clock({ boot }) {
     setNeededText('');
     outPhotos.forEach((p) => { if (p.file) URL.revokeObjectURL(p.url); });
     setOutPhotos([]);
-    setOutConcerns(false);
-    setOutComplete(false);
+    setOutCapture(emptyLogCapture());
     setOutTasks(undefined);
     setCheckedNames(new Set());
     setPhotoReminderShown(false);
   }
 
-  function startClockIn() {
+  async function startClockIn() {
     setActionErr(null);
     gpsPromise.current = getGps(); // warm up GPS while the user picks
+    // Wait for a fresh job list before opening the picker. Search only
+    // filters jobs already loaded — a new Approved job is missing until then.
+    if (onRefreshJobs) {
+      setJobsRefreshing(true);
+      try { await onRefreshJobs(); } catch { /* keep the last loaded list */ }
+      setJobsRefreshing(false);
+    }
     setStep('job');
   }
 
@@ -222,10 +229,24 @@ export default function Clock({ boot }) {
       setActionErr('Write a quick note about what got done today before clocking out.');
       return;
     }
+    const captureErr = validateLogCapture(outCapture);
+    if (needsLog && captureErr) {
+      setActionErr(captureErr);
+      return;
+    }
     // Photos aren't mandatory — but remind once before an all-text log goes out.
     if (needsLog && outPhotos.length === 0 && !photoReminderShown) {
       setPhotoReminderShown(true);
       setActionErr('📸 Don’t forget relevant photos — Before, During, After, Concerns. Add them now, or tap "Save & close" to record the log and your time.');
+      return;
+    }
+    const hasMaterialsTag = outPhotos.some((p) => {
+      const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
+      return nm && String(nm).toLowerCase() === 'materials';
+    });
+    if (needsLog && outCapture.materials && !hasMaterialsTag && photoReminderShown !== 'materials') {
+      setPhotoReminderShown('materials');
+      setActionErr('📦 Tag a pick-ticket photo Materials if you have it — or tap "Save & close" to continue without.');
       return;
     }
     setBusy(true);
@@ -247,13 +268,10 @@ export default function Clock({ boot }) {
           compose: {
             done: doneText.trim(),
             needed: neededText.trim(),
-            concerns: outConcerns,
-            complete: outComplete,
             photoTags: photoTagCounts,
-            // Includes Today completions auto-seeded into checkedNames, plus
-            // anything toggled in this sheet. Remaining = still-open on this job.
             tasksCompleted: [...checkedNames],
             tasksRemaining: remainingTaskNames(Array.isArray(outTasks) ? outTasks : []),
+            ...captureToCompose(outCapture),
           },
         });
       } catch (e) {
@@ -346,10 +364,10 @@ export default function Clock({ boot }) {
               <button
                 type="button"
                 className="c-btn c-btn-big c-btn-block c-btn-green"
-                disabled={busy}
+                disabled={busy || jobsRefreshing}
                 onClick={startClockIn}
               >
-                Clock In
+                {jobsRefreshing ? 'Loading jobs…' : 'Clock In'}
               </button>
             </>
           )}
@@ -461,10 +479,8 @@ export default function Clock({ boot }) {
         onDoneTextChange={setDoneText}
         neededText={neededText}
         onNeededTextChange={setNeededText}
-        outConcerns={outConcerns}
-        onConcernsChange={setOutConcerns}
-        outComplete={outComplete}
-        onCompleteChange={setOutComplete}
+        outCapture={outCapture}
+        onCaptureChange={setOutCapture}
         outPhotos={outPhotos}
         setOutPhotos={setOutPhotos}
         tags={tags}

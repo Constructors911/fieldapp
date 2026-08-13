@@ -41,12 +41,19 @@ export default function App() {
     pendingCount().then(setPending);
     const un = subscribePending(setPending);
     const onOnline = () => flushQueue();
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        getBootstrap().then(setBoot).catch(() => {});
+      }
+    };
     window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVis);
     flushQueue();
     const stopPings = startLocationWakePings();
     return () => {
       un();
       window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVis);
       stopPings();
     };
   }, [me]);
@@ -136,7 +143,7 @@ export default function App() {
         </div>
       </header>
       <main className="screen">
-        {tab === 'clock' && <Clock boot={boot} />}
+        {tab === 'clock' && <Clock boot={boot} onRefreshJobs={() => getBootstrap().then(setBoot)} />}
         {tab === 'today' && <Today boot={boot} />}
         {tab === 'log' && <Log boot={boot} me={me} onMeUpdate={setMe} />}
         {tab === 'week' && <Week boot={boot} />}

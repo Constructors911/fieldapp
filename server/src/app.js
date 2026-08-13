@@ -24,10 +24,11 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   // Bootstrap is cached briefly so punch endpoints don't hit JobTread on
   // every request (jobs list + fallback identity).
   let bootCache = { at: 0, data: null };
-  async function boot() {
-    if (!bootCache.data || Date.now() - bootCache.at > 5 * 60_000) {
-      bootCache = { at: Date.now(), data: await adapter.getBootstrap() };
+  async function boot({ fresh = false } = {}) {
+    if (!fresh && bootCache.data && Date.now() - bootCache.at <= 5 * 60_000) {
+      return bootCache.data;
     }
+    bootCache = { at: Date.now(), data: await adapter.getBootstrap() };
     return bootCache.data;
   }
 
@@ -175,7 +176,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
 
   // ---- bootstrap -------------------------------------------------------
   app.get('/api/bootstrap', wrap(async (req, res) => {
-    const data = await boot();
+    const data = await boot({ fresh: true });
     const employee = await sessionEmployee(req);
     const user = employee
       ? { id: employee.jtUserId, name: employee.name, email: employee.email }

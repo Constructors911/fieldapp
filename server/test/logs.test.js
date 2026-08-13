@@ -88,7 +88,7 @@ test('original pre-compose text is preserved and retrievable by admins', async (
     body: {
       jobId: 'job_sunset',
       date: '2026-01-17',
-      compose: { done: 'raw crew words here', needed: 'raw needed words', concerns: true },
+      compose: { done: 'raw crew words here', needed: 'raw needed words', workConcerns: true, workConcernsText: 'need a solution' },
     },
   });
   const { status, json } = await api(srv.base, '/api/admin/log-texts?jobId=job_sunset&date=2026-01-17');
@@ -129,17 +129,20 @@ test('POST /api/logs with compose builds structured bullet notes (fallback path)
       compose: {
         done: 'stood walls on unit B\nsheathed the east side',
         needed: 'house wrap',
-        concerns: true,
         complete: false,
         photoTags: { Before: 1, During: 2, After: 1, Concerns: 1 },
         tasksCompleted: ['Frame exterior walls - Unit B'],
         tasksRemaining: ['Sheathing & house wrap'],
+        workConcerns: true,
+        workConcernsText: 'beam pocket needs engineer',
       },
     },
   });
   assert.equal(status, 200);
   const notes = json.log.notes;
-  assert.match(notes, /⚠️ CONCERNS FLAGGED/);
+  assert.match(notes, /⚠️ Work concerns:/);
+  assert.match(notes, /Beam pocket needs engineer/);
+  assert.doesNotMatch(notes, /CONCERNS FLAGGED/);
   assert.match(notes, /✅ Completed:\n• Stood walls on unit B\n• Sheathed the east side/);
   assert.match(notes, /☑ Tasks checked off:\n• Frame exterior walls - Unit B/);
   assert.match(notes, /◻ Tasks still open:\n• Sheathing & house wrap/);
@@ -157,6 +160,26 @@ test('POST /api/logs with compose builds structured bullet notes (fallback path)
     body: { jobId: 'job_riverside', compose: { tasksRemaining: 'nope' } },
   });
   assert.equal(badRemain.status, 400);
+  const badDelay = await authed('/api/logs', {
+    method: 'POST',
+    body: { jobId: 'job_riverside', compose: { delays: true, delayType: 'Aliens' } },
+  });
+  assert.equal(badDelay.status, 400);
+});
+
+test('safety incident text lands in the log verbatim', async () => {
+  const raw = 'Nail gun discharged into sawhorse. No injury.';
+  const { status, json } = await authed('/api/logs', {
+    method: 'POST',
+    body: {
+      jobId: 'job_riverside',
+      date: '2026-01-19',
+      compose: { done: 'sheathed east', safetyIncident: true, safetyIncidentText: raw },
+    },
+  });
+  assert.equal(status, 200);
+  assert.match(json.log.notes, /🚨 Safety incident:\nNail gun discharged into sawhorse\. No injury\./);
+  assert.match(json.log.internalNotes, /Safety incident: Nail gun discharged into sawhorse/);
 });
 
 test('GET /api/logs?date=today returns the seeded log with weather', async () => {
