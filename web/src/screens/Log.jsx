@@ -7,7 +7,7 @@ import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import PhotoAttach, { preparePhotos } from '../components/PhotoAttach.jsx';
 import LogCaptureFields from '../components/LogCaptureFields.jsx';
-import { emptyLogCapture, captureToCompose, validateLogCapture } from '../lib/logCapture.js';
+import { emptyLogCapture, captureToCompose, validateLogCapture, photosHaveTag, captureHasContent } from '../lib/logCapture.js';
 import { todayISO, parseISODate, fmtMonthDay, fmtDayShort } from '../lib/dates.js';
 import '../components/screens.css';
 
@@ -28,7 +28,7 @@ const fmtLogDate = (s) => {
 };
 
 // ---- New-log form (the '+' view) ------------------------------------------
-function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
+function LogForm({ boot, tags, ccAvailable, onDone, onCancel, onRefreshJobs }) {
   const jobs = boot?.jobs || [];
   const [jobId, setJobId] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -37,7 +37,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
   const [photos, setPhotos] = useState([]);
   const [capture, setCapture] = useState(() => emptyLogCapture());
   const [submitting, setSubmitting] = useState(false);
-  const [photoReminderShown, setPhotoReminderShown] = useState(false);
+  const [photoReminders, setPhotoReminders] = useState({ photos: false, materials: false });
   const [msg, setMsg] = useState(null); // errors stay here; success reports via onDone
 
   const job = jobs.find((j) => j.id === jobId) || null;
@@ -47,25 +47,21 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
     if (submitting) return;
     if (!jobId) { setMsg({ type: 'err', text: 'Pick a job first.' }); return; }
     if (!date) { setMsg({ type: 'err', text: 'Pick a date first.' }); return; }
-    if (!notes.trim() && photos.length === 0) {
-      setMsg({ type: 'err', text: 'Add some notes or a photo before submitting.' });
+    if (!notes.trim() && photos.length === 0 && !captureHasContent(capture)) {
+      setMsg({ type: 'err', text: 'Add some notes, a photo, or complete the questions below.' });
       return;
     }
     const captureErr = validateLogCapture(capture);
     if (captureErr) { setMsg({ type: 'err', text: captureErr }); return; }
     // Photos aren't mandatory — but remind once before an all-text log goes out.
-    if (photos.length === 0 && !photoReminderShown) {
-      setPhotoReminderShown(true);
-      setMsg({ type: 'queued', text: '📸 Don’t forget relevant photos — Before, During, After, Concerns. Add them now, or tap "Save log" to submit without.' });
+    if (photos.length === 0 && !photoReminders.photos) {
+      setPhotoReminders((r) => ({ ...r, photos: true }));
+      setMsg({ type: 'warn', text: '📸 Don’t forget relevant photos — Before, During, After, Concerns. Add them now, or tap "Save log" to submit without.' });
       return;
     }
-    const hasMaterialsTag = photos.some((p) => {
-      const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
-      return nm && String(nm).toLowerCase() === 'materials';
-    });
-    if (capture.materials && !hasMaterialsTag && photoReminderShown !== 'materials') {
-      setPhotoReminderShown('materials');
-      setMsg({ type: 'queued', text: '📦 Tag a pick-ticket photo Materials if you have it — or tap "Save log" to continue without.' });
+    if (capture.materials && !photosHaveTag(photos, tags, 'Materials') && !photoReminders.materials) {
+      setPhotoReminders((r) => ({ ...r, materials: true }));
+      setMsg({ type: 'warn', text: '📦 Tag a pick-ticket photo Materials if you have it — or tap "Save log" to continue without.' });
       return;
     }
 
@@ -117,7 +113,12 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
               id="log-job"
               type="button"
               className="c-input c-jobbtn"
-              onClick={() => setPickerOpen(true)}
+              onClick={async () => {
+                if (onRefreshJobs) {
+                  try { await onRefreshJobs(); } catch { /* keep last list */ }
+                }
+                setPickerOpen(true);
+              }}
               aria-haspopup="dialog"
             >
               {job ? (
@@ -172,7 +173,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
           {msg && <div className={`c-msg c-msg-${msg.type}`} role="status">{msg.text}</div>}
 
           <button type="submit" className="c-btn c-btn-primary" disabled={submitting || !jobId}>
-            {submitting ? 'Submitting…' : (photoReminderShown && photos.length === 0 ? 'Save log' : 'Submit log')}
+            {submitting ? 'Submitting…' : (photoReminders.photos && photos.length === 0 ? 'Save log' : 'Submit log')}
           </button>
         </form>
       </Card>
@@ -190,7 +191,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel }) {
 }
 
 // ---- Log tab: the user's daily-log feed ------------------------------------
-export default function Log({ boot, me, onMeUpdate }) {
+export default function Log({ boot, me, onMeUpdate, onRefreshJobs }) {
   const jobs = boot?.jobs || [];
   const [mode, setMode] = useState('list'); // 'list' | 'new'
 
@@ -229,8 +230,8 @@ export default function Log({ boot, me, onMeUpdate }) {
     try {
       const r = await saveJtGrant(grantKey.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/\s+/g, ''));
       setGrantKey('');
+      setMsg({ type: 'ok', text: 'Connected — new daily logs will show as you in JobTread.' });
       onMeUpdate?.(r.employee);
-      setGrantMsg({ type: 'ok', text: 'Connected — new daily logs will show as you in JobTread.' });
     } catch (err) {
       setGrantMsg({ type: 'err', text: err.message || 'Could not save grant key.' });
     } finally {
@@ -246,6 +247,7 @@ export default function Log({ boot, me, onMeUpdate }) {
         ccAvailable={ccAvailable}
         onCancel={() => setMode('list')}
         onDone={(m) => { setMsg(m); setMode('list'); }}
+        onRefreshJobs={onRefreshJobs}
       />
     );
   }
@@ -310,7 +312,12 @@ export default function Log({ boot, me, onMeUpdate }) {
         <button
           type="button"
           className={jobFilter ? 'c-cc-filter active' : 'c-cc-filter'}
-          onClick={() => setJobPickerOpen(true)}
+          onClick={async () => {
+            if (onRefreshJobs) {
+              try { await onRefreshJobs(); } catch { /* keep last list */ }
+            }
+            setJobPickerOpen(true);
+          }}
         >
           {jobFilterName ? jobFilterName.slice(0, 22) : 'All jobs'}
         </button>

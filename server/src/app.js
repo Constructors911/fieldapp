@@ -32,6 +32,16 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     return bootCache.data;
   }
 
+  async function jobById(jobId) {
+    let { jobs } = await boot();
+    let job = jobs.find((j) => j.id === jobId);
+    if (!job) {
+      ({ jobs } = await boot({ fresh: true }));
+      job = jobs.find((j) => j.id === jobId);
+    }
+    return job || null;
+  }
+
   const companycam = createCompanyCam();
 
   // ---- employee sessions -------------------------------------------------
@@ -234,8 +244,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
     validateCoordinates(coordinates);
     const startedAt = validatePunchTime(at);
-    const { jobs } = await boot();
-    const job = jobs.find((j) => j.id === jobId);
+    const job = await jobById(jobId);
     if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
     // Optional budget cost item (auto-approval path): must really be on the job.
     let costItem = null;

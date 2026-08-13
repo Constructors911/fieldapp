@@ -13,8 +13,9 @@
 //   and resolve {queued:true}.
 // - flushQueue replays in insertion order, deleting each item on success.
 //   A 4xx during replay (409 double clock-in, stale task, validation) means
-//   the item can never succeed — it is dropped. 5xx / network failure stops
-//   the replay and keeps remaining items for the next flush.
+//   the item can never succeed — it is dropped and subscribeDropped listeners
+//   are notified. 5xx / network failure stops the replay and keeps remaining
+//   items for the next flush.
 // - Concurrent flushes are coalesced onto one in-flight promise.
 
 const DB_NAME = 'c911-offline';
@@ -22,6 +23,7 @@ const DB_VERSION = 1;
 const STORE = 'queue';
 
 const listeners = new Set();
+const dropListeners = new Set();
 let dbPromise = null;
 
 function openDb() {
@@ -128,6 +130,16 @@ export function subscribePending(cb) {
   return () => listeners.delete(cb);
 }
 
+/** Fired when a queued mutation is dropped because replay got a 4xx. */
+export function subscribeDropped(cb) {
+  dropListeners.add(cb);
+  return () => dropListeners.delete(cb);
+}
+
+function notifyDropped(info) {
+  dropListeners.forEach((cb) => { try { cb(info); } catch { /* listener errors are not ours */ } });
+}
+
 let inFlightFlush = null;
 
 export function flushQueue() {
@@ -157,9 +169,25 @@ async function doFlush() {
     } catch {
       break; // still offline — keep this and everything after it
     }
-    if (res.ok || (res.status >= 400 && res.status < 500)) {
-      // Delivered, or permanently rejected (409 stale double-submit etc.) — drop.
+    if (res.ok) {
       try { await prom(store(db, 'readwrite').delete(item.id)); } catch { /* keep going */ }
+      notify();
+    } else if (res.status === 401 || res.status === 403) {
+      notifyDropped({
+        path: item.path,
+        status: res.status,
+        error: 'Session expired — sign in again to send saved actions.',
+      });
+      break;
+    } else if (res.status >= 400 && res.status < 500) {
+      // Permanently rejected (409 stale double-submit etc.) — drop and surface.
+      const payload = await res.json().catch(() => null);
+      try { await prom(store(db, 'readwrite').delete(item.id)); } catch { /* keep going */ }
+      notifyDropped({
+        path: item.path,
+        status: res.status,
+        error: (payload && payload.error) || `Saved action was rejected (${res.status}).`,
+      });
       notify();
     } else {
       break; // 5xx: server-side trouble, retry on a later flush

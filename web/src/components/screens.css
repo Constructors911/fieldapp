@@ -214,6 +214,7 @@
 .c-msg { border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
 .c-msg-ok { background: #e7f5ec; color: var(--green); }
 .c-msg-queued { background: #fdf0e5; color: #a35315; }
+.c-msg-warn { background: #fdf6e3; color: #8a6d12; }
 .c-msg-err { background: #fbeaea; color: var(--red); }
 
 .c-cc-empty { color: var(--muted); font-size: 14px; padding: 8px 0; }

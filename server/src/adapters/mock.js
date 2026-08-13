@@ -327,6 +327,12 @@ export function createMockAdapter() {
           (a.startTime || '').localeCompare(b.startTime || ''));
     },
 
+    async getTask(id) {
+      const task = db.tasks.find((t) => t.id === id);
+      if (!task) throw new HttpError(404, `Unknown task: ${id}`);
+      return task;
+    },
+
     async updateTask(id, { progress, subtasks } = {}) {
       const task = db.tasks.find((t) => t.id === id);
       if (!task) throw new HttpError(404, `Unknown task: ${id}`);
@@ -360,7 +366,7 @@ export function createMockAdapter() {
         if (!up) throw new HttpError(400, `Unknown fileId: ${fid}`);
         return { id: up.id, url: up.url, name: up.name, tagIds: fileTags[fid] ?? [] };
       });
-      const stampedInternal = [authorName && `Logged by: ${authorName}`, internalNotes]
+      const stampedInternal = [!_grantKey && authorName && `Logged by: ${authorName}`, internalNotes]
         .filter(Boolean)
         .join('\n\n') || undefined;
       const log = {

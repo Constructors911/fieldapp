@@ -165,6 +165,16 @@ test('POST /api/logs with compose builds structured bullet notes (fallback path)
     body: { jobId: 'job_riverside', compose: { delays: true, delayType: 'Aliens' } },
   });
   assert.equal(badDelay.status, 400);
+  const missingDelay = await authed('/api/logs', {
+    method: 'POST',
+    body: { jobId: 'job_riverside', compose: { delays: true } },
+  });
+  assert.equal(missingDelay.status, 400);
+  const missingSafety = await authed('/api/logs', {
+    method: 'POST',
+    body: { jobId: 'job_riverside', compose: { safetyIncident: true } },
+  });
+  assert.equal(missingSafety.status, 400);
 });
 
 test('safety incident text lands in the log verbatim', async () => {
@@ -311,6 +321,7 @@ test('personal JT grant links and marks attributedInJobTread', async () => {
   assert.equal(status, 200);
   assert.equal(json.log.userId, 'user_crew');
   assert.equal(json.attributedInJobTread, true);
+  assert.doesNotMatch(json.log.internalNotes || '', /Logged by:/);
 });
 
 test('unknown API routes return JSON 404; malformed JSON body returns 400', async () => {

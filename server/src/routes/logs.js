@@ -78,8 +78,19 @@ export function registerLogs(app, ctx) {
           throw new HttpError(400, `compose.${k} must be a string`);
         }
       }
-      if (compose.delays && compose.delayType && !DELAY_TYPES.includes(compose.delayType)) {
-        throw new HttpError(400, `compose.delayType must be one of: ${DELAY_TYPES.join(', ')}`);
+      if (compose.delays) {
+        if (!compose.delayType || !DELAY_TYPES.includes(compose.delayType)) {
+          throw new HttpError(400, `compose.delayType must be one of: ${DELAY_TYPES.join(', ')}`);
+        }
+      }
+      if (compose.safetyConcerns && !String(compose.safetyConcernsText || '').trim()) {
+        throw new HttpError(400, 'compose.safetyConcernsText is required when safetyConcerns is true');
+      }
+      if (compose.safetyIncident && !String(compose.safetyIncidentText || '').trim()) {
+        throw new HttpError(400, 'compose.safetyIncidentText is required when safetyIncident is true');
+      }
+      if (compose.workConcerns && !String(compose.workConcernsText || '').trim()) {
+        throw new HttpError(400, 'compose.workConcernsText is required when workConcerns is true');
       }
       notes = await composeLogNotes(compose);
     }
@@ -140,7 +151,7 @@ export function registerLogs(app, ctx) {
       jtUserId: userId,
       raw: compose !== undefined ? compose : { notes: composedNotes ?? '' },
       composed: composedNotes ?? '',
-    }).catch((e) => console.error('[log_texts] save failed', e));
+    });
     const attributedInJobTread = Boolean(req.employee.jtGrantKey)
       || Boolean(userId && process.env.JT_USER_ID && userId === process.env.JT_USER_ID);
     res.json({

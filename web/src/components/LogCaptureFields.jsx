@@ -8,16 +8,16 @@ function YesNo({ id, label, value, onChange }) {
       <div className="c-yesno" role="group" aria-labelledby={`${id}-label`}>
         <button
           type="button"
-          className={value ? 'c-yesno-btn on' : 'c-yesno-btn'}
-          aria-pressed={value}
+          className={value === true ? 'c-yesno-btn on' : 'c-yesno-btn'}
+          aria-pressed={value === true}
           onClick={() => onChange(true)}
         >
           Yes
         </button>
         <button
           type="button"
-          className={!value ? 'c-yesno-btn on' : 'c-yesno-btn'}
-          aria-pressed={!value}
+          className={value === false ? 'c-yesno-btn on' : 'c-yesno-btn'}
+          aria-pressed={value === false}
           onClick={() => onChange(false)}
         >
           No

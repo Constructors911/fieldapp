@@ -291,9 +291,11 @@ export function createLiveAdapter({
     workConcernsText: 'Work Concerns Detail',
   };
 
-  let cachedDailyLogCfs;
+  let cachedDailyLogCfs = { at: 0, data: null };
   async function dailyLogCustomFields() {
-    if (cachedDailyLogCfs) return cachedDailyLogCfs;
+    if (cachedDailyLogCfs.data && Date.now() - cachedDailyLogCfs.at <= 5 * 60_000) {
+      return cachedDailyLogCfs.data;
+    }
     const data = await pave({
       organization: {
         $: { id: organizationId },
@@ -301,29 +303,34 @@ export function createLiveAdapter({
         customFields: { $: { size: 100 }, nodes: { id: {}, name: {}, targetType: {} } },
       },
     });
-    cachedDailyLogCfs = (data?.organization?.customFields?.nodes ?? [])
-      .filter((f) => f.targetType === 'dailyLog');
-    return cachedDailyLogCfs;
+    cachedDailyLogCfs = {
+      at: Date.now(),
+      data: (data?.organization?.customFields?.nodes ?? [])
+        .filter((f) => f.targetType === 'dailyLog'),
+    };
+    return cachedDailyLogCfs.data;
   }
 
   function captureCustomFieldValues(fields, capture) {
     if (!capture) return {};
     const byName = Object.fromEntries(fields.map((f) => [f.name, f.id]));
     const yn = (v) => (v ? 'Yes' : 'No');
-    const wanted = {
-      [CAPTURE_CF_NAMES.materials]: yn(capture.materials),
-      [CAPTURE_CF_NAMES.delays]: yn(capture.delays),
-      [CAPTURE_CF_NAMES.delayType]: capture.delays ? (capture.delayType || '') : '',
-      [CAPTURE_CF_NAMES.safetyConcerns]: yn(capture.safetyConcerns),
-      [CAPTURE_CF_NAMES.safetyConcernsText]: capture.safetyConcerns
-        ? String(capture.safetyConcernsText || '').trim() : '',
-      [CAPTURE_CF_NAMES.safetyIncident]: yn(capture.safetyIncident),
-      [CAPTURE_CF_NAMES.safetyIncidentText]: capture.safetyIncident
-        ? String(capture.safetyIncidentText || '').trim() : '',
-      [CAPTURE_CF_NAMES.workConcerns]: yn(capture.workConcerns),
-      [CAPTURE_CF_NAMES.workConcernsText]: capture.workConcerns
-        ? String(capture.workConcernsText || '').trim() : '',
-    };
+    const wanted = {};
+    if (typeof capture.materials === 'boolean') wanted[CAPTURE_CF_NAMES.materials] = yn(capture.materials);
+    if (typeof capture.delays === 'boolean') wanted[CAPTURE_CF_NAMES.delays] = yn(capture.delays);
+    if (capture.delays && capture.delayType) wanted[CAPTURE_CF_NAMES.delayType] = capture.delayType;
+    if (typeof capture.safetyConcerns === 'boolean') wanted[CAPTURE_CF_NAMES.safetyConcerns] = yn(capture.safetyConcerns);
+    if (capture.safetyConcerns) {
+      wanted[CAPTURE_CF_NAMES.safetyConcernsText] = String(capture.safetyConcernsText || '').trim();
+    }
+    if (typeof capture.safetyIncident === 'boolean') wanted[CAPTURE_CF_NAMES.safetyIncident] = yn(capture.safetyIncident);
+    if (capture.safetyIncident) {
+      wanted[CAPTURE_CF_NAMES.safetyIncidentText] = String(capture.safetyIncidentText || '').trim();
+    }
+    if (typeof capture.workConcerns === 'boolean') wanted[CAPTURE_CF_NAMES.workConcerns] = yn(capture.workConcerns);
+    if (capture.workConcerns) {
+      wanted[CAPTURE_CF_NAMES.workConcernsText] = String(capture.workConcernsText || '').trim();
+    }
     const out = {};
     for (const [name, value] of Object.entries(wanted)) {
       const id = byName[name];
@@ -392,9 +399,7 @@ export function createLiveAdapter({
           nodes.push(...(conn.nodes ?? []));
           page = conn.nextPage ?? null;
           pages += 1;
-          // Newest-first: a few pages is enough for new Approved jobs.
-          // Unsorted: keep paging so a new job at the end is not dropped.
-        } while (page && (sortBy ? pages < 20 : pages < 50));
+        } while (page && pages < 50);
         return nodes;
       }
 
@@ -738,6 +743,35 @@ export function createLiveAdapter({
       return tasks;
     },
 
+    async getTask(id) {
+      async function fetchTask(nodeFields) {
+        const data = await pave({
+          organization: {
+            $: { id: organizationId },
+            id: {},
+            tasks: {
+              $: { size: 1, where: { and: [['id', '=', id]] } },
+              nodes: nodeFields,
+            },
+          },
+        });
+        return data?.organization?.tasks?.nodes?.[0] ?? null;
+      }
+      let raw;
+      try {
+        raw = await fetchTask({ ...taskFields, ...taskRelationFields });
+      } catch (e) {
+        const msg = String(e?.message || e);
+        if (/does not exist|not expected/i.test(msg)) {
+          raw = await fetchTask(taskFields);
+        } else {
+          throw e;
+        }
+      }
+      if (!raw) throw new HttpError(404, `Unknown task: ${id}`);
+      return mapTask(raw);
+    },
+
     async updateTask(id, { progress, subtasks } = {}) {
       // notify:false — checklist toggles shouldn't ping every assignee.
       const $ = { id, notify: false };
@@ -817,20 +851,25 @@ export function createLiveAdapter({
       const authorGk = typeof authorGrantKey === 'string' && authorGrantKey.trim()
         ? authorGrantKey.trim()
         : null;
-      const paveOpts = authorGk ? { grantKey: authorGk } : {};
 
-      const author = authorName || null;
-      const stampedInternal = [author && `Logged by: ${author}`, internalNotes]
-        .filter(Boolean)
-        .join('\n\n') || undefined;
       const fields = await dailyLogCustomFields().catch(() => []);
-      const cfId = stampedInternal
-        ? (fields.find((f) => f.name === 'Internal Notes')?.id ?? null)
-        : null;
-      const extraCf = captureCustomFieldValues(fields, capture);
-      const customFieldValues = {
-        ...(cfId ? { [cfId]: stampedInternal } : {}),
-        ...extraCf,
+      const stampInternal = (includeAuthor) => (
+        [includeAuthor && authorName && `Logged by: ${authorName}`, internalNotes]
+          .filter(Boolean)
+          .join('\n\n') || undefined
+      );
+      const cfBundle = (includeAuthor) => {
+        const stamped = stampInternal(includeAuthor);
+        const notesId = stamped
+          ? (fields.find((f) => f.name === 'Internal Notes')?.id ?? null)
+          : null;
+        return {
+          all: {
+            ...(notesId ? { [notesId]: stamped } : {}),
+            ...captureCustomFieldValues(fields, capture),
+          },
+          core: notesId ? { [notesId]: stamped } : {},
+        };
       };
       const createPayload = (cfValues) => ({
         createDailyLog: {
@@ -844,21 +883,26 @@ export function createLiveAdapter({
           createdDailyLog: logFields,
         },
       });
+      const attempt = (gk, cfValues) => pave(createPayload(cfValues), gk ? { grantKey: gk } : {});
+
+      // Prefer personal grant without a "Logged by" stamp. If capture CFs 400,
+      // retry without them. Do not silently fall back to the office grant —
+      // that would attribute the log to the grant owner in JobTread.
+      const personal = Boolean(authorGk);
       let data;
       try {
-        data = await pave(createPayload(customFieldValues), paveOpts);
-      } catch (e) {
-        // Extra capture CFs may not match JT types — retry without them.
-        const core = cfId ? { [cfId]: stampedInternal } : {};
+        data = await attempt(authorGk, cfBundle(!personal).all);
+      } catch {
         try {
-          data = await pave(createPayload(core), paveOpts);
+          data = await attempt(authorGk, cfBundle(!personal).core);
         } catch (e2) {
-          if (authorGk) {
-            console.warn('[createLog] personal grant create failed, using service grant:', e2.message || e2);
-            data = await pave(createPayload(core));
-          } else {
-            throw e2;
+          if (personal) {
+            throw new HttpError(
+              502,
+              'Your JobTread grant could not save this log. Re-connect it on the Log tab.',
+            );
           }
+          throw e2;
         }
       }
       const created = data?.createDailyLog?.createdDailyLog;
@@ -869,6 +913,7 @@ export function createLiveAdapter({
       // requires a name: prefer the original upload name, else tag + date.
       // Use the service grant for files (upload requests were created with it).
       const orgTags = await this.listFileTags().catch(() => []);
+      const attached = [];
       let photoIndex = 0;
       for (const uploadRequestId of fileIds) {
         photoIndex += 1;
@@ -876,23 +921,27 @@ export function createLiveAdapter({
         const tagLabel = tagIds.map((tid) => orgTags.find((t) => t.id === tid)?.name).find(Boolean);
         const name = uploadIndex.get(uploadRequestId)?.name
           || `${(tagLabel || 'photo').toLowerCase().replace(/\s+/g, '-')}-${created.date}-${photoIndex}.jpg`;
-        await pave({
-          createFile: {
-            $: {
-              uploadRequestId,
-              targetType: 'dailyLog',
-              targetId: created.id,
-              name,
-              ...(tagIds.length ? { fileTagIds: tagIds } : {}),
+        try {
+          const fileData = await pave({
+            createFile: {
+              $: {
+                uploadRequestId,
+                targetType: 'dailyLog',
+                targetId: created.id,
+                name,
+                ...(tagIds.length ? { fileTagIds: tagIds } : {}),
+              },
+              createdFile: { id: {}, name: {}, url: {} },
             },
-            createdFile: { id: {}, name: {}, url: {} },
-          },
-        });
+          });
+          const f = fileData?.createFile?.createdFile;
+          if (f) attached.push({ id: f.id, url: f.url, name: f.name });
+        } catch (e) {
+          console.warn('[createLog] attach file failed:', e.message || e);
+        }
       }
-      const listed = await this.listLogs({ date: created.date, jobId });
-      const mapped = listed.find((l) => l.id === created.id) ?? mapLog(created);
-      // Prefer the signed-in employee when JT still shows the service grant owner
-      // (no personal grant yet) so our API / mine feed stay correct.
+      const mapped = mapLog(created);
+      if (attached.length) mapped.files = attached;
       if (logUserId && mapped.userId !== logUserId) {
         return { ...mapped, userId: logUserId, userName: authorName || mapped.userName };
       }

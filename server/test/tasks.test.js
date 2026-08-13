@@ -83,13 +83,16 @@ test('invalid scope and malformed weekStart return 400', async () => {
 
 test('PATCH progress checks off a task; PATCH subtasks rewrites the checklist', async () => {
   const { json } = await authed('/api/tasks?scope=today');
-  const t = json.tasks.find((x) => x.progress < 1 && !x.isToDo);
+  const t = json.tasks.find((x) => x.progress < 1 && !x.isToDo
+    && (x.assignees || []).some((a) => a.id === 'user_crew'));
+  assert.ok(t, 'Casey has an assigned incomplete task today');
   const done = await authed(`/api/tasks/${t.id}`, { method: 'PATCH', body: { progress: 1 } });
   assert.equal(done.status, 200);
   assert.equal(done.json.task.progress, 1);
 
-  const withSubs = json.tasks.find((x) => x.subtasks.length > 0) ??
-    (await authed('/api/tasks?scope=week')).json.tasks.find((x) => x.subtasks.length > 0);
+  const assigned = (task) => (task.assignees || []).some((a) => a.id === 'user_crew');
+  const withSubs = json.tasks.find((x) => x.subtasks.length > 0 && assigned(x)) ??
+    (await authed('/api/tasks?scope=week')).json.tasks.find((x) => x.subtasks.length > 0 && assigned(x));
   const rewritten = withSubs.subtasks.map((s) => ({ ...s, isComplete: true }));
   const patched = await authed(`/api/tasks/${withSubs.id}`, {
     method: 'PATCH',
@@ -98,6 +101,14 @@ test('PATCH progress checks off a task; PATCH subtasks rewrites the checklist', 
   assert.equal(patched.status, 200);
   assert.equal(patched.json.task.subtasks.length, rewritten.length);
   assert.ok(patched.json.task.subtasks.every((s) => s.isComplete === true));
+});
+
+test('PATCH is refused for a task not assigned to the signed-in employee', async () => {
+  const { json } = await authed('/api/tasks?scope=week');
+  const others = json.tasks.find((t) => (t.assignees || []).length && !(t.assignees || []).some((a) => a.id === 'user_crew'));
+  assert.ok(others, 'seed includes a David-only task');
+  const denied = await authed(`/api/tasks/${others.id}`, { method: 'PATCH', body: { progress: 1 } });
+  assert.equal(denied.status, 403);
 });
 
 test('PATCH validation: unknown id 404, empty body 400, bad progress 400, >50 subtasks 400', async () => {

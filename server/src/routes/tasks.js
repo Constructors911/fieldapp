@@ -33,6 +33,12 @@ export function registerTasks(app, ctx) {
         }
       }
     }
+    const existing = await adapter.getTask(req.params.id);
+    const uid = req.employee.jtUserId;
+    const assignees = existing.assignees || [];
+    if (assignees.length > 0 && uid && !assignees.some((a) => a.id === uid)) {
+      throw new HttpError(403, 'That task is not assigned to you');
+    }
     const task = await adapter.updateTask(req.params.id, { progress, subtasks });
     res.json({ task });
   }));

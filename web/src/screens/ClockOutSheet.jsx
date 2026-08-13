@@ -35,6 +35,7 @@ export default function ClockOutSheet({
   breakMin,
   onBreakMinChange,
   busy,
+  confirmingReminder,
   onSubmit,
 }) {
   return (
@@ -170,7 +171,7 @@ export default function ClockOutSheet({
             {busy
               ? 'Clocking out…'
               : outMode === 'done' && logExists === false
-                ? 'Submit log & clock out'
+                ? (confirmingReminder ? 'Save & clock out' : 'Submit log & clock out')
                 : 'Confirm Clock Out'}
           </button>
         </>

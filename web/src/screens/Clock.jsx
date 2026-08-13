@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getLogs, createLog, getFileTags, getCompanyCamStatus, getTasks, updateTask, clockIn, clockOut } from '../api.js';
+import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getMyLogs, createLog, getFileTags, getCompanyCamStatus, getTasks, updateTask, clockIn, clockOut } from '../api.js';
 import { preparePhotos } from '../components/PhotoAttach.jsx';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
@@ -9,7 +9,7 @@ import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import ClockOutSheet from './ClockOutSheet.jsx';
 import { todayRange, fmtTime, localToday, fmtMins, fmtElapsed, getGps, completedTaskNames, remainingTaskNames } from '../lib/clockHelpers.js';
-import { emptyLogCapture, captureToCompose, validateLogCapture } from '../lib/logCapture.js';
+import { emptyLogCapture, captureToCompose, validateLogCapture, photosHaveTag } from '../lib/logCapture.js';
 import '../components/screens.css';
 
 export default function Clock({ boot, onRefreshJobs }) {
@@ -42,7 +42,7 @@ export default function Clock({ boot, onRefreshJobs }) {
   const [outCapture, setOutCapture] = useState(() => emptyLogCapture());
   const [outTasks, setOutTasks] = useState(undefined); // undefined idle, null loading
   const [checkedNames, setCheckedNames] = useState(() => new Set());
-  const [photoReminderShown, setPhotoReminderShown] = useState(false);
+  const [photoReminders, setPhotoReminders] = useState({ photos: false, materials: false });
   const [tags, setTags] = useState([]);
   const [ccAvailable, setCcAvailable] = useState(false);
   useEffect(() => { getFileTags().then((r) => setTags(r.tags || [])).catch(() => {}); }, []);
@@ -54,7 +54,7 @@ export default function Clock({ boot, onRefreshJobs }) {
     setOutMode(mode);
     if (mode !== 'done' || !current) return;
     setLogExists(undefined);
-    getLogs(localToday(), current.jobId)
+    getMyLogs({ date: localToday(), jobId: current.jobId })
       .then((r) => setLogExists((r.logs || []).length > 0))
       .catch(() => setLogExists(false)); // can't verify -> require the log
     // This job's tasks for today (assigned to this employee). Pre-seed the
@@ -158,7 +158,7 @@ export default function Clock({ boot, onRefreshJobs }) {
     setOutCapture(emptyLogCapture());
     setOutTasks(undefined);
     setCheckedNames(new Set());
-    setPhotoReminderShown(false);
+    setPhotoReminders({ photos: false, materials: false });
   }
 
   async function startClockIn() {
@@ -168,8 +168,10 @@ export default function Clock({ boot, onRefreshJobs }) {
     // filters jobs already loaded — a new Approved job is missing until then.
     if (onRefreshJobs) {
       setJobsRefreshing(true);
-      try { await onRefreshJobs(); } catch { /* keep the last loaded list */ }
-      setJobsRefreshing(false);
+      try {
+        await onRefreshJobs();
+      } catch { /* keep the last loaded list */ }
+      finally { setJobsRefreshing(false); }
     }
     setStep('job');
   }
@@ -235,24 +237,22 @@ export default function Clock({ boot, onRefreshJobs }) {
       return;
     }
     // Photos aren't mandatory — but remind once before an all-text log goes out.
-    if (needsLog && outPhotos.length === 0 && !photoReminderShown) {
-      setPhotoReminderShown(true);
-      setActionErr('📸 Don’t forget relevant photos — Before, During, After, Concerns. Add them now, or tap "Save & close" to record the log and your time.');
+    if (needsLog && outPhotos.length === 0 && !photoReminders.photos) {
+      setPhotoReminders((r) => ({ ...r, photos: true }));
+      setActionErr('📸 Don’t forget relevant photos — Before, During, After, Concerns. Add them now, or tap “Save & clock out” to continue without.');
       return;
     }
-    const hasMaterialsTag = outPhotos.some((p) => {
-      const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
-      return nm && String(nm).toLowerCase() === 'materials';
-    });
-    if (needsLog && outCapture.materials && !hasMaterialsTag && photoReminderShown !== 'materials') {
-      setPhotoReminderShown('materials');
-      setActionErr('📦 Tag a pick-ticket photo Materials if you have it — or tap "Save & close" to continue without.');
+    if (needsLog && outCapture.materials && !photosHaveTag(outPhotos, tags, 'Materials') && !photoReminders.materials) {
+      setPhotoReminders((r) => ({ ...r, materials: true }));
+      setActionErr('📦 Tag a pick-ticket photo Materials if you have it — or tap “Save & clock out” to continue without.');
       return;
     }
     setBusy(true);
     setActionErr(null);
+    let skippedPhotos = 0;
     if (needsLog) {
       const { fileIds, fileTagsMap, skipped } = await preparePhotos(outPhotos);
+      skippedPhotos = skipped;
       const photoTagCounts = {};
       for (const p of outPhotos) {
         const nm = p.tagId && tags.find((t) => t.id === p.tagId)?.name;
@@ -274,6 +274,7 @@ export default function Clock({ boot, onRefreshJobs }) {
             ...captureToCompose(outCapture),
           },
         });
+        setLogExists(true);
       } catch (e) {
         // Keep the sheet (and their text) so they can retry.
         setActionErr(e.message || 'Could not submit the log — try again.');
@@ -298,16 +299,23 @@ export default function Clock({ boot, onRefreshJobs }) {
         setEntries((list) => [...list, { ...prev, endedAt, minutes: mins, _queued: true }]);
         setNotice('Clock-out saved offline — it will sync when you reconnect.');
       } else {
-        setNotice(null);
+        const photoNote = skippedPhotos > 0
+          ? ` ${skippedPhotos} photo${skippedPhotos > 1 ? 's' : ''} skipped — photos need a connection, re-attach on the Log tab.`
+          : '';
+        setNotice(photoNote ? photoNote.trim() : null);
         load();
       }
       setCurrent(null);
       resetFlow();
     } catch (e) {
-      // Covers 409 (no open entry): re-sync with the server.
-      setActionErr(e.message || 'Clock out failed');
-      resetFlow();
-      load();
+      if (needsLog) {
+        setActionErr('Log saved — clock-out failed. Tap to retry clock-out.');
+        load();
+      } else {
+        setActionErr(e.message || 'Clock out failed');
+        resetFlow();
+        load();
+      }
     } finally {
       setBusy(false);
     }
@@ -490,6 +498,7 @@ export default function Clock({ boot, onRefreshJobs }) {
         breakMin={breakMin}
         onBreakMinChange={setBreakMin}
         busy={busy}
+        confirmingReminder={Boolean(photoReminders.photos || photoReminders.materials)}
         onSubmit={submitClockOut}
       />
     </div>

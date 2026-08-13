@@ -6,8 +6,9 @@ import Week from './screens/Week.jsx';
 import Admin from './screens/Admin.jsx';
 import Login from './screens/Login.jsx';
 import { getBootstrap, authMe, getToken, authLogout } from './api.js';
-import { pendingCount, subscribePending, flushQueue } from './lib/offlineQueue.js';
+import { pendingCount, subscribePending, subscribeDropped, flushQueue } from './lib/offlineQueue.js';
 import { startLocationWakePings } from './lib/locationWake.js';
+import ErrorBanner from './components/ErrorBanner.jsx';
 
 const TABS = [
   { id: 'clock', label: 'Clock', icon: '⏱' },
@@ -21,6 +22,7 @@ export default function App() {
   const [boot, setBoot] = useState(null);
   const [err, setErr] = useState(null);
   const [pending, setPending] = useState(0);
+  const [dropErr, setDropErr] = useState(null);
   const [route, setRoute] = useState(() => window.location.hash);
   const [me, setMe] = useState(undefined); // undefined = checking, null = signed out
 
@@ -40,6 +42,9 @@ export default function App() {
     getBootstrap().then(setBoot).catch(e => setErr(e.message));
     pendingCount().then(setPending);
     const un = subscribePending(setPending);
+    const unDrop = subscribeDropped((info) => {
+      setDropErr(info.error || 'A saved action could not be sent.');
+    });
     const onOnline = () => flushQueue();
     const onVis = () => {
       if (document.visibilityState === 'visible') {
@@ -52,6 +57,7 @@ export default function App() {
     const stopPings = startLocationWakePings();
     return () => {
       un();
+      unDrop();
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVis);
       stopPings();
@@ -143,9 +149,10 @@ export default function App() {
         </div>
       </header>
       <main className="screen">
+        <ErrorBanner message={dropErr} onDismiss={() => setDropErr(null)} />
         {tab === 'clock' && <Clock boot={boot} onRefreshJobs={() => getBootstrap().then(setBoot)} />}
         {tab === 'today' && <Today boot={boot} />}
-        {tab === 'log' && <Log boot={boot} me={me} onMeUpdate={setMe} />}
+        {tab === 'log' && <Log boot={boot} me={me} onMeUpdate={setMe} onRefreshJobs={() => getBootstrap().then(setBoot)} />}
         {tab === 'week' && <Week boot={boot} />}
       </main>
       <nav className="tabbar" role="tablist" aria-label="Main">
