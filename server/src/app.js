@@ -10,6 +10,7 @@ import { verifyGoogleIdToken, adminAllowlist } from './googleAuth.js';
 import { composeLogNotes } from './compose.js';
 import { createCompanyCam } from './connectors/companycam.js';
 import { wrap, qp, validateCoordinates, validatePunchTime, punchToEntry } from './httpUtil.js';
+import { normalizeGrantKey } from './util/grantKey.js';
 import { registerTasks } from './routes/tasks.js';
 import { registerLogs } from './routes/logs.js';
 import { registerAdminMap } from './routes/adminMap.js';
@@ -115,7 +116,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   // Save the signed-in employee's personal JobTread API grant. Daily logs
   // created with this key attribute to them in JT (service grant cannot).
   app.post('/api/auth/jt-grant', requireSession, wrap(async (req, res) => {
-    const grantKey = typeof req.body?.grantKey === 'string' ? req.body.grantKey.trim() : '';
+    const grantKey = normalizeGrantKey(req.body?.grantKey);
     if (!grantKey) throw new HttpError(400, 'grantKey is required');
     if (typeof adapter.identifyGrantUser !== 'function') {
       throw new HttpError(503, 'Grant linking is not available');

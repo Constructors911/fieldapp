@@ -3,6 +3,7 @@
 // tests (no grant key in CI) but complete and syntactically valid.
 import { todayString, addDays, mondayOf } from '../util/dates.js';
 import { HttpError } from '../util/httpError.js';
+import { normalizeGrantKey } from '../util/grantKey.js';
 
 const PAVE_URL = 'https://api.jobtread.com/pave';
 
@@ -709,17 +710,25 @@ export function createLiveAdapter({
      * Returns { userId, name } or throws HttpError.
      */
     async identifyGrantUser(candidateGrantKey) {
-      if (typeof candidateGrantKey !== 'string' || !candidateGrantKey.trim()) {
-        throw new HttpError(400, 'grantKey is required');
-      }
-      const gk = candidateGrantKey.trim();
-      // Root `user` resolves to the grant owner.
+      const gk = normalizeGrantKey(candidateGrantKey);
+      if (!gk) throw new HttpError(400, 'grantKey is required');
+      // currentGrant.user is the grant owner (same query as getBootstrap).
+      // Root `user` is not a valid Pave selection — it 400s and was swallowed
+      // as "invalid or expired".
       try {
-        const data = await pave({ user: { id: {}, name: {}, emailAddress: {} } }, { grantKey: gk });
-        if (data?.user?.id) {
-          return { userId: data.user.id, name: data.user.name || '', email: data.user.emailAddress || '' };
+        const data = await pave({
+          currentGrant: {
+            id: {},
+            user: { id: {}, name: {} },
+          },
+        }, { grantKey: gk });
+        const u = data?.currentGrant?.user;
+        if (u?.id) {
+          return { userId: u.id, name: u.name || '', email: '' };
         }
-      } catch { /* invalid key or schema mismatch */ }
+      } catch (e) {
+        console.warn('[identifyGrantUser]', e.message || e);
+      }
       throw new HttpError(400, 'That JobTread grant key is invalid or expired');
     },
 

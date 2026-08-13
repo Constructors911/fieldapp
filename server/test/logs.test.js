@@ -273,7 +273,7 @@ test('personal JT grant links and marks attributedInJobTread', async () => {
 
   const ok = await crew('/api/auth/jt-grant', {
     method: 'POST',
-    body: { grantKey: 'crew_casey_grant' },
+    body: { grantKey: '  "crew_casey_grant"  ' },
   });
   assert.equal(ok.status, 200);
   assert.equal(ok.json.employee.hasJtGrant, true);

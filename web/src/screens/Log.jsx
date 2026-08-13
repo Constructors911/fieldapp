@@ -230,7 +230,7 @@ export default function Log({ boot, me, onMeUpdate }) {
     setGrantBusy(true);
     setGrantMsg(null);
     try {
-      const r = await saveJtGrant(grantKey.trim());
+      const r = await saveJtGrant(grantKey.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/\s+/g, ''));
       setGrantKey('');
       onMeUpdate?.(r.employee);
       setGrantMsg({ type: 'ok', text: 'Connected — new daily logs will show as you in JobTread.' });

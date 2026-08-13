@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { todayString, addDays, mondayOf } from '../util/dates.js';
 import { HttpError } from '../util/httpError.js';
+import { normalizeGrantKey } from '../util/grantKey.js';
 
 const uid = (prefix) => `${prefix}_${randomUUID().slice(0, 8)}`;
 
@@ -380,10 +381,10 @@ export function createMockAdapter() {
 
     /** Mock: any non-empty key identifies as the seeded user unless it starts with crew_. */
     async identifyGrantUser(candidateGrantKey) {
-      if (typeof candidateGrantKey !== 'string' || !candidateGrantKey.trim()) {
+      const gk = normalizeGrantKey(candidateGrantKey);
+      if (!gk) {
         throw new HttpError(400, 'grantKey is required');
       }
-      const gk = candidateGrantKey.trim();
       if (gk.startsWith('crew_')) {
         return { userId: 'user_crew', name: 'Casey Crew', email: 'crew@constructors911.com' };
       }
