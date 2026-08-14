@@ -49,6 +49,40 @@ export function photosHaveTag(photos, tags, name) {
   });
 }
 
+export function captureDisplayRows(c) {
+  if (!c) return [];
+  const yn = (v) => (v === true ? 'Yes' : v === false ? 'No' : null);
+  const rows = [];
+  const materials = yn(c.materials);
+  if (materials) rows.push(['Materials', materials]);
+  const delays = yn(c.delays);
+  if (delays) rows.push(['Delays', c.delays && c.delayType ? c.delayType : delays]);
+  const safetyC = yn(c.safetyConcerns);
+  if (safetyC) {
+    rows.push(['Safety concerns', safetyC]);
+    if (c.safetyConcerns && String(c.safetyConcernsText || '').trim()) {
+      rows.push(['Safety concerns detail', c.safetyConcernsText.trim()]);
+    }
+  }
+  const safetyI = yn(c.safetyIncident);
+  if (safetyI) {
+    rows.push(['Safety incident', safetyI]);
+    if (c.safetyIncident && String(c.safetyIncidentText || '').trim()) {
+      rows.push(['Safety incident detail', c.safetyIncidentText.trim()]);
+    }
+  }
+  const work = yn(c.workConcerns);
+  if (work) {
+    rows.push(['Work concerns', work]);
+    if (c.workConcerns && String(c.workConcernsText || '').trim()) {
+      rows.push(['Work concerns detail', c.workConcernsText.trim()]);
+    }
+  }
+  const complete = yn(c.complete);
+  if (complete) rows.push(['Work complete', complete]);
+  return rows;
+}
+
 export function captureHasContent(c) {
   return Boolean(
     c.materials

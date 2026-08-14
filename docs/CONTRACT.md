@@ -80,7 +80,7 @@ Wake pings (`POST /api/time/location`) also evaluate leave/return transitions ag
 - GET /api/tasks?scope=today|week&weekStart=YYYY-MM-DD -> { tasks: [Task] } (session required)
 - PATCH /api/tasks/:id { progress?, subtasks? } -> { task } (session required)
 - GET /api/file-tags -> { tags: [] } (session required; JobTread org tag list for photo tagging)
-- GET /api/logs?date=YYYY-MM-DD&jobId= -> { logs: [] } (session required)
+- GET /api/logs?date=YYYY-MM-DD&jobId=&mine=1 -> { logs: [] } (session required). `mine=1` keeps logs this employee authored (JT user or Neon record). Each log may include `capture` from the stored compose payload so the feed shows Yes/No answers even when JobTread notes were polished.
 - POST /api/logs { jobId, date, notes, fileIds? [] } -> { log } (session required; attributed in JobTread to the employee's jt_user_id)
 - POST /api/uploads multipart form (file) -> { fileId, url } (session required; mock stores to disk/memory)
 - GET /uploads/:id, GET /api/uploads/:id -> serves the stored upload bytes/redirect (no session — plain image src)
@@ -88,7 +88,7 @@ Wake pings (`POST /api/time/location`) also evaluate leave/return transitions ag
 
 TimeEntry: { id, jobId, jobName, costItemId, costItemName, startedAt, endedAt, minutes, notes, coordinates }
 Task: { id, jobId, jobName, name, description, isToDo, progress, startDate, endDate, startTime, endTime, subtasks: [{id, name, isComplete}], assignees: [{id, name}], dependencies: [{id, name, progress?}] }
-Log: { id, jobId, jobName, date, notes, weather?: {condition, minTemp, maxTemp}, files: [{id, url, name}] }
+Log: { id, jobId, jobName, date, notes, weather?: {condition, minTemp, maxTemp}, files: [{id, url, name}], capture?: { materials, delays, delayType, safetyConcerns, safetyConcernsText, safetyIncident, safetyIncidentText, workConcerns, workConcernsText, complete, done?, needed? } }
 
 ## Server layout (internal)
 

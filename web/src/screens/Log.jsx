@@ -7,9 +7,24 @@ import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import PhotoAttach, { preparePhotos } from '../components/PhotoAttach.jsx';
 import LogCaptureFields from '../components/LogCaptureFields.jsx';
-import { emptyLogCapture, captureToCompose, validateLogCapture, photosHaveTag, captureHasContent } from '../lib/logCapture.js';
+import { emptyLogCapture, captureToCompose, validateLogCapture, photosHaveTag, captureHasContent, captureDisplayRows } from '../lib/logCapture.js';
 import { todayISO, parseISODate, fmtMonthDay, fmtDayShort } from '../lib/dates.js';
 import '../components/screens.css';
+
+function CaptureSummary({ capture }) {
+  const rows = captureDisplayRows(capture);
+  if (!rows.length) return null;
+  return (
+    <dl className="c-log-capture">
+      {rows.map(([label, value]) => (
+        <div key={label} className="c-log-capture-row">
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 function weatherChip(w) {
   if (!w) return null;
@@ -253,8 +268,11 @@ export default function Log({ boot, me, onMeUpdate, onRefreshJobs }) {
   }
 
   const q = search.trim().toLowerCase();
-  const visible = (logs || []).filter((l) =>
-    !q || `${l.jobName} ${l.notes ?? ''}`.toLowerCase().includes(q));
+  const visible = (logs || []).filter((l) => {
+    if (!q) return true;
+    const extra = captureDisplayRows(l.capture).map(([, v]) => v).join(' ');
+    return `${l.jobName} ${l.notes ?? ''} ${extra}`.toLowerCase().includes(q);
+  });
   const jobFilterName = jobs.find((j) => j.id === jobFilter)?.name;
   const needsGrant = me && !me.hasJtGrant && !grantDismissed;
 
@@ -362,6 +380,7 @@ export default function Log({ boot, me, onMeUpdate, onRefreshJobs }) {
             {weatherChip(l.weather)}
           </div>
           {l.notes && <p className="c-log-notes">{l.notes}</p>}
+          <CaptureSummary capture={l.capture} />
           {l.files?.length > 0 && (
             <div className="c-log-photos">
               {l.files.map((f) => (

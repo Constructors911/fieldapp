@@ -192,6 +192,39 @@ test('safety incident text lands in the log verbatim', async () => {
   assert.match(json.log.internalNotes, /Safety incident: Nail gun discharged into sawhorse/);
 });
 
+test('GET /api/logs?mine=1 returns capture answers from the stored compose payload', async () => {
+  const { status, json } = await authed('/api/logs', {
+    method: 'POST',
+    body: {
+      jobId: 'job_riverside',
+      date: '2026-01-21',
+      compose: {
+        done: 'set plates',
+        materials: true,
+        delays: true,
+        delayType: 'Weather',
+        safetyConcerns: false,
+        safetyIncident: false,
+        workConcerns: true,
+        workConcernsText: 'need a crane Monday',
+        complete: false,
+      },
+    },
+  });
+  assert.equal(status, 200);
+  const listed = await authed('/api/logs?mine=1&date=2026-01-21');
+  assert.equal(listed.status, 200);
+  const log = listed.json.logs.find((l) => l.id === json.log.id);
+  assert.ok(log, 'created log is in the mine feed');
+  assert.equal(log.capture.materials, true);
+  assert.equal(log.capture.delays, true);
+  assert.equal(log.capture.delayType, 'Weather');
+  assert.equal(log.capture.workConcerns, true);
+  assert.match(log.capture.workConcernsText, /crane/);
+  assert.match(log.notes, /⏱ Delay: Weather/);
+  assert.match(log.notes, /📦 Materials received/);
+});
+
 test('GET /api/logs?date=today returns the seeded log with weather', async () => {
   const { status, json } = await authed(`/api/logs?date=${todayString()}`);
   assert.equal(status, 200);

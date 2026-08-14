@@ -44,15 +44,45 @@ function opsSections(input) {
   return blocks.join('\n\n');
 }
 
+/** Capture sections we always keep out of Haiku and stamp ourselves. */
+export function captureBlocks(input) {
+  return [
+    safetySections(input),
+    opsSections(input),
+    input.complete ? '✅ WORK COMPLETE' : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+/** Rebuild the Yes/No capture object from a stored compose payload. */
+export function captureFromRaw(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const keys = ['materials', 'delays', 'safetyConcerns', 'safetyIncident', 'workConcerns', 'complete'];
+  if (!keys.some((k) => typeof raw[k] === 'boolean')) return null;
+  const str = (v) => (typeof v === 'string' ? v : '');
+  return {
+    materials: raw.materials,
+    delays: raw.delays,
+    delayType: str(raw.delayType),
+    safetyConcerns: raw.safetyConcerns,
+    safetyConcernsText: str(raw.safetyConcernsText),
+    safetyIncident: raw.safetyIncident,
+    safetyIncidentText: str(raw.safetyIncidentText),
+    workConcerns: raw.workConcerns,
+    workConcernsText: str(raw.workConcernsText),
+    complete: raw.complete,
+    done: str(raw.done),
+    needed: str(raw.needed),
+    notes: str(raw.notes),
+  };
+}
+
 /** Deterministic formatting — also the shape we ask Haiku to produce. */
 export function fallbackCompose(input) {
   const {
-    done, needed, notes, complete, photoTags, tasksCompleted, tasksRemaining,
+    done, needed, notes, photoTags, tasksCompleted, tasksRemaining,
   } = input;
   const sections = [
-    safetySections(input),
-    opsSections(input),
-    complete ? '✅ WORK COMPLETE' : '',
+    captureBlocks(input),
     done || notes ? `✅ Completed:\n${bullets(done || notes)}` : '',
     tasksCompleted?.length ? `☑ Tasks checked off:\n${tasksCompleted.map((t) => `• ${t}`).join('\n')}` : '',
     tasksRemaining?.length ? `◻ Tasks still open:\n${tasksRemaining.map((t) => `• ${t}`).join('\n')}` : '',
@@ -65,16 +95,12 @@ export function fallbackCompose(input) {
 export async function composeLogNotes(input, env = process.env) {
   const fallback = fallbackCompose(input);
   const apiKey = env.ANTHROPIC_API_KEY;
-  const safety = safetySections(input);
+  const stamped = captureBlocks(input);
   if (!apiKey) return fallback;
 
   const raw = JSON.stringify({
     what_got_done: input.done || input.notes || '',
     still_needed: input.needed || '',
-    work_concerns: input.workConcerns ? (input.workConcernsText || '') : '',
-    delay_type: input.delays ? (input.delayType || '') : '',
-    materials_received: Boolean(input.materials),
-    work_complete: Boolean(input.complete),
     tasks_checked_off: input.tasksCompleted || [],
     tasks_still_open: input.tasksRemaining || [],
     photos_attached: input.photoTags || {},
@@ -97,12 +123,8 @@ export async function composeLogNotes(input, env = process.env) {
         system: [
           'You rewrite construction crew daily-log notes into a clean, scannable log for the office.',
           'Rules: keep EVERY fact; never invent, embellish, or omit anything the crew wrote; fix spelling and grammar; keep trade jargon as-is.',
-          'Do not mention safety — that is appended separately, verbatim.',
+          'Do not mention safety, delays, materials, work concerns, or work-complete — those are appended separately.',
           'Output format (skip any empty section, no preamble, no code fences):',
-          '⚠️ Work concerns:   (only if work_concerns is non-empty; bullets)',
-          '⏱ Delay: TYPE   (only if delay_type is non-empty)',
-          '📦 Materials received   (only if materials_received)',
-          '✅ WORK COMPLETE   (only if work_complete)',
           '✅ Completed:',
           '• one short bullet per distinct item',
           '☑ Tasks checked off:',
@@ -121,7 +143,7 @@ export async function composeLogNotes(input, env = process.env) {
     const data = await res.json();
     const text = data?.content?.find((c) => c.type === 'text')?.text?.trim();
     if (!text || text.length < 10) return fallback;
-    return [safety, text].filter(Boolean).join('\n\n');
+    return [stamped, text].filter(Boolean).join('\n\n');
   } catch {
     return fallback;
   }

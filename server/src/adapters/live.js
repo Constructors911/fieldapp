@@ -794,23 +794,39 @@ export function createLiveAdapter({
     },
 
     async listLogs({ date, jobId, jtUserId } = {}) {
-      const where = { and: [] };
-      if (date) where.and.push(['date', '=', date]);
-      if (jobId) where.and.push([['job', 'id'], '=', jobId]);
-      if (jtUserId) where.and.push([['user', 'id'], '=', jtUserId]);
-      const data = await pave({
-        organization: {
-          $: { id: organizationId },
-          id: {},
-          dailyLogs: {
-            // 25, not 100: combined with nested files the worst-case response
-            // size trips Pave's 413 (see logFields note).
-            $: { size: 25, where, sortBy: [{ field: 'date', order: 'desc' }] },
-            nodes: logFields,
+      const whereAnd = [];
+      if (date) whereAnd.push(['date', '=', date]);
+      if (jobId) whereAnd.push([['job', 'id'], '=', jobId]);
+      if (jtUserId) whereAnd.push([['user', 'id'], '=', jtUserId]);
+      const where = whereAnd.length ? { and: whereAnd } : undefined;
+      const nodes = [];
+      let page = null;
+      let pages = 0;
+      do {
+        const data = await pave({
+          organization: {
+            $: { id: organizationId },
+            id: {},
+            dailyLogs: {
+              // 25, not 100: combined with nested files the worst-case response
+              // size trips Pave's 413 (see logFields note).
+              $: {
+                size: 25,
+                ...(where ? { where } : {}),
+                ...(page ? { page } : {}),
+                sortBy: [{ field: 'date', order: 'desc' }],
+              },
+              nextPage: {},
+              nodes: logFields,
+            },
           },
-        },
-      });
-      return (data?.organization?.dailyLogs?.nodes ?? []).map(mapLog);
+        });
+        const conn = data?.organization?.dailyLogs ?? {};
+        nodes.push(...(conn.nodes ?? []));
+        page = conn.nextPage ?? null;
+        pages += 1;
+      } while (page && pages < 8);
+      return nodes.map(mapLog);
     },
 
     /**

@@ -1,6 +1,6 @@
 // Daily log routes (session-gated): file tags, list/create logs, uploads.
 import multer from 'multer';
-import { DELAY_TYPES } from '../compose.js';
+import { DELAY_TYPES, captureFromRaw } from '../compose.js';
 
 export function registerLogs(app, ctx) {
   const { adapter, store, requireSession, HttpError, wrap, qp, isValidDateString, composeLogNotes } = ctx;
@@ -31,16 +31,44 @@ export function registerLogs(app, ctx) {
     // so filtering JT by user id would hide the crew's own logs. Fetch broadly
     // then keep rows that match JT user OR our authorship records.
     let logs = await adapter.listLogs({ date, jobId });
+    const authored = await store.listLogTexts({
+      date,
+      jobId,
+      employeeEmail: req.employee.email,
+      jtUserId: req.employee.jtUserId,
+    }).catch(() => []);
+    const byJtId = new Map();
+    for (const r of authored) {
+      if (r.jtLogId && !byJtId.has(r.jtLogId)) byJtId.set(r.jtLogId, r);
+    }
     if (mine) {
       const jtUserId = req.employee.jtUserId;
-      const authored = await store.listLogTexts({
-        date,
-        jobId,
-        employeeEmail: req.employee.email,
-        jtUserId,
-      }).catch(() => []);
-      const authoredIds = new Set(authored.map((r) => r.jtLogId).filter(Boolean));
-      logs = logs.filter((l) => l.userId === jtUserId || authoredIds.has(l.id));
+      logs = logs.filter((l) => l.userId === jtUserId || byJtId.has(l.id));
+    }
+    logs = logs.map((l) => {
+      const rec = byJtId.get(l.id);
+      const capture = captureFromRaw(rec?.raw);
+      const notes = (l.notes && l.notes.trim()) || rec?.composed || l.notes;
+      return capture ? { ...l, notes, capture } : { ...l, notes };
+    });
+    if (mine) {
+      const seen = new Set(logs.map((l) => l.id));
+      for (const r of authored) {
+        const id = r.jtLogId || r.id;
+        if (!id || seen.has(id)) continue;
+        const capture = captureFromRaw(r.raw);
+        logs.push({
+          id,
+          jobId: r.jobId || null,
+          jobName: r.jobName || '',
+          date: r.date || '',
+          notes: r.composed || '',
+          files: [],
+          ...(capture ? { capture } : {}),
+        });
+        seen.add(id);
+      }
+      logs.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
     }
     res.json({ logs });
   }));
