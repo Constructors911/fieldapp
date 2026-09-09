@@ -230,7 +230,7 @@ export function createLiveAdapter({
     } while (page && nodes.length < 600);
     const seen = new Set();
     const items = [];
-    for (const item of nodes.filter((n) => !n.job)) {
+    for (const item of nodes.filter((n) => n.job == null)) {
       const name = item.name.replace(/["\s]+$/, '').trim();
       if (!/^\d{3}-01\s/.test(name)) continue; // current nomenclature only
       const key = name.toLowerCase();
@@ -360,6 +360,28 @@ export function createLiveAdapter({
     return cachedTypeNames;
   }
 
+  // Time entries follow the cost item's job in JobTread. A catalog / template
+  // / default-job item (we have seen job 911 · Jacobs Coal absorb every punch)
+  // must never be sent as costItemId.
+  async function fetchCostItem(id) {
+    if (!id) return null;
+    const data = await pave({
+      costItem: {
+        $: { id },
+        id: {},
+        name: {},
+        job: { id: {}, number: {}, name: {} },
+      },
+    });
+    return data?.costItem ?? null;
+  }
+
+  async function costItemOnJob(costItemId, jobId) {
+    const item = await fetchCostItem(costItemId);
+    if (!item?.id || !item.job?.id || item.job.id !== jobId) return null;
+    return item;
+  }
+
   return {
     name: 'live',
 
@@ -420,9 +442,10 @@ export function createLiveAdapter({
       const u = grant?.currentGrant?.user ?? null;
       const user = u ? { id: u.id, name: u.name, email: u.emailAddress ?? '' } : null;
       const jobs = jobNodes
-        .filter((j) => !j.closedOn)
+        .filter((j) => !j.closedOn && j.id)
         .map((j) => ({
           id: j.id,
+          number: j.number ?? '',
           name: jobLabel(j),
           rawName: j.name,
           location: j.location?.formattedAddress ?? '',
@@ -430,6 +453,13 @@ export function createLiveAdapter({
             ? { lat: j.location.latitude, lng: j.location.longitude }
             : null,
         }));
+      const seenIds = new Set();
+      for (const j of jobs) {
+        if (seenIds.has(j.id)) {
+          console.warn('[getBootstrap] duplicate JobTread job id', j.id, j.name);
+        }
+        seenIds.add(j.id);
+      }
       const types = await timeEntryTypeNames();
       return { user, jobs, timeEntryTypes: types.length ? types : ['Standard'] };
     },
@@ -459,7 +489,14 @@ export function createLiveAdapter({
       const name = String(activityName).trim();
       const existing = (await this.getJobCostItems(jobId))
         .find((c) => c.name.toLowerCase() === name.toLowerCase());
-      if (existing) return { id: existing.id, name: existing.name, created: false };
+      if (existing) {
+        // getJobCostItems already drops other jobs' lines; still skip a
+        // shared catalog id that would send every punch to that item's job.
+        const fetched = await fetchCostItem(existing.id);
+        if (!fetched?.job?.id || fetched.job.id === jobId) {
+          return { id: existing.id, name: existing.name, created: false };
+        }
+      }
 
       const [catalog, typeId] = await Promise.all([
         this.findCatalogItem(name),
@@ -469,21 +506,36 @@ export function createLiveAdapter({
       // the org's Uncategorized code.
       const costCodeId = catalog?.costCodeId ?? await fallbackCostCodeId();
       if (!costCodeId) throw new HttpError(502, 'No cost code available for the new budget item');
-      const data = await pave({
+
+      const createOnJob = (linkCatalog) => pave({
         createCostItem: {
           $: {
             jobId,
             name,
             isSelected: true,
             costCodeId,
-            ...(catalog ? { organizationCostItemId: catalog.id } : {}),
+            ...(linkCatalog && catalog ? { organizationCostItemId: catalog.id } : {}),
             ...(typeId ? { costTypeId: typeId } : {}),
           },
-          createdCostItem: { id: {}, name: {} },
+          createdCostItem: { id: {}, name: {}, job: { id: {} } },
         },
       });
-      const created = data?.createCostItem?.createdCostItem;
+
+      let data = await createOnJob(true);
+      let created = data?.createCostItem?.createdCostItem;
+      // Linking a catalog id can reuse the source job's line (e.g. 911).
+      if (created?.id && created.job?.id && created.job.id !== jobId) {
+        data = await createOnJob(false);
+        created = data?.createCostItem?.createdCostItem;
+      }
       if (!created?.id) throw new HttpError(502, 'Pave did not return the created cost item');
+      if (created.job?.id && created.job.id !== jobId) {
+        throw new HttpError(502, 'JobTread created the budget item on the wrong job');
+      }
+      const fetched = created.job?.id ? created : await fetchCostItem(created.id);
+      if (fetched?.job?.id && fetched.job.id !== jobId) {
+        throw new HttpError(502, 'JobTread created the budget item on the wrong job');
+      }
       return { id: created.id, name: created.name, created: true };
     },
 
@@ -526,11 +578,83 @@ export function createLiveAdapter({
       // BUDGET items only: JT rejects time entries against estimate document
       // lines ("Invalid cost item ID"). Budget-level items have no document;
       // Pave `where` can't compare null, so filter client-side and paginate.
-      const budget = [];
-      let page = null;
-      let pages = 0;
-      let jobFound = false;
-      do {
+      // Always confirm the job we got back is the one we asked for — a root
+      // `job { $: { id } }` miss has been seen returning another job's budget
+      // (911 · Jacobs Coal), which then steals every time entry.
+      const costItemNodes = {
+        id: {},
+        name: {},
+        job: { id: {} },
+        costCode: { id: {}, fullName: {} },
+        document: { id: {} },
+      };
+
+      const toBudget = (nodes) => {
+        const budget = [];
+        for (const c of nodes ?? []) {
+          if (c.document) continue;
+          if (c.job?.id && c.job.id !== jobId) continue;
+          budget.push({
+            id: c.id,
+            name: String(c.name || '').replace(/["\s]+$/, '').trim(),
+            costCode: c.costCode?.fullName ?? '',
+            isTimeTrackable: true,
+          });
+        }
+        return budget;
+      };
+
+      async function pageJobCostItems(load) {
+        const budget = [];
+        let page = null;
+        let pages = 0;
+        let found = false;
+        do {
+          const job = await load(page);
+          if (!job?.id) break;
+          if (job.id !== jobId) {
+            throw new HttpError(404, `Unknown job: ${jobId}`);
+          }
+          found = true;
+          budget.push(...toBudget(job.costItems?.nodes));
+          page = job.costItems?.nextPage ?? null;
+          pages += 1;
+        } while (page && pages < 5);
+        return found ? budget : null;
+      }
+
+      try {
+        const fromOrg = await pageJobCostItems(async (page) => {
+          const data = await pave({
+            organization: {
+              $: { id: organizationId },
+              id: {},
+              jobs: {
+                $: { size: 1, where: { and: [['id', '=', jobId]] } },
+                nodes: {
+                  id: {},
+                  costItems: {
+                    $: {
+                      size: 100,
+                      ...(page ? { page } : {}),
+                      where: { and: [[['costType', 'isTimeTrackable'], '=', true]] },
+                    },
+                    nextPage: {},
+                    nodes: costItemNodes,
+                  },
+                },
+              },
+            },
+          });
+          return data?.organization?.jobs?.nodes?.[0] ?? null;
+        });
+        if (fromOrg) return fromOrg;
+      } catch (e) {
+        if (e.status === 404) throw e;
+        console.warn('[getJobCostItems] org-jobs query failed, trying root job:', e.message || e);
+      }
+
+      const fromRoot = await pageJobCostItems(async (page) => {
         const data = await pave({
           job: {
             $: { id: jobId },
@@ -542,27 +666,14 @@ export function createLiveAdapter({
                 where: { and: [[['costType', 'isTimeTrackable'], '=', true]] },
               },
               nextPage: {},
-              nodes: { id: {}, name: {}, costCode: { id: {}, fullName: {} }, document: { id: {} } },
+              nodes: costItemNodes,
             },
           },
         });
-        if (!data?.job?.id) throw new HttpError(404, `Unknown job: ${jobId}`);
-        jobFound = true;
-        const conn = data.job.costItems ?? {};
-        for (const c of conn.nodes ?? []) {
-          if (c.document) continue; // estimate line, not a budget item
-          budget.push({
-            id: c.id,
-            name: c.name.replace(/["\s]+$/, '').trim(),
-            costCode: c.costCode?.fullName ?? '',
-            isTimeTrackable: true,
-          });
-        }
-        page = conn.nextPage ?? null;
-        pages += 1;
-      } while (page && pages < 5);
-      if (!jobFound) throw new HttpError(404, `Unknown job: ${jobId}`);
-      return budget;
+        return data?.job ?? null;
+      });
+      if (!fromRoot) throw new HttpError(404, `Unknown job: ${jobId}`);
+      return fromRoot;
     },
 
     async getCurrentEntry() {
@@ -625,11 +736,17 @@ export function createLiveAdapter({
         p.activity ? `Activity: ${p.activity}` : '',
       ].filter(Boolean).join(' · ');
       const [defaultType] = await timeEntryTypeNames();
+      let costItemId = p.costItemId || null;
+      const owned = costItemId ? await costItemOnJob(costItemId, p.jobId) : null;
+      if (!owned) {
+        const item = await this.ensureBudgetCostItem(p.jobId, p.costItemName || p.activity);
+        costItemId = item.id;
+      }
       const data = await pave({
         createTimeEntry: {
           $: {
             jobId: p.jobId,
-            costItemId: p.costItemId,
+            costItemId,
             userId: p.userId || userId, // attribute to the punching employee's JT user
             type: p.entryType || defaultType || 'Standard',
             startedAt: started.toISOString(),
@@ -639,12 +756,31 @@ export function createLiveAdapter({
             ...(p.coordinates ? { startCoordinates: toPaveCoords(p.coordinates) } : {}),
             ...(p.endCoordinates ? { endCoordinates: toPaveCoords(p.endCoordinates) } : {}),
           },
-          createdTimeEntry: { id: {} },
+          createdTimeEntry: {
+            id: {},
+            job: { id: {}, number: {}, name: {} },
+            costItem: { id: {}, job: { id: {} } },
+          },
         },
       });
-      const id = data?.createTimeEntry?.createdTimeEntry?.id;
-      if (!id) throw new HttpError(502, 'Pave did not return the created time entry');
-      return id;
+      let created = data?.createTimeEntry?.createdTimeEntry;
+      if (!created?.id) throw new HttpError(502, 'Pave did not return the created time entry');
+      if (created.job?.id && created.job.id !== p.jobId) {
+        const fixed = await pave({
+          updateTimeEntry: {
+            $: { id: created.id, jobId: p.jobId, costItemId },
+            timeEntry: { id: {}, job: { id: {}, number: {}, name: {} } },
+          },
+        });
+        created = fixed?.updateTimeEntry?.timeEntry ?? created;
+      }
+      if (created.job?.id && created.job.id !== p.jobId) {
+        throw new HttpError(
+          502,
+          `JobTread saved this time on ${created.job.name || created.job.id} instead of the selected job`,
+        );
+      }
+      return created.id;
     },
 
     async listTimeEntries({ from, to } = {}) {
@@ -921,8 +1057,29 @@ export function createLiveAdapter({
           throw e2;
         }
       }
-      const created = data?.createDailyLog?.createdDailyLog;
+      let created = data?.createDailyLog?.createdDailyLog;
       if (!created) throw new HttpError(502, 'Pave did not return the created daily log');
+      if (created.job?.id && created.job.id !== jobId) {
+        console.warn('[createLog] JT placed log on', created.job.name || created.job.id, 'expected', jobId);
+        try {
+          const fixed = await pave({
+            updateDailyLog: {
+              $: { id: created.id, jobId },
+              dailyLog: logFields,
+            },
+          }, authorGk ? { grantKey: authorGk } : {});
+          const moved = fixed?.updateDailyLog?.dailyLog;
+          if (moved?.id) created = moved;
+        } catch (e) {
+          console.warn('[createLog] updateDailyLog job move failed', e.message || e);
+        }
+        if (created.job?.id && created.job.id !== jobId) {
+          throw new HttpError(
+            502,
+            `JobTread saved this log on ${created.job.name || 'the wrong job'} instead of the job you selected.`,
+          );
+        }
+      }
 
       // Attach uploaded files: createFile from each earlier uploadRequest,
       // carrying the crew's photo tags as native JT file tags. createFile

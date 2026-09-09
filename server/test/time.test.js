@@ -128,6 +128,21 @@ test('clock-in with unknown job returns 404, missing fields 400', async () => {
   assert.equal(missing.status, 400);
 });
 
+test('clock-in trusts the selected job name when jobId points at a different job', async () => {
+  const { status, json } = await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: {
+      jobId: 'job_maplewood',
+      jobName: 'Sunset Plaza Office TI Buildout',
+      activity: 'Drywaller',
+    },
+  });
+  assert.equal(status, 200);
+  assert.equal(json.entry.jobId, 'job_sunset');
+  assert.equal(json.entry.jobName, 'Sunset Plaza Office TI Buildout');
+  await authed('/api/time/clock-out', { method: 'POST', body: {} });
+});
+
 test('GET /api/time/entries filters by from/to', async () => {
   const start = new Date(); start.setHours(0, 0, 0, 0);
   const end = new Date(); end.setHours(23, 59, 59, 999);

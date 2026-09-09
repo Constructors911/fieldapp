@@ -3,7 +3,7 @@ import multer from 'multer';
 import { DELAY_TYPES, captureFromRaw } from '../compose.js';
 
 export function registerLogs(app, ctx) {
-  const { adapter, store, requireSession, HttpError, wrap, qp, isValidDateString, composeLogNotes } = ctx;
+  const { adapter, store, requireSession, HttpError, wrap, qp, isValidDateString, composeLogNotes, resolveJob } = ctx;
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -74,9 +74,14 @@ export function registerLogs(app, ctx) {
   }));
 
   app.post('/api/logs', requireSession, wrap(async (req, res) => {
-    const { jobId, date, fileIds, fileTags, compose } = req.body ?? {};
+    const { jobId, jobName, date, fileIds, fileTags, compose } = req.body ?? {};
     let { notes } = req.body ?? {};
     if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'jobId is required');
+    if (jobName !== undefined && typeof jobName !== 'string') throw new HttpError(400, 'jobName must be a string');
+    const job = resolveJob
+      ? await resolveJob(jobId, jobName)
+      : { id: jobId, name: jobName || '' };
+    if (!job?.id) throw new HttpError(404, `Unknown job: ${jobId}`);
     // compose: structured crew input -> Haiku-polished bullet log (with a
     // deterministic fallback). When present it wins over raw notes.
     if (compose !== undefined) {
@@ -158,7 +163,7 @@ export function registerLogs(app, ctx) {
     if (!userId) throw new HttpError(400, 'Employee is not linked to a JobTread user');
     const authorName = req.employee.jtUserName || req.employee.name || req.employee.email || '';
     const log = await adapter.createLog({
-      jobId,
+      jobId: job.id,
       date: date || undefined,
       notes,
       fileIds,
@@ -172,8 +177,8 @@ export function registerLogs(app, ctx) {
     // Always record authorship so mine=1 works even when JT stamps the service grant.
     await store.saveLogText({
       jtLogId: log?.id ?? null,
-      jobId,
-      jobName: log?.jobName ?? '',
+      jobId: job.id,
+      jobName: log?.jobName || job.name || '',
       date: log?.date ?? date ?? '',
       employeeEmail: req.employee.email ?? '',
       jtUserId: userId,

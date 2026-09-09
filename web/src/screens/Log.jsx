@@ -93,6 +93,7 @@ function LogForm({ boot, tags, ccAvailable, onDone, onCancel, onRefreshJobs }) {
       }
       const res = await createLog({
         jobId,
+        jobName: job?.name,
         date,
         fileIds,
         fileTags: fileTagsMap,

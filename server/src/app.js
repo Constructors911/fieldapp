@@ -42,6 +42,29 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     return job || null;
   }
 
+  function jobMatchesName(job, jobName) {
+    if (!jobName) return true;
+    const wanted = String(jobName).trim().toLowerCase();
+    if (!wanted) return true;
+    return [job.name, job.rawName, job.number]
+      .filter(Boolean)
+      .some((n) => String(n).trim().toLowerCase() === wanted);
+  }
+
+  // Prefer the name the crew tapped when the id points at a different job
+  // (collapsed JT ids have sent every punch to 911 · Jacobs Coal).
+  async function resolveJob(jobId, jobName) {
+    const name = typeof jobName === 'string' ? jobName.trim() : '';
+    let job = jobId ? await jobById(jobId) : null;
+    if (job && jobMatchesName(job, name)) return job;
+    if (name) {
+      const { jobs } = await boot({ fresh: true });
+      const byName = jobs.find((j) => jobMatchesName(j, name));
+      if (byName) return byName;
+    }
+    return job || null;
+  }
+
   const companycam = createCompanyCam();
 
   // ---- employee sessions -------------------------------------------------
@@ -238,25 +261,26 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   }));
 
   app.post('/api/time/clock-in', requireSession, wrap(async (req, res) => {
-    const { jobId, activity, costItemId, notes, coordinates, at } = req.body ?? {};
+    const { jobId, jobName, activity, costItemId, notes, coordinates, at } = req.body ?? {};
     if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'jobId is required');
+    if (jobName !== undefined && typeof jobName !== 'string') throw new HttpError(400, 'jobName must be a string');
     if (typeof activity !== 'string' || !activity.trim()) throw new HttpError(400, 'activity is required');
     if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
     validateCoordinates(coordinates);
     const startedAt = validatePunchTime(at);
-    const job = await jobById(jobId);
+    const job = await resolveJob(jobId, jobName);
     if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
     // Optional budget cost item (auto-approval path): must really be on the job.
     let costItem = null;
     if (costItemId !== undefined && costItemId !== null && costItemId !== '') {
       if (typeof costItemId !== 'string') throw new HttpError(400, 'costItemId must be a string');
-      costItem = (await jobCostItems(jobId)).find((c) => c.id === costItemId);
+      costItem = (await jobCostItems(job.id)).find((c) => c.id === costItemId);
       if (!costItem) throw new HttpError(400, "Cost item is not on this job's budget");
     }
     const punch = await store.createPunch({
       userId: req.employee.jtUserId,
       userName: req.employee.name,
-      jobId,
+      jobId: job.id,
       jobName: job.name,
       activity: activity.trim(),
       costItemId: costItem?.id ?? null,
@@ -482,7 +506,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   // ---- tasks + daily logs + admin map (extracted route modules) ---------
   const routeCtx = {
     adapter, store, requireSession, requireAdmin, HttpError, wrap, qp,
-    isValidDateString, composeLogNotes, actorOf,
+    isValidDateString, composeLogNotes, actorOf, resolveJob,
   };
   registerTasks(app, routeCtx);
   registerLogs(app, routeCtx);

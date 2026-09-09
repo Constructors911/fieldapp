@@ -237,6 +237,21 @@ test('GET /api/logs?date=today returns the seeded log with weather', async () =>
   assert.equal(typeof log.weather.maxTemp, 'number');
 });
 
+test('POST /api/logs follows the selected job name when jobId is wrong', async () => {
+  const { status, json } = await authed('/api/logs', {
+    method: 'POST',
+    body: {
+      jobId: 'job_maplewood',
+      jobName: 'Riverside Duplex - Unit B Addition',
+      date: '2026-01-19',
+      notes: 'Should land on Riverside, not Maplewood.',
+    },
+  });
+  assert.equal(status, 200);
+  assert.equal(json.log.jobId, 'job_riverside');
+  assert.equal(json.log.jobName, 'Riverside Duplex - Unit B Addition');
+});
+
 test('POST /api/logs creates a log (date defaults to today) and it lists back', async () => {
   const { status, json } = await authed('/api/logs', {
     method: 'POST',

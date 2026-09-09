@@ -185,6 +185,7 @@ export default function Clock({ boot, onRefreshJobs }) {
       const coordinates = await (gpsPromise.current || getGps());
       const res = await clockIn({
         jobId: selJob.id,
+        jobName: selJob.name,
         activity: selActivity,
         costItemId: selCostItem?.id || undefined,
         notes: note.trim() || undefined,
@@ -261,6 +262,7 @@ export default function Clock({ boot, onRefreshJobs }) {
       try {
         await createLog({
           jobId: current.jobId,
+          jobName: current.jobName,
           date: localToday(),
           fileIds,
           fileTags: fileTagsMap,
