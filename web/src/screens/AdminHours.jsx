@@ -3,7 +3,7 @@ import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
-import { addDays, parseISODate, toISODate } from '../lib/dates.js';
+import { addDays, parseISODate, payPeriodContaining, payPeriodOffset, toISODate } from '../lib/dates.js';
 
 function sundayOf(d = new Date()) {
   return toISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()));
@@ -28,11 +28,12 @@ function fmtDay(dateStr) {
   return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+function fmtRange(from, to) {
+  return `${fmtDay(from)} – ${fmtDay(to)}`;
+}
+
 function fmtWeek(week) {
-  const a = parseISODate(week.weekStart);
-  const b = parseISODate(week.weekEnd);
-  const opts = { month: 'short', day: 'numeric' };
-  return `${a.toLocaleDateString([], opts)} – ${b.toLocaleDateString([], opts)}`;
+  return `${fmtDay(week.weekStart)} – ${fmtDay(week.weekEnd)}`;
 }
 
 function csvEscape(v) {
@@ -40,52 +41,79 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function reportToCsv(report) {
-  const lines = [[
-    'User', 'Date', 'Job', 'Activity', 'In', 'Out', 'Hours', 'Break (min)', 'Pushed to JT', 'JT entry',
-  ].map(csvEscape).join(',')];
+function csvRow(cells) {
+  return cells.map(csvEscape).join(',');
+}
+
+function pushedLabel(p) {
+  if (p.pushed) return 'Pushed';
+  if (p.status === 'open') return 'Open';
+  return 'Not pushed';
+}
+
+function inOutLabel(p) {
+  const times = `${fmtWhen(p.startedAt)} → ${p.endedAt ? fmtWhen(p.endedAt) : 'open'}`;
+  return p.breakMinutes ? `${times} · ${p.breakMinutes}m break` : times;
+}
+
+/** CSV follows the Hours screen: period totals, then each person, clocks, day totals, weekly OT. */
+export function reportToCsv(report) {
+  const lines = [
+    csvRow(['Hours report']),
+    csvRow([fmtRange(report.from, report.to)]),
+    csvRow(['Total hours', 'Regular', 'Overtime']),
+    csvRow([fmtHours(report.totals.totalHours), fmtHours(report.totals.regularHours), fmtHours(report.totals.overtimeHours)]),
+    '',
+  ];
 
   for (const user of report.users) {
+    lines.push(csvRow([user.userName]));
+    lines.push(csvRow(['Total hours', 'Regular', 'Overtime']));
+    lines.push(csvRow([fmtHours(user.totalHours), fmtHours(user.regularHours), fmtHours(user.overtimeHours)]));
+    lines.push('');
+    lines.push(csvRow(['Day', 'Job', 'Activity', 'In → Out', 'Hours', 'Pushed to JT']));
     for (const day of user.days) {
       for (const p of day.punches) {
-        lines.push([
-          user.userName,
-          day.date,
+        lines.push(csvRow([
+          fmtDay(day.date),
           p.jobName,
-          p.activity,
-          p.startedAt,
-          p.endedAt || '',
-          fmtHours(p.hours),
-          p.breakMinutes,
-          p.pushed ? 'Yes' : 'No',
-          p.jtTimeEntryId || '',
-        ].map(csvEscape).join(','));
+          p.activity || '',
+          inOutLabel(p),
+          p.endedAt ? fmtHours(p.hours) : '',
+          pushedLabel(p),
+        ]));
       }
-      lines.push([
-        user.userName, day.date, '', 'Day total', '', '', fmtHours(day.hours), '', '', '',
-      ].map(csvEscape).join(','));
+      lines.push(csvRow([`Day total · ${fmtDay(day.date)}`, '', '', '', fmtHours(day.hours), '']));
     }
+    lines.push('');
+    lines.push(csvRow(['Weekly overtime (Sun–Sat)']));
+    lines.push(csvRow(['Week', 'Hours', 'Regular', 'Overtime']));
     for (const w of user.weeks) {
-      lines.push([
-        user.userName,
-        `${w.weekStart}–${w.weekEnd}`,
-        '',
-        w.partial ? 'Week (partial)' : 'Week',
-        '',
-        '',
+      lines.push(csvRow([
+        `${fmtWeek(w)}${w.partial ? ' · partial' : ''}`,
         fmtHours(w.hours),
-        '',
-        `OT ${fmtHours(w.overtimeHours)}`,
-        `Reg ${fmtHours(w.regularHours)}`,
-      ].map(csvEscape).join(','));
+        fmtHours(w.regularHours),
+        fmtHours(w.overtimeHours),
+      ]));
     }
+    lines.push('');
   }
   return lines.join('\n');
 }
 
+function Stat({ label, value, warn }) {
+  return (
+    <div className={`adm-hours-stat${warn ? ' is-ot' : ''}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 export default function AdminHours({ adminFetch }) {
-  const [from, setFrom] = useState(() => sundayOf());
-  const [to, setTo] = useState(() => addDaysISO(sundayOf(), 6));
+  const currentPay = payPeriodContaining();
+  const [from, setFrom] = useState(currentPay.from);
+  const [to, setTo] = useState(currentPay.to);
   const [report, setReport] = useState(undefined);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -106,23 +134,38 @@ export default function AdminHours({ adminFetch }) {
 
   useEffect(() => { load(); }, [load]);
 
-  function applyPreset(kind) {
-    const today = new Date();
-    let nextFrom = from;
-    let nextTo = to;
-    if (kind === 'this-week') {
-      nextFrom = sundayOf(today);
-      nextTo = addDaysISO(nextFrom, 6);
-    } else if (kind === 'last-week') {
-      nextFrom = addDaysISO(sundayOf(today), -7);
-      nextTo = addDaysISO(nextFrom, 6);
-    } else if (kind === 'this-month') {
-      nextFrom = toISODate(new Date(today.getFullYear(), today.getMonth(), 1));
-      nextTo = toISODate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
-    }
+  function applyRange(nextFrom, nextTo) {
     setFrom(nextFrom);
     setTo(nextTo);
     load(nextFrom, nextTo);
+  }
+
+  function applyPreset(kind) {
+    const today = new Date();
+    if (kind === 'this-pay') {
+      const p = payPeriodContaining(today);
+      applyRange(p.from, p.to);
+      return;
+    }
+    if (kind === 'last-pay') {
+      const p = payPeriodOffset(-1, today);
+      applyRange(p.from, p.to);
+      return;
+    }
+    if (kind === 'this-week') {
+      const start = sundayOf(today);
+      applyRange(start, addDaysISO(start, 6));
+      return;
+    }
+    if (kind === 'last-week') {
+      const start = addDaysISO(sundayOf(today), -7);
+      applyRange(start, addDaysISO(start, 6));
+      return;
+    }
+    applyRange(
+      toISODate(new Date(today.getFullYear(), today.getMonth(), 1)),
+      toISODate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+    );
   }
 
   function downloadFile(blob, filename) {
@@ -160,38 +203,65 @@ export default function AdminHours({ adminFetch }) {
     }
   }
 
+  const thisPay = payPeriodContaining();
+  const lastPay = payPeriodOffset(-1);
+  const onThisPay = from === thisPay.from && to === thisPay.to;
+  const onLastPay = from === lastPay.from && to === lastPay.to;
+
   return (
     <>
       <ErrorBanner message={err} onDismiss={() => setErr(null)} />
-      <div className="adm-hours-controls no-print">
-        <label className="adm-hours-field">
-          From
-          <input type="date" className="adm-map-date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label className="adm-hours-field">
-          To
-          <input type="date" className="adm-map-date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
-        <button type="button" className="c-btn c-btn-small" disabled={busy || !from || !to} onClick={() => load()}>
-          {busy ? 'Loading…' : 'Run report'}
-        </button>
-        <button type="button" className="c-btn c-btn-small c-btn-ghost" onClick={() => applyPreset('this-week')}>This week</button>
-        <button type="button" className="c-btn c-btn-small c-btn-ghost" onClick={() => applyPreset('last-week')}>Last week</button>
-        <button type="button" className="c-btn c-btn-small c-btn-ghost" onClick={() => applyPreset('this-month')}>This month</button>
-        <button type="button" className="c-btn c-btn-small c-btn-ghost" disabled={!report?.users?.length} onClick={downloadCsv}>
-          Download CSV
-        </button>
-        <button type="button" className="c-btn c-btn-small c-btn-ghost" disabled={!report?.users?.length} onClick={downloadPdf}>
-          Download PDF
-        </button>
-        <button type="button" className="c-btn c-btn-small c-btn-ghost" disabled={!report} onClick={() => window.print()}>
-          Print
-        </button>
+
+      <div className="adm-hours-toolbar no-print">
+        <div className="adm-hours-payrow">
+          <button
+            type="button"
+            className={`c-btn c-btn-small${onThisPay ? ' c-btn-green' : ''}`}
+            onClick={() => applyPreset('this-pay')}
+          >
+            This pay period · {fmtRange(thisPay.from, thisPay.to)}
+          </button>
+          <button
+            type="button"
+            className={`c-btn c-btn-small${onLastPay ? ' c-btn-green' : ' c-btn-ghost'}`}
+            onClick={() => applyPreset('last-pay')}
+          >
+            Last pay period · {fmtRange(lastPay.from, lastPay.to)}
+          </button>
+        </div>
+
+        <div className="adm-hours-controls">
+          <label className="adm-hours-field">
+            From
+            <input type="date" className="adm-map-date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="adm-hours-field">
+            To
+            <input type="date" className="adm-map-date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+          <button type="button" className="c-btn c-btn-small" disabled={busy || !from || !to} onClick={() => load()}>
+            {busy ? 'Loading…' : 'Run report'}
+          </button>
+          <button type="button" className="c-btn c-btn-small c-btn-ghost" onClick={() => applyPreset('this-week')}>This week</button>
+          <button type="button" className="c-btn c-btn-small c-btn-ghost" onClick={() => applyPreset('last-week')}>Last week</button>
+          <button type="button" className="c-btn c-btn-small c-btn-ghost" onClick={() => applyPreset('this-month')}>This month</button>
+          <span className="adm-hours-export">
+            <button type="button" className="c-btn c-btn-small c-btn-ghost" disabled={!report?.users?.length} onClick={downloadCsv}>
+              Download CSV
+            </button>
+            <button type="button" className="c-btn c-btn-small c-btn-ghost" disabled={!report?.users?.length} onClick={downloadPdf}>
+              Download PDF
+            </button>
+            <button type="button" className="c-btn c-btn-small c-btn-ghost" disabled={!report} onClick={() => window.print()}>
+              Print
+            </button>
+          </span>
+        </div>
+        <p className="adm-hours-note">
+          Pay periods run Sunday–Saturday for two weeks. Overtime is any time over 40 hours in each of those weeks.
+          Breaks are deducted. Void punches are omitted. Open clocks show but do not count.
+        </p>
       </div>
-      <p className="adm-hours-note">
-        Hours use clock-in day. Breaks are deducted. Overtime is any time over 40 hours Sunday–Saturday.
-        Void punches are omitted. Open clocks show in the list but do not count toward totals.
-      </p>
 
       {report === undefined && <Spinner label="Loading hours…" />}
       {report && report.users.length === 0 && (
@@ -200,28 +270,39 @@ export default function AdminHours({ adminFetch }) {
 
       {report && report.users.length > 0 && (
         <div className="adm-hours-report">
-          <p className="adm-hours-range">
-            {fmtDay(report.from)} – {fmtDay(report.to)}
-            {' · '}
-            {fmtHours(report.totals.totalHours)} hrs
-            {' · '}
-            OT {fmtHours(report.totals.overtimeHours)}
-          </p>
+          <div className="adm-hours-banner">
+            <div>
+              <p className="adm-hours-kicker">Hours report</p>
+              <h2 className="adm-hours-range">{fmtRange(report.from, report.to)}</h2>
+            </div>
+            <div className="adm-hours-stats">
+              <Stat label="Total hours" value={fmtHours(report.totals.totalHours)} />
+              <Stat label="Regular" value={fmtHours(report.totals.regularHours)} />
+              <Stat label="Overtime" value={fmtHours(report.totals.overtimeHours)} warn={report.totals.overtimeHours > 0} />
+            </div>
+          </div>
+
           {report.users.map((user) => (
             <section className="adm-hours-user" key={user.userId || user.userName}>
               <header className="adm-hours-userhead">
-                <h2>{user.userName}</h2>
-                <p>
-                  {fmtHours(user.totalHours)} hrs
-                  {' · '}
-                  Regular {fmtHours(user.regularHours)}
-                  {' · '}
-                  OT {fmtHours(user.overtimeHours)}
-                </p>
+                <h3>{user.userName}</h3>
+                <div className="adm-hours-stats">
+                  <Stat label="Total hours" value={fmtHours(user.totalHours)} />
+                  <Stat label="Regular" value={fmtHours(user.regularHours)} />
+                  <Stat label="Overtime" value={fmtHours(user.overtimeHours)} warn={user.overtimeHours > 0} />
+                </div>
               </header>
 
               <div className="adm-tablewrap">
-                <table className="adm-table adm-hours-table">
+                <table className="adm-table adm-hours-clocks">
+                  <colgroup>
+                    <col className="adm-hours-c-day" />
+                    <col className="adm-hours-c-job" />
+                    <col className="adm-hours-c-act" />
+                    <col className="adm-hours-c-time" />
+                    <col className="adm-hours-c-hrs" />
+                    <col className="adm-hours-c-push" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Day</th>
@@ -240,24 +321,21 @@ export default function AdminHours({ adminFetch }) {
                             <td>{fmtDay(day.date)}</td>
                             <td className="adm-job">{p.jobName}</td>
                             <td>{p.activity || '—'}</td>
-                            <td className="adm-times">
-                              {fmtWhen(p.startedAt)} → {p.endedAt ? fmtWhen(p.endedAt) : 'open'}
-                              {p.breakMinutes ? ` · ${p.breakMinutes}m break` : ''}
-                            </td>
+                            <td className="adm-times">{inOutLabel(p)}</td>
                             <td className="adm-num">{p.endedAt ? fmtHours(p.hours) : '—'}</td>
                             <td>
                               <span
                                 className={`adm-badge ${p.pushed ? 'adm-badge-pushed' : `adm-badge-${p.status}`}`}
                                 title={p.jtTimeEntryId ? `JT ${p.jtTimeEntryId}` : p.status}
                               >
-                                {p.pushed ? 'Pushed' : p.status === 'open' ? 'Open' : 'Not pushed'}
+                                {pushedLabel(p)}
                               </span>
                             </td>
                           </tr>
                         ))}
                         <tr className="adm-hours-daytotal">
-                          <td colSpan={4}><strong>Day total · {fmtDay(day.date)}</strong></td>
-                          <td className="adm-num"><strong>{fmtHours(day.hours)}</strong></td>
+                          <td colSpan={4}>Day total · {fmtDay(day.date)}</td>
+                          <td className="adm-num">{fmtHours(day.hours)}</td>
                           <td />
                         </tr>
                       </React.Fragment>
@@ -266,9 +344,15 @@ export default function AdminHours({ adminFetch }) {
                 </table>
               </div>
 
-              <h3 className="adm-hours-weektitle">Weekly overtime (Sun–Sat)</h3>
-              <div className="adm-tablewrap">
-                <table className="adm-table adm-hours-table">
+              <div className="adm-hours-weeks">
+                <h4>Weekly overtime (Sun–Sat)</h4>
+                <table className="adm-hours-weektable">
+                  <colgroup>
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Week</th>
@@ -282,7 +366,7 @@ export default function AdminHours({ adminFetch }) {
                       <tr key={w.weekStart} className={w.overtimeHours > 0 ? 'adm-hours-ot' : undefined}>
                         <td>
                           {fmtWeek(w)}
-                          {w.partial ? ' · partial (only days in range)' : ''}
+                          {w.partial ? <span className="adm-hours-partial"> · partial</span> : ''}
                         </td>
                         <td className="adm-num">{fmtHours(w.hours)}</td>
                         <td className="adm-num">{fmtHours(w.regularHours)}</td>

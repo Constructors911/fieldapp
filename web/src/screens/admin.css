@@ -130,26 +130,76 @@
   border-radius: var(--radius); box-shadow: var(--shadow); background: #e8eef5;
 }
 .adm-map-note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.adm-hours-toolbar { margin-bottom: 18px; }
+.adm-hours-payrow { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .adm-hours-controls {
-  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
 }
+.adm-hours-export { display: inline-flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .adm-hours-field {
   display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted);
 }
-.adm-hours-note { font-size: 13px; color: var(--muted); margin: 0 0 16px; max-width: 720px; }
-.adm-hours-range { font-size: 14px; font-weight: 700; color: var(--navy); margin: 0 0 16px; }
-.adm-hours-user { margin-bottom: 28px; }
-.adm-hours-userhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.adm-hours-userhead h2 { margin: 0; font-size: 18px; color: var(--navy); }
-.adm-hours-userhead p { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
-.adm-hours-weektitle { margin: 16px 0 8px; font-size: 14px; color: var(--navy); }
-.adm-hours-table { min-width: 720px; }
-.adm-hours-daytotal td { background: #f4f7fa; border-top: 1px solid #d7dee6; }
+.adm-hours-note { font-size: 13px; color: var(--muted); margin: 8px 0 0; max-width: 760px; }
+.adm-hours-banner {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--navy); color: #fff; border-radius: var(--radius); padding: 18px 20px; margin-bottom: 18px;
+}
+.adm-hours-kicker {
+  margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase; opacity: 0.7;
+}
+.adm-hours-range { margin: 0; font-size: 22px; font-weight: 800; color: #fff; }
+.adm-hours-stats { display: flex; gap: 10px; flex-wrap: wrap; }
+.adm-hours-stat {
+  min-width: 104px; background: #fff; color: var(--navy); border-radius: 10px; padding: 8px 12px;
+  box-shadow: var(--shadow);
+}
+.adm-hours-banner .adm-hours-stat { background: rgba(255,255,255,0.12); color: #fff; box-shadow: none; }
+.adm-hours-stat span { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; opacity: 0.7; }
+.adm-hours-stat strong { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.adm-hours-stat.is-ot { background: #fdf0e5; color: #a35315; }
+.adm-hours-banner .adm-hours-stat.is-ot { background: var(--orange); color: #fff; }
+.adm-hours-user {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 16px 16px 20px; margin-bottom: 18px;
+}
+.adm-hours-userhead {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #e8eef5;
+}
+.adm-hours-userhead h3 { margin: 0; font-size: 20px; color: var(--navy); }
+.adm-hours-clocks { min-width: 760px; table-layout: fixed; }
+.adm-hours-c-day { width: 16%; }
+.adm-hours-c-job { width: 22%; }
+.adm-hours-c-act { width: 16%; }
+.adm-hours-c-time { width: 22%; }
+.adm-hours-c-hrs { width: 10%; }
+.adm-hours-c-push { width: 14%; }
+.adm-hours-daytotal td { background: #eef4f8; font-weight: 700; color: var(--navy); }
+.adm-hours-weeks { margin-top: 18px; max-width: 560px; }
+.adm-hours-weeks h4 { margin: 0 0 8px; font-size: 13px; font-weight: 800; color: var(--navy); }
+.adm-hours-weektable {
+  width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px;
+  background: #f8fafb; border-radius: 10px; overflow: hidden;
+}
+.adm-hours-weektable col:first-child { width: 46%; }
+.adm-hours-weektable col:not(:first-child) { width: 18%; }
+.adm-hours-weektable th, .adm-hours-weektable td {
+  padding: 10px 12px; border-bottom: 1px solid #e2e6ea; vertical-align: middle;
+}
+.adm-hours-weektable th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted);
+}
+.adm-hours-weektable th.adm-num, .adm-hours-weektable td.adm-num {
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+.adm-hours-weektable tr:last-child td { border-bottom: 0; }
 .adm-hours-ot td { background: #fdf0e5; }
+.adm-hours-partial { color: var(--muted); font-weight: 600; }
 @media print {
   .no-print, .adm-toolbar, .topbar, .adm-linklike { display: none !important; }
   .adm-wrap { max-width: none; padding: 0; }
-  .adm-hours-user { break-inside: avoid; }
+  .adm-hours-user { break-inside: avoid; box-shadow: none; }
 }
 
 .adm-crew-note { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 560px; }

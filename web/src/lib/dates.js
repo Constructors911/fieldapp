@@ -67,3 +67,21 @@ export function parseISODate(s) {
   const m = typeof s === 'string' && s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
 }
+
+// Biweekly payroll: Sunday–Saturday. Anchor period is 2026-09-06 – 2026-09-19.
+export const PAY_PERIOD_EPOCH = '2026-09-06';
+export const PAY_PERIOD_DAYS = 14;
+
+export function payPeriodContaining(d = new Date()) {
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const epoch = parseISODate(PAY_PERIOD_EPOCH);
+  const index = Math.floor(Math.round((day - epoch) / 86400000) / PAY_PERIOD_DAYS);
+  const start = addDays(epoch, index * PAY_PERIOD_DAYS);
+  return { from: toISODate(start), to: toISODate(addDays(start, PAY_PERIOD_DAYS - 1)) };
+}
+
+export function payPeriodOffset(n, d = new Date()) {
+  const { from } = payPeriodContaining(d);
+  const start = addDays(parseISODate(from), n * PAY_PERIOD_DAYS);
+  return { from: toISODate(start), to: toISODate(addDays(start, PAY_PERIOD_DAYS - 1)) };
+}

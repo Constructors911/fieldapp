@@ -37,6 +37,33 @@ export function sundayOfDateString(dateStr) {
   return sundayOf(new Date(y, m - 1, d));
 }
 
+// Biweekly payroll: Sunday–Saturday, 14 days. Anchor is the period that
+// includes 2026-09-06 through 2026-09-19.
+export const PAY_PERIOD_EPOCH = '2026-09-06';
+export const PAY_PERIOD_DAYS = 14;
+
+/** Pay period {from, to} (YYYY-MM-DD, inclusive) containing `now`. */
+export function payPeriodContaining(now = new Date()) {
+  const day = now instanceof Date
+    ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    : (() => {
+      const [y, m, d] = String(now).split('-').map(Number);
+      return new Date(y, m - 1, d);
+    })();
+  const [ey, em, ed] = PAY_PERIOD_EPOCH.split('-').map(Number);
+  const epoch = new Date(ey, em - 1, ed);
+  const index = Math.floor(Math.round((day - epoch) / 86400000) / PAY_PERIOD_DAYS);
+  const from = addDays(PAY_PERIOD_EPOCH, index * PAY_PERIOD_DAYS);
+  return { from, to: addDays(from, PAY_PERIOD_DAYS - 1) };
+}
+
+/** Shift a pay period by n cycles (0 = current, -1 = previous). */
+export function payPeriodOffset(n, now = new Date()) {
+  const { from } = payPeriodContaining(now);
+  const start = addDays(from, n * PAY_PERIOD_DAYS);
+  return { from: start, to: addDays(start, PAY_PERIOD_DAYS - 1) };
+}
+
 /** Strict YYYY-MM-DD validation (format + real calendar date). */
 export function isValidDateString(s) {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;

@@ -5,8 +5,18 @@ import { createMockAdapter } from '../src/adapters/mock.js';
 import { createMemoryStore } from '../src/store/memory.js';
 import { buildHoursReport, punchNetMinutes } from '../src/hoursReport.js';
 import { buildHoursPdf } from '../src/hoursPdf.js';
-import { sundayOf, sundayOfDateString } from '../src/util/dates.js';
+import { sundayOf, sundayOfDateString, payPeriodContaining, payPeriodOffset } from '../src/util/dates.js';
 import { api } from './helpers.js';
+
+test('pay periods are 14 days Sun–Sat anchored on 2026-09-06', () => {
+  assert.deepEqual(payPeriodContaining(new Date(2026, 8, 6)), { from: '2026-09-06', to: '2026-09-19' });
+  assert.deepEqual(payPeriodContaining(new Date(2026, 8, 15)), { from: '2026-09-06', to: '2026-09-19' });
+  assert.deepEqual(payPeriodContaining(new Date(2026, 8, 19)), { from: '2026-09-06', to: '2026-09-19' });
+  assert.deepEqual(payPeriodContaining(new Date(2026, 8, 5)), { from: '2026-08-23', to: '2026-09-05' });
+  assert.deepEqual(payPeriodContaining(new Date(2026, 8, 20)), { from: '2026-09-20', to: '2026-10-03' });
+  assert.deepEqual(payPeriodContaining('2026-09-06'), { from: '2026-09-06', to: '2026-09-19' });
+  assert.deepEqual(payPeriodOffset(-1, new Date(2026, 8, 15)), { from: '2026-08-23', to: '2026-09-05' });
+});
 
 test('sundayOf is the Sunday of a Sun–Sat week', () => {
   // 15 Sep 2026 is a Tuesday; week is 13–19 Sep.
