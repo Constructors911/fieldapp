@@ -50,6 +50,8 @@ Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_UR
 
 - GET /api/admin/employees -> { employees } (admin; includes pinResetPending)
 - POST /api/admin/employees/:id/reset-pin -> { employee } (admin; opens one-time re-register on the same email, revokes sessions)
+- GET /api/admin/hours?from=YYYY-MM-DD&to=YYYY-MM-DD -> { from, to, users: [{userId, userName, days: [{date, hours, punches: [{id, jobName, activity, startedAt, endedAt, hours, breakMinutes, status, pushed, jtTimeEntryId}]}], weeks: [{weekStart, weekEnd, hours, regularHours, overtimeHours, partial}], totalHours, regularHours, overtimeHours}], totals } (admin; clock-in day; void omitted; OT = hours over 40 in each Sun–Sat week)
+- GET /api/admin/hours.pdf?from=YYYY-MM-DD&to=YYYY-MM-DD -> application/pdf attachment (admin; same grouping as JSON)
 - GET /api/admin/punches?status=open|pending|pushed|error -> { punches } (admin)
 - PATCH /api/admin/punches/:id { costItemId?, costItemName?, activity?, entryType?, startedAt?, endedAt?, breakMinutes?, notes? } -> { punch } (admin; pushed punches immutable)
 - POST /api/admin/punches/push { ids: [] } -> { results: [{id, ok, jtTimeEntryId? | error?}] } (admin)

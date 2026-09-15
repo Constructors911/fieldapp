@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { HttpError } from '../util/httpError.js';
 import { DEFAULT_ACTIVITIES } from './activities.js';
+import { toDateString } from '../util/dates.js';
 
 export function createMemoryStore() {
   const punches = [];
@@ -102,6 +103,17 @@ export function createMemoryStore() {
       return punches
         .filter((p) => !status || p.status === status)
         .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+        .map((p) => ({ ...p }));
+    },
+
+    async listPunchesByDateRange(from, to) {
+      return punches
+        .filter((p) => {
+          if (!p.startedAt) return false;
+          const day = toDateString(new Date(p.startedAt));
+          return day >= from && day <= to;
+        })
+        .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
         .map((p) => ({ ...p }));
     },
 

@@ -234,6 +234,16 @@ export function createNeonStore(databaseUrl) {
       return rows.map(rowToPunch);
     },
 
+    async listPunchesByDateRange(from, to) {
+      await migrate();
+      // Pad a day on each side so UTC storage still captures local calendar days.
+      const rows = await sql`select * from punches
+        where started_at >= ${from}::date - interval '1 day'
+          and started_at < ${to}::date + interval '2 days'
+        order by started_at`;
+      return rows.map(rowToPunch);
+    },
+
     async updatePunch(id, patch) {
       await migrate();
       const rows = await sql`update punches set

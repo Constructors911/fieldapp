@@ -26,6 +26,17 @@ export function mondayOf(now = new Date()) {
   return toDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset));
 }
 
+/** Sunday (YYYY-MM-DD) of the week containing `now` (payroll weeks run Sun-Sat). */
+export function sundayOf(now = new Date()) {
+  return toDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()));
+}
+
+/** Sunday of the week containing a YYYY-MM-DD local date. */
+export function sundayOfDateString(dateStr) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  return sundayOf(new Date(y, m - 1, d));
+}
+
 /** Strict YYYY-MM-DD validation (format + real calendar date). */
 export function isValidDateString(s) {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;

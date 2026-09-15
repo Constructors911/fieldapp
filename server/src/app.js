@@ -4,6 +4,8 @@ import express from 'express';
 import multer from 'multer';
 import { HttpError } from './util/httpError.js';
 import { isValidDateString, isValidISO } from './util/dates.js';
+import { buildHoursReport } from './hoursReport.js';
+import { buildHoursPdf } from './hoursPdf.js';
 import { createStore } from './store/index.js';
 import { hashPin, verifyPin, isValidPin, normalizeEmail, isValidEmail } from './auth.js';
 import { verifyGoogleIdToken, adminAllowlist } from './googleAuth.js';
@@ -440,6 +442,30 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   app.get('/api/admin/punches', requireAdmin, wrap(async (req, res) => {
     const status = qp(req.query.status);
     res.json({ punches: await store.adminListPunches({ status }) });
+  }));
+
+  async function hoursReportForRange(req) {
+    const from = qp(req.query.from);
+    const to = qp(req.query.to);
+    if (!isValidDateString(from) || !isValidDateString(to)) {
+      throw new HttpError(400, 'from and to must be YYYY-MM-DD');
+    }
+    if (from > to) throw new HttpError(400, 'from must be on or before to');
+    const punches = await store.listPunchesByDateRange(from, to);
+    return { from, to, report: buildHoursReport(punches, from, to) };
+  }
+
+  app.get('/api/admin/hours', requireAdmin, wrap(async (req, res) => {
+    const { report } = await hoursReportForRange(req);
+    res.json(report);
+  }));
+
+  app.get('/api/admin/hours.pdf', requireAdmin, wrap(async (req, res) => {
+    const { from, to, report } = await hoursReportForRange(req);
+    const pdf = buildHoursPdf(report);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="hours-${from}-to-${to}.pdf"`);
+    res.send(pdf);
   }));
 
   app.patch('/api/admin/punches/:id', requireAdmin, wrap(async (req, res) => {

@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>C911 Field — Crew Onboarding</title>
+  <style>
+    :root {
+      --navy: #0f2740;
+      --navy-mid: #173552;
+      --orange: #e8792b;
+      --bg: #0c1d30;
+      --card: #ffffff;
+      --text: #1a2430;
+      --muted: #6b7684;
+      --green: #2e9e5b;
+      --red: #d64545;
+      --line: #e2e6ea;
+      --soft: #f4f6f8;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: #fff;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    .stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px 20px 72px; }
+    .slide {
+      display: none; width: min(1180px, 100%); min-height: min(640px, 78vh);
+      background: var(--card); color: var(--text); border-radius: 16px;
+      padding: 32px 40px; overflow: auto;
+    }
+    .slide.active { display: flex; flex-direction: column; gap: 16px; }
+    .slide.slide-tight { overflow: hidden; }
+    .slide.slide-tight .split { align-items: center; flex: 1; min-height: 0; }
+    .slide.slide-tight .copy { display: grid; gap: 10px; align-content: start; }
+    .slide.slide-tight .copy p, .slide.slide-tight .copy li { font-size: 16px; }
+    .slide.slide-tight ol { gap: 6px; }
+    .slide.title-slide { background: var(--navy); color: #fff; justify-content: flex-end; }
+    .kicker { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--orange); }
+    .title-slide .kicker { color: #f3b27a; }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.15; letter-spacing: -0.02em; }
+    h2 { margin: 0; font-size: clamp(24px, 3vw, 34px); line-height: 1.2; letter-spacing: -0.02em; }
+    p, li { font-size: 18px; line-height: 1.45; color: var(--muted); }
+    .title-slide p { color: rgba(255,255,255,0.78); max-width: 28em; }
+    .title-slide h1 { max-width: 14ch; }
+    ul, ol { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; }
+    li strong, p strong { color: var(--text); font-weight: 650; }
+    .title-slide li, .title-slide strong { color: #fff; }
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .card { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+    .card h3 { margin: 0 0 6px; font-size: 16px; color: var(--navy); }
+    .card p, .card li { font-size: 15px; margin: 0; }
+    .step { display: flex; gap: 12px; align-items: flex-start; }
+    .num { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--navy); color: #fff;
+      display: grid; place-items: center; font-size: 13px; font-weight: 700; margin-top: 2px; }
+    .callout { border-left: 4px solid var(--orange); background: #fff6ee; padding: 12px 16px; border-radius: 0 10px 10px 0; }
+    .callout p { margin: 0; color: var(--text); font-size: 16px; }
+    .ok { border-left-color: var(--green); background: #eef8f1; }
+    .warn { border-left-color: var(--red); background: #fdeeee; }
+    table { width: 100%; border-collapse: collapse; font-size: 16px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+    td:first-child { font-weight: 650; color: var(--navy); width: 28%; }
+    .checks { display: grid; gap: 10px; }
+    .checks label { display: flex; gap: 10px; align-items: flex-start; font-size: 17px; color: var(--text); }
+    .checks input { margin-top: 4px; width: 18px; height: 18px; }
+    .footer {
+      position: fixed; left: 0; right: 0; bottom: 0; height: 64px;
+      background: #0a1828; display: flex; align-items: center; gap: 12px; padding: 0 16px;
+    }
+    .footer button {
+      min-height: 40px; min-width: 44px; border: 0; border-radius: 8px; cursor: pointer;
+      background: var(--navy-mid); color: #fff; font-weight: 650; padding: 0 14px;
+    }
+    .footer button.primary { background: var(--orange); }
+    .footer button:disabled { opacity: 0.35; cursor: default; }
+    .progress { flex: 1; height: 4px; background: #1d3550; border-radius: 99px; overflow: hidden; }
+    .progress > span { display: block; height: 100%; background: var(--orange); width: 0; }
+    .count { font-size: 13px; color: rgba(255,255,255,0.65); min-width: 4.5em; text-align: right; }
+    .notes {
+      display: none; position: fixed; right: 16px; bottom: 80px; width: min(360px, 92vw);
+      background: #10263d; color: #d7e0ea; border: 1px solid #2a4663; border-radius: 12px; padding: 14px 16px;
+      font-size: 14px; line-height: 1.45; max-height: 40vh; overflow: auto;
+    }
+    .notes.show { display: block; }
+    .notes b { color: #fff; }
+    .hint { font-size: 12px; color: rgba(255,255,255,0.45); margin-right: 8px; }
+    .url { font-family: ui-monospace, Consolas, monospace; font-size: 16px; color: var(--navy); word-break: break-all; }
+    .split { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: start; }
+    .phones { display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+    .phone {
+      margin: 0; width: 228px; background: #0a1828; border-radius: 26px;
+      padding: 10px 8px 12px; flex: none;
+    }
+    .phone img { width: 100%; display: block; border-radius: 16px; background: var(--soft); }
+    .phone figcaption {
+      margin: 8px 2px 0; color: #fff; font-size: 12px; font-weight: 650; text-align: center;
+    }
+    .shot-web {
+      margin: 0; width: min(300px, 100%); background: var(--soft); border: 1px solid var(--line);
+      border-radius: 12px; padding: 8px; flex: none;
+    }
+    .title-slide .shot-web { background: #071320; border-color: #1d3550; }
+    .shot-web img {
+      width: 100%; display: block; border-radius: 6px; background: #fff;
+      max-height: min(420px, 56vh); object-fit: contain;
+    }
+    .shot-web figcaption {
+      margin: 8px 2px 0; color: var(--muted); font-size: 12px; font-weight: 650; text-align: center;
+    }
+    .title-slide .shot-web figcaption { color: rgba(255,255,255,0.75); }
+    .title-slide .phone { background: #071320; }
+    .title-slide .phone figcaption { color: rgba(255,255,255,0.75); }
+    @media (max-width: 900px) {
+      .split { grid-template-columns: 1fr; }
+      .phones { justify-content: center; }
+    }
+    @media (max-width: 800px) {
+      .slide { padding: 24px 20px; min-height: 0; }
+      .grid.two, .grid.four { grid-template-columns: 1fr; }
+      p, li { font-size: 16px; }
+      .phone { width: min(220px, 72vw); }
+    }
+    @media print {
+      body { background: #fff; height: auto; display: block; }
+      .footer, .notes { display: none !important; }
+      .stage { padding: 0; display: block; }
+      .slide { display: flex !important; break-after: page; min-height: 0; box-shadow: none; border: 1px solid #ddd; margin: 0 0 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage" id="stage"></div>
+  <aside class="notes" id="notes"></aside>
+  <nav class="footer">
+    <button type="button" id="prev" aria-label="Previous slide">Back</button>
+    <div class="progress" aria-hidden="true"><span id="bar"></span></div>
+    <span class="count" id="count"></span>
+    <span class="hint">Arrows · N notes · F fullscreen</span>
+    <button type="button" id="notesBtn">Notes</button>
+    <button type="button" class="primary" id="next">Next</button>
+  </nav>
+
+<script>
+const SLIDES = [
+  {
+    kind: "title",
+    kicker: "Constructors911",
+    title: "Field App crew onboarding",
+    body: "<p>Time, tasks, and daily logs on your phone. About 20 minutes, then we punch a real day together.</p>",
+    shots: [{ src: "onboarding-shots/03-clock-ready.png", caption: "Clock — ready to punch" }],
+    notes: "Welcome the room. Phones out, Safari or Chrome. URL on the next install slide. Goal: everyone clocks in and submits one log before they leave."
+  },
+  {
+    kicker: "Why this app",
+    title: "JobTread without the JobTread maze",
+    body: `
+      <div class="grid two">
+        <div class="card"><h3>You use it for</h3>
+          <ul>
+            <li>Clocking in and out on the right job</li>
+            <li>Checking off today’s work</li>
+            <li>Writing the daily log with photos</li>
+            <li>Seeing this week’s schedule</li>
+          </ul>
+        </div>
+        <div class="card"><h3>The office uses it for</h3>
+          <ul>
+            <li>Reviewing hours before they hit payroll</li>
+            <li>Seeing what got done on site</li>
+            <li>Photos and issues in one place</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout"><p>You do not need the full JobTread app on your phone. This is the crew tool.</p></div>`,
+    notes: "Keep this short. If someone asks about payroll: punches buffer for a manager review, then go to JobTread. Logs and photos go through live."
+  },
+  {
+    kicker: "Get the app",
+    title: "Put it on your home screen",
+    body: `
+      <p class="url">https://fieldapp-alpha.vercel.app/</p>
+      <div class="grid two">
+        <div class="card"><h3>iPhone</h3>
+          <ol>
+            <li>Open that link in <strong>Safari</strong></li>
+            <li>Tap Share</li>
+            <li>Tap <strong>Add to Home Screen</strong></li>
+            <li>Open <strong>C911 Field</strong> from the icon</li>
+          </ol>
+        </div>
+        <div class="card"><h3>Android</h3>
+          <ol>
+            <li>Open that link in <strong>Chrome</strong></li>
+            <li>Tap the menu (three dots)</li>
+            <li>Tap <strong>Install app</strong> or Add to Home screen</li>
+            <li>Open <strong>C911</strong> from the icon</li>
+          </ol>
+        </div>
+      </div>
+      <div class="callout ok"><p>Use the home-screen icon after this. Bookmarking Safari is not the same as installing.</p></div>`,
+    shots: [{ src: "onboarding-shots/01-sign-in.png", caption: "This is the first screen after install" }],
+    notes: "Walk the room. Watch for people still in Instagram/Facebook in-app browsers — those will fail camera and install. Send them to Safari or Chrome."
+  },
+  {
+    kicker: "Sign in",
+    title: "Work email + a PIN you choose",
+    body: `
+      <div class="grid two">
+        <div>
+          <div class="step"><span class="num">1</span><p><strong>First time:</strong> tap “Create your sign-in.” Use the same email as your JobTread account.</p></div>
+          <div class="step"><span class="num">2</span><p>Pick a <strong>4–8 digit PIN</strong>. That is your password. Do not share it.</p></div>
+          <div class="step"><span class="num">3</span><p>After that, open the app and sign in with email + PIN. You stay signed in for about 30 days.</p></div>
+        </div>
+        <div class="card"><h3>Blocked? Check these</h3>
+          <ul>
+            <li>Email must already exist in JobTread</li>
+            <li>Typo on first-time create vs later sign-in</li>
+            <li>Forgot PIN: ask your supervisor to tap Reset PIN in Admin. Then use First time here with the same email and a new PIN.</li>
+          </ul>
+        </div>
+      </div>`,
+    shots: [
+      { src: "onboarding-shots/01-sign-in.png", caption: "Sign in" },
+      { src: "onboarding-shots/02-register.png", caption: "First time — create PIN" }
+    ],
+    notes: "Registration matches their email to the JobTread org user. 404 = email not in JT. 409 = already registered — switch them to Sign in. Do not collect PINs."
+  },
+  {
+    kicker: "JobTread",
+    title: "Sign into JobTread first",
+    tight: true,
+    body: `
+      <p>This is <strong>JobTread on the web</strong> — not the Field App. Use a laptop if you can.</p>
+      <div class="step"><span class="num">1</span><p>Open <strong>app.jobtread.com</strong> in Chrome or Safari.</p></div>
+      <div class="step"><span class="num">2</span><p>Same <strong>work email</strong> you used in C911 Field.</p></div>
+      <div class="step"><span class="num">3</span><p>Enter your JobTread <strong>password</strong> and tap <strong>Sign In</strong>.</p></div>
+      <div class="step"><span class="num">4</span><p>Confirm you see <strong>your name</strong> — not a coworker’s.</p></div>
+      <div class="callout"><p>No password? Tap <strong>Create or Reset</strong>, then check your work email. Do not sign in as someone else.</p></div>`,
+    shots: [{ src: "onboarding-shots/14-jt-login.png", caption: "JobTread sign-in", kind: "web" }],
+    notes: "This is JobTread web, not the Field App PIN. Same email as Field App registration. Create or Reset sends JT’s password email. Passkey is optional if they already set one up. If they cannot get in, stop before the grant slide — a grant made on the wrong account will be rejected."
+  },
+  {
+    kicker: "JobTread grant",
+    title: "Connect your grant so logs show as you",
+    body: `
+      <p>JobTread stamps each daily log to whoever owns the API grant. Without your personal key, the log lands on the office account.</p>
+      <ol>
+        <li>Stay signed into <strong>JobTread as yourself</strong> (previous slide).</li>
+        <li>Go to <strong>Settings → Integrations → JobTread API → Grants</strong>.</li>
+        <li>Create a grant. Copy the key.</li>
+        <li>In C911 Field, open the <strong>Log</strong> tab.</li>
+        <li>Paste the key and tap <strong>Connect</strong>. You should see “Connected — new daily logs will show as you in JobTread.”</li>
+      </ol>
+      <div class="callout warn"><p>Do not tap Not now on day one. The key must be created while you are signed into JobTread — someone else’s grant will be rejected.</p></div>`,
+    shots: [{ src: "onboarding-shots/11-grant-key.png", caption: "Log tab — paste your grant, then Connect" }],
+    notes: "This is required for log authorship. Walk the room: JT on a laptop if they have no JT app. Grant must match the same JT user as their Field App email (400 if it belongs to someone else). Do not collect keys — watch them Connect. Keys go idle after ~3 months unused. If the banner is gone, they already connected or dismissed; have them stay on Log until Connected appears."
+  },
+  {
+    kicker: "The app",
+    title: "Four tabs. That is the whole tool.",
+    body: `
+      <div class="grid four">
+        <div class="card"><h3>Clock</h3><p>In, out, today’s hours, and the end-of-day log.</p></div>
+        <div class="card"><h3>Today</h3><p>Tasks and to-dos assigned to you. Check them off as you go.</p></div>
+        <div class="card"><h3>Log</h3><p>Daily logs you already submitted, plus a new log anytime.</p></div>
+        <div class="card"><h3>Week</h3><p>Mon–Sun schedule. Tap a task to read details. Check work off on Today.</p></div>
+      </div>
+      <div class="callout"><p>Sign out is the door icon in the top bar. Stay signed in on your own phone only.</p></div>`,
+    shots: [{ src: "onboarding-shots/03-clock-ready.png", caption: "Four tabs along the bottom" }],
+    notes: "Have them tap each tab once so the muscle memory is there before the clock-in drill."
+  },
+  {
+    kicker: "Clock",
+    title: "Clock in before you start work",
+    body: `
+      <ol>
+        <li>On <strong>Clock</strong>, tap the green <strong>Clock In</strong> button.</li>
+        <li>Pick the <strong>job</strong>. Search if the list is long. New approved jobs appear after a refresh.</li>
+        <li>Pick <strong>what you are doing</strong>. Items “in budget” auto-approve. Standard labor still works — the office maps it later.</li>
+        <li>Optional note. Then tap <strong>Clock In</strong>.</li>
+      </ol>
+      <div class="callout"><p>Allow location when the phone asks. It stamps the punch. Hours still save if you decline.</p></div>
+      <div class="callout warn"><p>Only one open punch at a time. Switch jobs by clocking out, then back in on the next job.</p></div>`,
+    shots: [
+      { src: "onboarding-shots/04-pick-job.png", caption: "1. Pick the job" },
+      { src: "onboarding-shots/05-pick-activity.png", caption: "2. What are you doing?" },
+      { src: "onboarding-shots/07-clocked-in.png", caption: "3. Clocked in" }
+    ],
+    notes: "GPS is optional in the product. Encourage Allow. One-open-entry is a hard server rule (409). If they are already in, the app re-syncs."
+  },
+  {
+    kicker: "Clock",
+    title: "Clock out the right way",
+    body: `
+      <p>Tap red <strong>Clock Out</strong>. The app asks why you are leaving.</p>
+      <div class="grid two">
+        <div class="card"><h3>Just a break — I’ll be back</h3>
+          <p>Stops this punch. Optional break minutes. No daily log required. Clock back in when you return or move to the next job.</p>
+        </div>
+        <div class="card"><h3>Done for the day</h3>
+          <p>If you have not already logged this job today, you write the daily log here — then the punch closes.</p>
+        </div>
+      </div>
+      <p>Today’s entries and a running total stay on Clock so you can see what already posted.</p>`,
+    shots: [
+      { src: "onboarding-shots/07-clocked-in.png", caption: "Tap Clock Out" },
+      { src: "onboarding-shots/08-clock-out-choice.png", caption: "Break vs done for the day" }
+    ],
+    notes: "Break minutes are subtracted from paid time when the office pushes the punch. Do not tell crews to skip Done for the day to dodge the log."
+  },
+  {
+    kicker: "Daily log",
+    title: "Leaving for the day means a log",
+    body: `
+      <ol>
+        <li>Check off any leftover tasks on this job (Today’s completions are already seeded).</li>
+        <li>Write <strong>what got done</strong> in plain words. Optional: what is still needed.</li>
+        <li>Answer every Yes / No. If Yes, fill the follow-up (delay type, safety text, and so on).</li>
+        <li>Add photos. Tag them. The app reminds you once if you skip photos — you can continue.</li>
+      </ol>
+      <div class="callout ok"><p>Plain language is enough. “Tore off north slope, dried in, staged shingles” is a good log.</p></div>`,
+    shots: [{ src: "onboarding-shots/09-clock-out-log.png", caption: "Required log before you leave" }],
+    notes: "If a log already exists for that job today, clock-out skips the form. Photo reminder is once; second tap is Save & clock out. Photos need a connection — offline skips them and tells the crew to re-attach on Log."
+  },
+  {
+    kicker: "Today",
+    title: "Check work off as you do it",
+    body: `
+      <div class="grid two">
+        <div class="card"><h3>To-dos</h3><p>Quick items assigned to you that are due today or overdue.</p></div>
+        <div class="card"><h3>Tasks</h3><p>Scheduled work. Expand the row to tick subtasks.</p></div>
+      </div>
+      <ul>
+        <li>Tap the checkbox. It saves immediately (or queues if you are offline).</li>
+        <li>Overdue items show a red pill so they do not hide.</li>
+        <li>Use <strong>Refresh</strong> after the office assigns something mid-day.</li>
+        <li>Anything you check here is already in your clock-out log for that job.</li>
+      </ul>`,
+    shots: [{ src: "onboarding-shots/10-today.png", caption: "Today — to-dos, tasks, subtasks" }],
+    notes: "Week is read-only for completing work. If someone tries to check a box on Week, point them back to Today."
+  },
+  {
+    kicker: "Log + photos",
+    title: "Logs and photos the office can use",
+    body: `
+      <div class="grid two">
+        <div>
+          <p>The <strong>Log</strong> tab is your history. Use <strong>New log</strong> for a mid-day update, a second job, or photos you missed at clock-out.</p>
+          <ul>
+            <li>Pick job and date (today or earlier)</li>
+            <li>Notes, Yes / No questions, photos</li>
+            <li>Search or filter later if you need to find one</li>
+          </ul>
+        </div>
+        <div class="card"><h3>Photo tags that help</h3>
+          <ul>
+            <li>Before / During / After</li>
+            <li>Concerns</li>
+            <li>Materials (pick ticket when you received material)</li>
+            <li>Completion when the work is done</li>
+          </ul>
+          <p>Camera, photo library, or CompanyCam if your job is linked.</p>
+        </div>
+      </div>`,
+    shots: [
+      { src: "onboarding-shots/11-log-feed.png", caption: "Your submitted logs" },
+      { src: "onboarding-shots/12-new-log.png", caption: "New log anytime" }
+    ],
+    notes: "Grant connect is the required earlier step. If this banner is still up, stop and finish Connect before they write a log."
+  },
+  {
+    kicker: "Log questions",
+    title: "Answer every Yes / No. Every time.",
+    body: `
+      <table>
+        <thead><tr><th>Question</th><th>If Yes</th></tr></thead>
+        <tbody>
+          <tr><td>Materials pickup or delivery?</td><td>Tag a pick-ticket photo Materials if you have it.</td></tr>
+          <tr><td>Delays today?</td><td>Pick the cause: Weather, Materials, Labor, Inspection, Access/Site, Other.</td></tr>
+          <tr><td>Safety concerns?</td><td>Describe what is unsafe and who is affected. Write it like you would tell the superintendent.</td></tr>
+          <tr><td>Safety incident?</td><td>What happened, when, who was involved. Do not wait for the office to ask.</td></tr>
+          <tr><td>Work concerns?</td><td>Scope, sequencing, quality, coordination — not safety. Needs a solution.</td></tr>
+          <tr><td>Work complete?</td><td>Optional Completion photo.</td></tr>
+        </tbody>
+      </table>`,
+    shots: [{ src: "onboarding-shots/12-new-log.png", caption: "Yes / No on every log" }],
+    notes: "Safety text is stored verbatim. Stress: incidents and concerns go in the log the same day. This is not optional color commentary."
+  },
+  {
+    kicker: "Week",
+    title: "See the week. Do the work on Today.",
+    body: `
+      <ul>
+        <li>Monday–Sunday, grouped by day. Today is highlighted and scrolled into view.</li>
+        <li>Each row shows job, task name, and time (or All day).</li>
+        <li>Tap to expand description, who else is assigned, dependencies, and the subtask list.</li>
+        <li>Flip weeks with the arrows. <strong>Back to this week</strong> jumps home.</li>
+      </ul>
+      <div class="callout"><p>Week is for looking ahead. Checking boxes happens on Today (or at clock-out on that job).</p></div>`,
+    shots: [{ src: "onboarding-shots/13-week.png", caption: "Week — today is highlighted" }],
+    notes: "Useful for Monday huddles. Multi-day tasks repeat on each day they cover."
+  },
+  {
+    kicker: "Bad signal",
+    title: "No bars? Keep working. The app waits.",
+    body: `
+      <ul>
+        <li>Clock in/out, task checks, and log text save on the phone and send when you reconnect.</li>
+        <li>An orange <strong>pending</strong> badge in the top bar means something is waiting to sync. Leave the app open once you have signal.</li>
+        <li><strong>Photos need a connection.</strong> If a photo is skipped, re-attach it on the Log tab when you are back online.</li>
+        <li>If a saved action cannot send, a banner tells you. Do not assume the office saw it.</li>
+      </ul>
+      <div class="callout warn"><p>Do not clock in twice because you are unsure it saved. Look at Clock: it should already say Clocked in, even offline.</p></div>`,
+    shots: [{ src: "onboarding-shots/07-clocked-in.png", caption: "If it says Clocked in, you are in — do not punch again" }],
+    notes: "Queue is FIFO IndexedDB. Photos are the weak point offline. If they force-kill the app mid-queue, it flushes again on next open / online."
+  },
+  {
+    kicker: "A normal day",
+    title: "Start to finish",
+    body: `
+      <div class="grid two">
+        <div class="card"><h3>Morning</h3>
+          <ol>
+            <li>Open C911 Field from the home screen</li>
+            <li>Log tab: confirm your JobTread grant is connected</li>
+            <li>Today: read what is assigned</li>
+            <li>Clock In on the first job</li>
+          </ol>
+        </div>
+        <div class="card"><h3>During the day</h3>
+          <ol>
+            <li>Check off tasks as they finish</li>
+            <li>Take Before / During / After photos</li>
+            <li>Clock out / in when you change jobs</li>
+          </ol>
+        </div>
+        <div class="card"><h3>Leaving a job</h3>
+          <ol>
+            <li>Clock Out → Done for the day</li>
+            <li>Finish the log if prompted</li>
+            <li>Confirm the punch shows under Today’s entries</li>
+          </ol>
+        </div>
+        <div class="card"><h3>If you bounce sites</h3>
+          <p>One job per punch. Out on A, in on B. Each job you finish for the day needs its own log.</p>
+        </div>
+      </div>`,
+    shots: [
+      { src: "onboarding-shots/10-today.png", caption: "Morning — Today" },
+      { src: "onboarding-shots/07-clocked-in.png", caption: "On the job — Clock" },
+      { src: "onboarding-shots/09-clock-out-log.png", caption: "Leaving — log + out" }
+    ],
+    notes: "This is the slide to leave on the wall during the live drill."
+  },
+  {
+    kicker: "When it breaks",
+    title: "Fix it in this order",
+    body: `
+      <table>
+        <thead><tr><th>What you see</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Job missing from the list</td><td>Tap Clock In again (it refreshes jobs). If still missing, the job may not be Approved yet — text the office.</td></tr>
+          <tr><td>Already clocked in / cannot clock in</td><td>You have an open punch. Clock out first.</td></tr>
+          <tr><td>Pending badge will not clear</td><td>Get on Wi-Fi or LTE, keep the app open, pull down to the Clock tab.</td></tr>
+          <tr><td>Photo did not attach</td><td>Need a live connection. Re-add it on Log.</td></tr>
+          <tr><td>Forgot PIN</td><td>Supervisor taps Reset PIN in Admin. Crew uses Create your sign-in with the same email and a new PIN. Do not use a different email.</td></tr>
+          <tr><td>Cannot sign into JobTread</td><td>Use Create or Reset on app.jobtread.com with your work email. Office adds you to the JT org if you have no account.</td></tr>
+          <tr><td>Wrong email / not in JobTread</td><td>Office must add you to the org first.</td></tr>
+          <tr><td>Grant belongs to a different user</td><td>Create a new grant while signed into JobTread as yourself — not a coworker’s key.</td></tr>
+          <tr><td>Logs show under the office name</td><td>Log tab → paste your personal grant → Connect. Then write a new log.</td></tr>
+        </tbody>
+      </table>`,
+    notes: "Escalation: supervisor → whoever owns JobTread users. Admin → Crew → Reset PIN lets them re-register the same email. Do not delete the employees row."
+  },
+  {
+    kicker: "Day one",
+    title: "Before you leave this meeting",
+    body: `
+      <div class="checks">
+        <label><input type="checkbox" /> App is on my home screen (not just a Safari tab)</label>
+        <label><input type="checkbox" /> I can sign in with my work email and PIN</label>
+        <label><input type="checkbox" /> I signed into JobTread as myself at app.jobtread.com</label>
+        <label><input type="checkbox" /> I connected my JobTread grant on the Log tab</label>
+        <label><input type="checkbox" /> I opened all four tabs</label>
+        <label><input type="checkbox" /> I clocked in on a real job (or the practice job)</label>
+        <label><input type="checkbox" /> Location is allowed — or I know hours still save without it</label>
+        <label><input type="checkbox" /> I checked off at least one Today item</label>
+        <label><input type="checkbox" /> I submitted a daily log with a photo tag</label>
+        <label><input type="checkbox" /> I clocked out Done for the day and see the entry on Clock</label>
+      </div>`,
+    shots: [{ src: "onboarding-shots/03-clock-ready.png", caption: "Match this: signed in, on Clock" }],
+    notes: "Do not dismiss until every person has Connected their grant, a visible punch, and a log. Watch for people who tapped Not now or only clocked a break."
+  },
+  {
+    kind: "title",
+    kicker: "You’re on it",
+    title: "Questions, then we punch a real day",
+    body: "<p>Clock before you start. Check work off as you go. Log before you leave. If the badge says pending, get signal before you assume the office has it.</p>",
+    shots: [{ src: "onboarding-shots/07-clocked-in.png", caption: "Your day starts here" }],
+    notes: "Open the floor. Then live: install → register → connect JT grant → clock in → check a task → clock out with a log. Collect no PINs or grant keys. Confirm JobTread emails for anyone who 404s."
+  }
+];
+
+const stage = document.getElementById("stage");
+const notesEl = document.getElementById("notes");
+const bar = document.getElementById("bar");
+const count = document.getElementById("count");
+const prev = document.getElementById("prev");
+const next = document.getElementById("next");
+let i = 0;
+
+function phoneFigures(shots) {
+  const compact = shots.length > 2 ? " style=\"width:196px\"" : "";
+  return shots.map((sh) => {
+    const kind = sh.kind === "web" ? "shot-web" : "phone";
+    const extra = kind === "phone" ? compact : "";
+    return `
+    <figure class="${kind}"${extra}>
+      <img src="${sh.src}" alt="${sh.caption}">
+      <figcaption>${sh.caption}</figcaption>
+    </figure>`;
+  }).join("");
+}
+
+function render() {
+  const s = SLIDES[i];
+  const shots = s.shots || [];
+  const inner = shots.length
+    ? `<div class="split">
+        <div class="copy">${s.body}</div>
+        <div class="phones">${phoneFigures(shots)}</div>
+      </div>`
+    : s.body;
+  const extraClass = [s.kind === "title" ? "title-slide" : "", s.tight ? "slide-tight" : ""].filter(Boolean).join(" ");
+  stage.innerHTML = `<section class="slide active ${extraClass}" aria-live="polite">
+    <div class="kicker">${s.kicker}</div>
+    <h${s.kind === "title" ? "1" : "2"}>${s.title}</h${s.kind === "title" ? "1" : "2"}>
+    ${inner}
+  </section>`;
+  notesEl.innerHTML = `<b>Trainer notes</b><br>${s.notes}`;
+  bar.style.width = `${((i + 1) / SLIDES.length) * 100}%`;
+  count.textContent = `${i + 1} / ${SLIDES.length}`;
+  prev.disabled = i === 0;
+  next.disabled = i === SLIDES.length - 1;
+  next.textContent = i === SLIDES.length - 1 ? "Done" : "Next";
+}
+
+prev.onclick = () => { if (i > 0) { i -= 1; render(); } };
+next.onclick = () => { if (i < SLIDES.length - 1) { i += 1; render(); } };
+document.getElementById("notesBtn").onclick = () => notesEl.classList.toggle("show");
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); next.click(); }
+  if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); prev.click(); }
+  if (e.key === "n" || e.key === "N") notesEl.classList.toggle("show");
+  if (e.key === "f" || e.key === "F") {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+  if (e.key === "Home") { i = 0; render(); }
+  if (e.key === "End") { i = SLIDES.length - 1; render(); }
+});
+
+let startX = null;
+stage.addEventListener("touchstart", (e) => { startX = e.changedTouches[0].clientX; }, { passive: true });
+stage.addEventListener("touchend", (e) => {
+  if (startX == null) return;
+  const dx = e.changedTouches[0].clientX - startX;
+  if (dx < -40) next.click();
+  if (dx > 40) prev.click();
+  startX = null;
+}, { passive: true });
+
+render();
+</script>
+</body>
+</html>

@@ -130,6 +130,28 @@
   border-radius: var(--radius); box-shadow: var(--shadow); background: #e8eef5;
 }
 .adm-map-note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.adm-hours-controls {
+  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.adm-hours-field {
+  display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted);
+}
+.adm-hours-note { font-size: 13px; color: var(--muted); margin: 0 0 16px; max-width: 720px; }
+.adm-hours-range { font-size: 14px; font-weight: 700; color: var(--navy); margin: 0 0 16px; }
+.adm-hours-user { margin-bottom: 28px; }
+.adm-hours-userhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.adm-hours-userhead h2 { margin: 0; font-size: 18px; color: var(--navy); }
+.adm-hours-userhead p { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.adm-hours-weektitle { margin: 16px 0 8px; font-size: 14px; color: var(--navy); }
+.adm-hours-table { min-width: 720px; }
+.adm-hours-daytotal td { background: #f4f7fa; border-top: 1px solid #d7dee6; }
+.adm-hours-ot td { background: #fdf0e5; }
+@media print {
+  .no-print, .adm-toolbar, .topbar, .adm-linklike { display: none !important; }
+  .adm-wrap { max-width: none; padding: 0; }
+  .adm-hours-user { break-inside: avoid; }
+}
+
 .adm-crew-note { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 560px; }
 .adm-crew-list { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
 .adm-crew-row {
