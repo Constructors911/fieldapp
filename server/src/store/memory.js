@@ -305,9 +305,36 @@ export function createMemoryStore() {
         ccUserName: e.ccUserName ?? null,
         role: e.role ?? 'crew',
         isActive: true,
+        pinResetAt: null,
       };
       employees.push(employee);
       return { ...employee };
+    },
+
+    async getEmployee(id) {
+      const e = employees.find((x) => x.id === id);
+      return e ? { ...e } : null;
+    },
+
+    async allowPinReset(employeeId) {
+      const e = employees.find((x) => x.id === employeeId);
+      if (!e) throw new HttpError(404, 'Employee not found');
+      e.pinResetAt = new Date().toISOString();
+      return { ...e };
+    },
+
+    async setEmployeePin(employeeId, pinHash) {
+      const e = employees.find((x) => x.id === employeeId);
+      if (!e) throw new HttpError(404, 'Employee not found');
+      e.pinHash = pinHash;
+      e.pinResetAt = null;
+      return { ...e };
+    },
+
+    async deleteSessionsForEmployee(employeeId) {
+      for (const [token, s] of sessions) {
+        if (s.employeeId === employeeId) sessions.delete(token);
+      }
     },
 
     async setEmployeeGrantKey(employeeId, grantKey) {

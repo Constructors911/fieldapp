@@ -97,8 +97,17 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const { pin, name } = req.body ?? {};
     if (!isValidEmail(email)) throw new HttpError(400, 'A valid email is required');
     if (!isValidPin(pin)) throw new HttpError(400, 'PIN must be 4-8 digits');
-    if (await store.getEmployeeByEmail(email)) {
-      throw new HttpError(409, 'Already registered — sign in instead');
+    const existing = await store.getEmployeeByEmail(email);
+    if (existing) {
+      // Supervisor unlock: same email + new PIN updates the existing row.
+      if (!existing.isActive || !existing.pinResetAt) {
+        throw new HttpError(409, 'Already registered — sign in instead');
+      }
+      const employee = await store.setEmployeePin(existing.id, hashPin(pin));
+      await store.deleteSessionsForEmployee(employee.id);
+      const token = await store.createSession(employee.id);
+      res.json({ token, employee: publicEmployee(employee) });
+      return;
     }
     // The JT link is the point of registration: no JT membership, no account.
     const membership = await adapter.findMembershipByEmail(email);
@@ -127,6 +136,9 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const email = normalizeEmail(req.body?.email);
     const { pin } = req.body ?? {};
     const employee = await store.getEmployeeByEmail(email);
+    if (employee?.pinResetAt) {
+      throw new HttpError(401, 'PIN was reset — create your sign-in again with a new PIN');
+    }
     if (!employee || !employee.isActive || !verifyPin(pin, employee.pinHash)) {
       throw new HttpError(401, 'Wrong email or PIN');
     }
@@ -184,6 +196,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       ccLinked: Boolean(e.ccUserId),
       // Crew topbar shows Admin only for allowlisted emails (not ADMIN_KEY).
       canAccessAdmin: adminAllowlist().includes(String(e.email || '').toLowerCase()),
+      pinResetPending: Boolean(e.pinResetAt),
     };
   }
 
@@ -409,6 +422,15 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   app.get('/api/admin/employees', requireAdmin, wrap(async (req, res) => {
     const employees = await store.listEmployees();
     res.json({ employees: employees.map(publicEmployee) });
+  }));
+
+  // One-time unlock: crew re-registers the same email with a new PIN.
+  app.post('/api/admin/employees/:id/reset-pin', requireAdmin, wrap(async (req, res) => {
+    const employee = await store.getEmployee(req.params.id);
+    if (!employee) throw new HttpError(404, 'Employee not found');
+    const updated = await store.allowPinReset(employee.id);
+    await store.deleteSessionsForEmployee(employee.id);
+    res.json({ employee: publicEmployee(updated) });
   }));
 
   app.get('/api/admin/punches/:id/audit', requireAdmin, wrap(async (req, res) => {

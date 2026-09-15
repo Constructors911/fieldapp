@@ -135,3 +135,62 @@ test('punches are attributed to the signed-in employee', async () => {
   assert.equal(punch.userId, 'user_crew');
   assert.equal(punch.userName, 'Casey Crew');
 });
+
+test('supervisor PIN reset unlocks re-register on the same email', async () => {
+  const login = await api(srv.base, '/api/auth/login', {
+    method: 'POST',
+    body: { email: 'crew@constructors911.com', pin: '4321' },
+  });
+  assert.equal(login.status, 200);
+  const oldToken = login.json.token;
+
+  const listed = await api(srv.base, '/api/admin/employees');
+  const crew = listed.json.employees.find((e) => e.email === 'crew@constructors911.com');
+  assert.ok(crew);
+  assert.equal(crew.pinResetPending, false);
+
+  const missing = await api(srv.base, '/api/admin/employees/not-a-real-id/reset-pin', {
+    method: 'POST',
+  });
+  assert.equal(missing.status, 404);
+
+  const reset = await api(srv.base, `/api/admin/employees/${crew.id}/reset-pin`, {
+    method: 'POST',
+  });
+  assert.equal(reset.status, 200);
+  assert.equal(reset.json.employee.pinResetPending, true);
+  assert.equal(reset.json.employee.jtUserId, 'user_crew');
+
+  assert.equal((await api(srv.base, '/api/auth/me', {
+    headers: { 'x-session-token': oldToken },
+  })).status, 401);
+
+  const oldPin = await api(srv.base, '/api/auth/login', {
+    method: 'POST',
+    body: { email: 'crew@constructors911.com', pin: '4321' },
+  });
+  assert.equal(oldPin.status, 401);
+  assert.match(oldPin.json.error, /reset/i);
+
+  const again = await api(srv.base, '/api/auth/register', {
+    method: 'POST',
+    body: { email: 'crew@constructors911.com', pin: '9876' },
+  });
+  assert.equal(again.status, 200);
+  assert.ok(again.json.token);
+  assert.equal(again.json.employee.pinResetPending, false);
+  assert.equal(again.json.employee.jtUserId, 'user_crew');
+  assert.equal(again.json.employee.email, 'crew@constructors911.com');
+
+  const locked = await api(srv.base, '/api/auth/register', {
+    method: 'POST',
+    body: { email: 'crew@constructors911.com', pin: '1111' },
+  });
+  assert.equal(locked.status, 409);
+
+  const newPin = await api(srv.base, '/api/auth/login', {
+    method: 'POST',
+    body: { email: 'crew@constructors911.com', pin: '9876' },
+  });
+  assert.equal(newPin.status, 200);
+});

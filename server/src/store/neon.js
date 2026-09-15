@@ -121,10 +121,12 @@ export function createNeonStore(databaseUrl) {
           role text not null default 'crew',
           is_active boolean not null default true,
           created_at timestamptz not null default now(),
-          last_login_at timestamptz
+          last_login_at timestamptz,
+          pin_reset_at timestamptz
         )`;
-        // Existing DBs created before jt_grant_key / log authorship columns.
+        // Existing DBs created before jt_grant_key / log authorship / PIN reset.
         await sql`alter table employees add column if not exists jt_grant_key text`;
+        await sql`alter table employees add column if not exists pin_reset_at timestamptz`;
         await sql`alter table log_texts add column if not exists jt_user_id text`;
         await sql`create table if not exists app_sessions (
           token uuid primary key default gen_random_uuid(),
@@ -474,6 +476,33 @@ export function createNeonStore(databaseUrl) {
       return employeeRow(rows[0]);
     },
 
+    async getEmployee(id) {
+      await migrate();
+      const rows = await sql`select * from employees where id = ${id} limit 1`;
+      return employeeRow(rows[0]);
+    },
+
+    async allowPinReset(employeeId) {
+      await migrate();
+      const rows = await sql`update employees set pin_reset_at = now()
+        where id = ${employeeId} returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Employee not found');
+      return employeeRow(rows[0]);
+    },
+
+    async setEmployeePin(employeeId, pinHash) {
+      await migrate();
+      const rows = await sql`update employees set pin_hash = ${pinHash}, pin_reset_at = null
+        where id = ${employeeId} returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Employee not found');
+      return employeeRow(rows[0]);
+    },
+
+    async deleteSessionsForEmployee(employeeId) {
+      await migrate();
+      await sql`delete from app_sessions where employee_id = ${employeeId}`;
+    },
+
     async createSession(employeeId) {
       await migrate();
       const rows = await sql`insert into app_sessions (employee_id) values (${employeeId}) returning token`;
@@ -534,6 +563,7 @@ function employeeRow(r) {
     ccUserName: r.cc_user_name,
     role: r.role,
     isActive: r.is_active,
+    pinResetAt: r.pin_reset_at ? new Date(r.pin_reset_at).toISOString() : null,
   };
 }
 

@@ -98,9 +98,21 @@ export default function Login({ onSuccess }) {
           {mode === 'login' ? 'First time here? Create your sign-in' : 'Already registered? Sign in'}
         </button>
 
+        {mode === 'login' && (
+          <button
+            type="button"
+            className="c-btn c-btn-block c-btn-ghost"
+            style={{ marginTop: 6 }}
+            onClick={() => { setMode('register'); setErr(null); }}
+          >
+            Forgot PIN?
+          </button>
+        )}
+
         {mode === 'register' && (
           <p className="login-hint">
             Use the email your JobTread account is under — that&apos;s how your hours get credited to you.
+            If a supervisor reset your PIN, use that same email and choose a new PIN here.
           </p>
         )}
       </Card>

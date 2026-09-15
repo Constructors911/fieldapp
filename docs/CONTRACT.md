@@ -28,10 +28,10 @@ Mobile-first PWA for field crews. Users are paid JobTread internal users. Mock P
 - GET /api/jobs/:jobId/cost-items -> { costItems: [{id, name, costCode, isTimeTrackable: true}] } (time-trackable only; 404 unknown job)
 ### Employee auth (sessions)
 
-Registration links the employee to JobTread (required: org membership matched by email -> jt_user_id) and CompanyCam (best-effort: cc_user_id for per-user photo filtering later). Sessions are 30-day tokens sent as x-session-token; punch/task/log/upload endpoints require one (401 without a valid token). PIN is 4-8 digits, scrypt-hashed. No PIN reset flow yet (manager deletes the employees row to re-register). `employee.canAccessAdmin` reflects the Google-allowlisted admin emails (ADMIN_EMAILS), independent of the ADMIN_KEY fallback — the web app uses it to decide whether to show the Admin tab.
+Registration links the employee to JobTread (required: org membership matched by email -> jt_user_id) and CompanyCam (best-effort: cc_user_id for per-user photo filtering later). Sessions are 30-day tokens sent as x-session-token; punch/task/log/upload endpoints require one (401 without a valid token). PIN is 4-8 digits, scrypt-hashed. Supervisor PIN reset (`POST /api/admin/employees/:id/reset-pin`) sets `pin_reset_at` and revokes sessions; the crew then re-registers the same email with a new PIN (register updates `pin_hash` instead of 409). Do not delete the employees row. `employee.canAccessAdmin` reflects the Google-allowlisted admin emails (ADMIN_EMAILS), independent of the ADMIN_KEY fallback — the web app uses it to decide whether to show the Admin tab. `employee.pinResetPending` is true while a reset is open.
 
-- POST /api/auth/register { email, pin, name? } -> { token, employee } (404 if email not in JT org; 409 if already registered)
-- POST /api/auth/login { email, pin } -> { token, employee }
+- POST /api/auth/register { email, pin, name? } -> { token, employee } (404 if email not in JT org; 409 if already registered unless a supervisor reset is open)
+- POST /api/auth/login { email, pin } -> { token, employee } (401 with a reset hint if `pin_reset_at` is set)
 - GET /api/auth/me -> { employee } (401 without valid session)
 - POST /api/auth/logout -> { ok: true } (best-effort session revoke; client always clears its local token)
 - POST /api/auth/jt-grant { grantKey } -> { employee } (session; stores personal JT grant for daily-log authorship; 400 if key is for a different JT user)
@@ -48,6 +48,8 @@ Registration links the employee to JobTread (required: org membership matched by
 
 Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_URL; in-memory fallback for dev/tests — see server/src/store/) with status open -> pending -> approved/pushed|error. A manager reviews at /#/admin (x-admin-key header = ADMIN_KEY env), maps the crew's activity to a budget cost item, then pushes: adapter.pushTimeEntry creates a backdated, approved JT time entry with GPS; break minutes are netted out of endedAt (createTimeEntry has no break field) and noted in the entry notes. Daily logs/photos still write to JobTread live.
 
+- GET /api/admin/employees -> { employees } (admin; includes pinResetPending)
+- POST /api/admin/employees/:id/reset-pin -> { employee } (admin; opens one-time re-register on the same email, revokes sessions)
 - GET /api/admin/punches?status=open|pending|pushed|error -> { punches } (admin)
 - PATCH /api/admin/punches/:id { costItemId?, costItemName?, activity?, entryType?, startedAt?, endedAt?, breakMinutes?, notes? } -> { punch } (admin; pushed punches immutable)
 - POST /api/admin/punches/push { ids: [] } -> { results: [{id, ok, jtTimeEntryId? | error?}] } (admin)

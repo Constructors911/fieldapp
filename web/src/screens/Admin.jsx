@@ -6,6 +6,7 @@ import ErrorBanner from '../components/ErrorBanner.jsx';
 import { getJobCostItems, getActivities } from '../api.js';
 import AdminMap from './AdminMap.jsx';
 import AdminGeofenceEvents from './AdminGeofenceEvents.jsx';
+import AdminCrew from './AdminCrew.jsx';
 import './admin.css';
 
 const KEY_STORAGE = 'c911_admin_key';
@@ -171,7 +172,7 @@ function SignIn({ onAuthed }) {
 export default function Admin() {
   const [authed, setAuthed] = useState(() =>
     Boolean(localStorage.getItem(SESSION_STORAGE) || localStorage.getItem(KEY_STORAGE)));
-  const [section, setSection] = useState('review'); // 'review' | 'map' | 'geofence'
+  const [section, setSection] = useState('review'); // 'review' | 'map' | 'geofence' | 'crew'
   const [tab, setTab] = useState('pending');
   const [userFilter, setUserFilter] = useState('');
   const [punches, setPunches] = useState(undefined);
@@ -362,7 +363,7 @@ export default function Admin() {
     <div className="adm-wrap adm-wide">
       <div className="adm-toolbar">
         <h1 className="adm-title">
-          {section === 'map' ? 'Crew map' : section === 'geofence' ? 'Geofence log' : 'Time review'}
+          {section === 'map' ? 'Crew map' : section === 'geofence' ? 'Geofence log' : section === 'crew' ? 'Crew' : 'Time review'}
         </h1>
         <div className="adm-sections" role="tablist" aria-label="Admin sections">
           <button
@@ -392,6 +393,15 @@ export default function Admin() {
           >
             Geofence log
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'crew'}
+            className={section === 'crew' ? 'adm-section active' : 'adm-section'}
+            onClick={() => setSection('crew')}
+          >
+            Crew
+          </button>
         </div>
         {section === 'review' && (
           <>
@@ -416,6 +426,8 @@ export default function Admin() {
         <AdminMap adminFetch={adminFetch} />
       ) : section === 'geofence' ? (
         <AdminGeofenceEvents adminFetch={adminFetch} />
+      ) : section === 'crew' ? (
+        <AdminCrew adminFetch={adminFetch} />
       ) : (
       <>
       <ErrorBanner message={err} onDismiss={() => setErr(null)} />

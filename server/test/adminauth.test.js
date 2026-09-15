@@ -52,6 +52,12 @@ test('allowlisted google account gets an admin session that works', async () => 
   });
   assert.equal(employees.status, 200);
   assert.ok(Array.isArray(employees.json.employees));
+
+  const reset = await api(base, '/api/admin/employees/not-a-real-id/reset-pin', {
+    method: 'POST',
+    headers: { 'x-admin-session': json.token },
+  });
+  assert.equal(reset.status, 404);
 });
 
 test('non-allowlisted google account is refused (403)', async () => {

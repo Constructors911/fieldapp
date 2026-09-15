@@ -130,6 +130,17 @@
   border-radius: var(--radius); box-shadow: var(--shadow); background: #e8eef5;
 }
 .adm-map-note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.adm-crew-note { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 560px; }
+.adm-crew-list { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
+.adm-crew-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 14px 16px;
+}
+.adm-crew-info { min-width: 0; }
+.adm-crew-info .adm-badge { margin-top: 6px; }
+.adm-crew-meta { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+
 .adm-map-setup { padding: 24px 0; }
 .adm-map-iw { font-size: 13px; line-height: 1.4; max-width: 240px; }
 .adm-map-iw strong { display: block; margin-bottom: 4px; color: var(--navy); }
