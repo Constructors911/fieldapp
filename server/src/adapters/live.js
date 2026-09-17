@@ -2,6 +2,7 @@
 // Mirrors the mock adapter's method signatures exactly. Not exercised by
 // tests (no grant key in CI) but complete and syntactically valid.
 import { todayString, addDays, mondayOf } from '../util/dates.js';
+import { pickTimeEntryType } from '../util/entryType.js';
 import { HttpError } from '../util/httpError.js';
 import { normalizeGrantKey } from '../util/grantKey.js';
 
@@ -339,25 +340,65 @@ export function createLiveAdapter({
     return out;
   }
 
-  // createTimeEntry requires a non-null `type` matching one of the user's
-  // membership timeEntryTypes (e.g. "Standard", "Overtime"). Cached per instance.
-  let cachedTypeNames = null;
-  async function timeEntryTypeNames() {
-    if (cachedTypeNames?.length) return cachedTypeNames;
+  // createTimeEntry requires a non-null `type` matching that user's
+  // membership timeEntryTypes (Regular / Overtime / … — not always "Standard").
+  const typeCache = new Map(); // jtUserId -> string[]
+  let rosterTypesLoaded = false;
+
+  async function timeEntryTypeNames(forUserId = userId) {
+    const key = forUserId || userId;
+    if (typeCache.has(key)) return typeCache.get(key);
     const data = await pave({
       organization: {
         $: { id: organizationId },
         id: {},
         memberships: {
-          $: { size: 1, where: { and: [[['user', 'id'], '=', userId]] } },
-          nodes: { id: {}, timeEntryTypes: { name: {}, hourlyRate: {} } },
+          $: { size: 1, where: { and: [[['user', 'id'], '=', key]] } },
+          nodes: { id: {}, user: { id: {} }, timeEntryTypes: { name: {}, hourlyRate: {} } },
         },
       },
     });
-    cachedTypeNames = (data?.organization?.memberships?.nodes?.[0]?.timeEntryTypes ?? [])
+    let names = (data?.organization?.memberships?.nodes?.[0]?.timeEntryTypes ?? [])
       .map((t) => t.name)
       .filter(Boolean);
-    return cachedTypeNames;
+    if (!names.length) {
+      await loadRosterTimeEntryTypes();
+      if (typeCache.has(key)) return typeCache.get(key);
+    }
+    typeCache.set(key, names);
+    return names;
+  }
+
+  async function loadRosterTimeEntryTypes() {
+    if (rosterTypesLoaded) return;
+    rosterTypesLoaded = true;
+    const data = await pave({
+      organization: {
+        $: { id: organizationId },
+        id: {},
+        memberships: {
+          $: { size: 100, where: { and: [['isInternal', '=', true]] } },
+          nodes: { id: {}, user: { id: {}, name: {} }, timeEntryTypes: { name: {} } },
+        },
+      },
+    });
+    for (const n of data?.organization?.memberships?.nodes ?? []) {
+      const id = n.user?.id;
+      if (!id || typeCache.has(id)) continue;
+      typeCache.set(id, (n.timeEntryTypes ?? []).map((t) => t.name).filter(Boolean));
+    }
+  }
+
+  async function resolveEntryType(requested, forUserId, userLabel) {
+    const allowed = await timeEntryTypeNames(forUserId);
+    const picked = pickTimeEntryType(requested, allowed);
+    if (!picked) {
+      throw new HttpError(
+        400,
+        `No JobTread time entry types for ${userLabel || 'this user'}. Add Regular (or another type) on their JobTread profile.`
+      );
+    }
+    return picked;
   }
 
   // Time entries follow the cost item's job in JobTread. A catalog / template
@@ -683,14 +724,14 @@ export function createLiveAdapter({
     async clockIn({ jobId, costItemId, notes, coordinates }) {
       const open = await findOpenEntry();
       if (open) throw new HttpError(409, 'Already clocked in - clock out first');
-      const [defaultType] = await timeEntryTypeNames();
+      const type = await resolveEntryType(undefined, userId, 'the signed-in JobTread user');
       const data = await pave({
         createTimeEntry: {
           $: {
             jobId,
             costItemId,
             userId,
-            type: defaultType ?? 'Standard',
+            type,
             startedAt: new Date().toISOString(),
             notes: notes ?? '',
             ...(coordinates ? { startCoordinates: toPaveCoords(coordinates) } : {}),
@@ -735,7 +776,12 @@ export function createLiveAdapter({
         p.breakMinutes ? `(${p.breakMinutes} min break deducted)` : '',
         p.activity ? `Activity: ${p.activity}` : '',
       ].filter(Boolean).join(' · ');
-      const [defaultType] = await timeEntryTypeNames();
+      const targetUserId = p.userId || userId;
+      const type = await resolveEntryType(
+        p.entryType,
+        targetUserId,
+        p.userName || p.employeeName || 'this user'
+      );
       let costItemId = p.costItemId || null;
       const owned = costItemId ? await costItemOnJob(costItemId, p.jobId) : null;
       if (!owned) {
@@ -747,8 +793,8 @@ export function createLiveAdapter({
           $: {
             jobId: p.jobId,
             costItemId,
-            userId: p.userId || userId, // attribute to the punching employee's JT user
-            type: p.entryType || defaultType || 'Standard',
+            userId: targetUserId, // attribute to the punching employee's JT user
+            type,
             startedAt: started.toISOString(),
             endedAt: netEnded.toISOString(),
             notes,

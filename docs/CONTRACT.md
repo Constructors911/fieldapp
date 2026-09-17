@@ -51,7 +51,7 @@ Registration links the employee to JobTread (required: org membership matched by
 
 ### Buffered time architecture
 
-Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_URL; in-memory fallback for dev/tests — see server/src/store/) with status open -> pending -> approved/pushed|error. A manager reviews at /#/admin (x-admin-key header = ADMIN_KEY env), maps the crew's activity to a budget cost item, then pushes: adapter.pushTimeEntry creates a backdated, approved JT time entry with GPS; break minutes are netted out of endedAt (createTimeEntry has no break field) and noted in the entry notes. Daily logs/photos still write to JobTread live.
+Punches do NOT write to JobTread live. They buffer in Neon Postgres (DATABASE_URL; in-memory fallback for dev/tests — see server/src/store/) with status open -> pending -> approved/pushed|error. A manager reviews at /#/admin (x-admin-key header = ADMIN_KEY env), maps the crew's activity to a budget cost item, then pushes: adapter.pushTimeEntry creates a backdated, approved JT time entry with GPS; the time-entry `type` is taken from that employee's JobTread membership (Regular / Overtime / … — never a hardcoded "Standard"); break minutes are netted out of endedAt (createTimeEntry has no break field) and noted in the entry notes. Daily logs/photos still write to JobTread live.
 
 - GET /api/admin/employees -> { employees } (admin; includes pinResetPending)
 - POST /api/admin/employees/:id/reset-pin -> { employee } (admin; opens one-time re-register on the same email, revokes sessions)
