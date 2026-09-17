@@ -80,6 +80,21 @@ export function payPeriodContaining(d = new Date()) {
   return { from: toISODate(start), to: toISODate(addDays(start, PAY_PERIOD_DAYS - 1)) };
 }
 
+export function sundayOfDate(d) {
+  const x = d instanceof Date ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : parseISODate(d);
+  if (!x) return '';
+  return toISODate(new Date(x.getFullYear(), x.getMonth(), x.getDate() - x.getDay()));
+}
+
+export function periodToIsoRange(from, to) {
+  const start = parseISODate(from);
+  const end = parseISODate(to);
+  if (!start || !end) return { from: '', to: '' };
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
 export function payPeriodOffset(n, d = new Date()) {
   const { from } = payPeriodContaining(d);
   const start = addDays(parseISODate(from), n * PAY_PERIOD_DAYS);

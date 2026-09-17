@@ -20,7 +20,8 @@ Mobile-first PWA for field crews. Users are paid JobTread internal users. Mock P
 3. **Log screen**: create daily log for a job: date (default today), notes, yes/no capture (materials → photo prompt; delays → type dropdown; safety concerns + safety incident → text, copied verbatim; work concerns → text), photo attach (camera or gallery, multiple), shows previously submitted logs for the day. Weather shown read-only on existing logs (mock provides it).
 4. **Week screen**: 7-day view (Mon-Sun) of my scheduled tasks grouped by day, job name + time range, today highlighted. Tap a task to expand JobTread details (description, multi-day range, subtask checklist — read-only; complete work on Today).
 5. **Offline**: mutations (clock in/out, task check-off, log submit incl. photos) queue in IndexedDB when offline and replay in order when back online. Visible pending badge. App shell cached by service worker; last-fetched data available offline.
-6. **General**: 4-tab bottom nav (Clock, Today, Log, Week). Touch targets >=44px. Works at 360px width. No console errors. `npm run build` passes in `web/`; server starts and all endpoints respond.
+6. **Hours screen**: crew view of this and last biweekly pay period (Sun–Sat, 14 days). Day totals, weekly OT over 40 hours, request an adjustment on a finished clock (does not edit the punch). Office reviews requests in Admin → Adjustments.
+7. **General**: 5-tab bottom nav (Clock, Today, Log, Week, Hours). Touch targets >=44px. Works at 360px width. No console errors. `npm run build` passes in `web/`; server starts and all endpoints respond.
 
 ## REST API (server <-> web) — all JSON under /api
 
@@ -42,6 +43,10 @@ Registration links the employee to JobTread (required: org membership matched by
 - POST /api/time/clock-in { jobId, activity, notes?, coordinates? {lat,lng}, at? ISO } -> { entry } (409 if already open; at = tap time, sanity-bounded)
 - POST /api/time/clock-out { breakMinutes?, coordinates?, at? } -> { entry } (409 if none open)
 - GET /api/time/entries?from=ISO&to=ISO -> { entries: [] }
+- GET /api/time/adjustments -> { adjustments } (session; the signed-in employee's change requests)
+- POST /api/time/entries/:id/adjust { reason } -> { adjustment } (session; own finished punch; 409 if a pending request already exists)
+- GET /api/admin/adjustments?status=pending|reviewed -> { adjustments } (admin)
+- POST /api/admin/adjustments/:id/review -> { adjustment } (admin)
 - POST /api/time/location { coordinates: {lat,lng}, at? ISO } -> { ok, ping? | skipped? } (session; wake breadcrumb while clocked in — skipped if no open punch)
 
 ### Buffered time architecture

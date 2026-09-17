@@ -8,6 +8,7 @@ import AdminMap from './AdminMap.jsx';
 import AdminGeofenceEvents from './AdminGeofenceEvents.jsx';
 import AdminCrew from './AdminCrew.jsx';
 import AdminHours from './AdminHours.jsx';
+import AdminAdjustments from './AdminAdjustments.jsx';
 import './admin.css';
 
 const KEY_STORAGE = 'c911_admin_key';
@@ -173,7 +174,7 @@ function SignIn({ onAuthed }) {
 export default function Admin() {
   const [authed, setAuthed] = useState(() =>
     Boolean(localStorage.getItem(SESSION_STORAGE) || localStorage.getItem(KEY_STORAGE)));
-  const [section, setSection] = useState('review'); // 'review' | 'map' | 'geofence' | 'crew' | 'hours'
+  const [section, setSection] = useState('review'); // 'review' | 'map' | 'geofence' | 'crew' | 'hours' | 'adjust'
   const [tab, setTab] = useState('pending');
   const [userFilter, setUserFilter] = useState('');
   const [punches, setPunches] = useState(undefined);
@@ -364,7 +365,7 @@ export default function Admin() {
     <div className="adm-wrap adm-wide">
       <div className="adm-toolbar">
         <h1 className="adm-title">
-          {section === 'map' ? 'Crew map' : section === 'geofence' ? 'Geofence log' : section === 'crew' ? 'Crew' : section === 'hours' ? 'Hours' : 'Time review'}
+          {section === 'map' ? 'Crew map' : section === 'geofence' ? 'Geofence log' : section === 'crew' ? 'Crew' : section === 'hours' ? 'Hours' : section === 'adjust' ? 'Adjustments' : 'Time review'}
         </h1>
         <div className="adm-sections" role="tablist" aria-label="Admin sections">
           <button
@@ -412,6 +413,15 @@ export default function Admin() {
           >
             Hours
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'adjust'}
+            className={section === 'adjust' ? 'adm-section active' : 'adm-section'}
+            onClick={() => setSection('adjust')}
+          >
+            Adjustments
+          </button>
         </div>
         {section === 'review' && (
           <>
@@ -440,6 +450,8 @@ export default function Admin() {
         <AdminCrew adminFetch={adminFetch} />
       ) : section === 'hours' ? (
         <AdminHours adminFetch={adminFetch} />
+      ) : section === 'adjust' ? (
+        <AdminAdjustments adminFetch={adminFetch} />
       ) : (
       <>
       <ErrorBanner message={err} onDismiss={() => setErr(null)} />

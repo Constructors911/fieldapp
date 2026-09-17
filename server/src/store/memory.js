@@ -15,6 +15,7 @@ export function createMemoryStore() {
   const locationPings = []; // {id, punchId, userId, coordinates, recordedAt}
   const geofences = new Map(); // jobId -> fence
   const geofenceEvents = []; // events
+  const timeAdjustments = [];
 
   function fenceRow(f) {
     if (!f) return null;
@@ -389,6 +390,47 @@ export function createMemoryStore() {
       if (!s || Date.now() - s.lastSeenAt > 30 * 24 * 3600_000) return null;
       s.lastSeenAt = Date.now();
       return { email: s.email, name: s.name };
+    },
+
+    async createTimeAdjustment(r) {
+      const row = {
+        id: randomUUID(),
+        punchId: r.punchId,
+        employeeId: r.employeeId,
+        employeeName: r.employeeName ?? '',
+        employeeEmail: r.employeeEmail ?? '',
+        jobName: r.jobName ?? '',
+        startedAt: r.startedAt ?? null,
+        endedAt: r.endedAt ?? null,
+        minutes: r.minutes ?? 0,
+        reason: r.reason,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        reviewedAt: null,
+        reviewedBy: null,
+      };
+      timeAdjustments.push(row);
+      return { ...row };
+    },
+
+    async getPendingTimeAdjustment(punchId) {
+      return timeAdjustments.find((x) => x.punchId === punchId && x.status === 'pending') || null;
+    },
+
+    async listTimeAdjustments({ employeeId, status } = {}) {
+      return timeAdjustments
+        .filter((x) => (!employeeId || x.employeeId === employeeId) && (!status || x.status === status))
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+        .map((x) => ({ ...x }));
+    },
+
+    async setTimeAdjustmentStatus(id, status, by) {
+      const row = timeAdjustments.find((x) => x.id === id);
+      if (!row) throw new HttpError(404, 'Adjustment request not found');
+      row.status = status;
+      row.reviewedAt = new Date().toISOString();
+      row.reviewedBy = by ?? null;
+      return { ...row };
     },
   };
 }

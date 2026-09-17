@@ -145,6 +145,23 @@ export function createNeonStore(databaseUrl) {
           composed text not null default '',
           created_at timestamptz not null default now()
         )`;
+        await sql`create table if not exists time_adjustments (
+          id uuid primary key default gen_random_uuid(),
+          punch_id uuid not null,
+          employee_id uuid not null,
+          employee_name text not null default '',
+          employee_email text not null default '',
+          job_name text not null default '',
+          started_at timestamptz,
+          ended_at timestamptz,
+          minutes integer not null default 0,
+          reason text not null,
+          status text not null default 'pending',
+          created_at timestamptz not null default now(),
+          reviewed_at timestamptz,
+          reviewed_by text
+        )`;
+        await sql`create index if not exists time_adjustments_status_idx on time_adjustments(status, created_at desc)`;
         await sql`create table if not exists admin_sessions (
           token uuid primary key default gen_random_uuid(),
           email text not null,
@@ -556,6 +573,64 @@ export function createNeonStore(databaseUrl) {
       await migrate();
       await sql`delete from app_sessions where token = ${token}`;
     },
+
+    async createTimeAdjustment(r) {
+      await migrate();
+      const rows = await sql`insert into time_adjustments
+        (punch_id, employee_id, employee_name, employee_email, job_name, started_at, ended_at, minutes, reason)
+        values (${r.punchId}, ${r.employeeId}, ${r.employeeName ?? ''}, ${r.employeeEmail ?? ''},
+                ${r.jobName ?? ''}, ${r.startedAt ?? null}, ${r.endedAt ?? null}, ${r.minutes ?? 0}, ${r.reason})
+        returning *`;
+      return adjustmentRow(rows[0]);
+    },
+
+    async getPendingTimeAdjustment(punchId) {
+      await migrate();
+      const rows = await sql`select * from time_adjustments
+        where punch_id = ${punchId} and status = 'pending' limit 1`;
+      return adjustmentRow(rows[0]);
+    },
+
+    async listTimeAdjustments({ employeeId, status } = {}) {
+      await migrate();
+      const rows = await sql`select * from time_adjustments
+        where (${employeeId ?? null}::uuid is null or employee_id = ${employeeId ?? null})
+          and (${status ?? null}::text is null or status = ${status ?? null})
+        order by created_at desc`;
+      return rows.map(adjustmentRow);
+    },
+
+    async setTimeAdjustmentStatus(id, status, by) {
+      await migrate();
+      const rows = await sql`update time_adjustments set
+          status = ${status},
+          reviewed_at = now(),
+          reviewed_by = ${by ?? null}
+        where id = ${id}
+        returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Adjustment request not found');
+      return adjustmentRow(rows[0]);
+    },
+  };
+}
+
+function adjustmentRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    punchId: r.punch_id,
+    employeeId: r.employee_id,
+    employeeName: r.employee_name,
+    employeeEmail: r.employee_email,
+    jobName: r.job_name,
+    startedAt: r.started_at instanceof Date ? r.started_at.toISOString() : r.started_at,
+    endedAt: r.ended_at instanceof Date ? r.ended_at.toISOString() : r.ended_at,
+    minutes: r.minutes,
+    reason: r.reason,
+    status: r.status,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+    reviewedAt: r.reviewed_at instanceof Date ? r.reviewed_at.toISOString() : r.reviewed_at,
+    reviewedBy: r.reviewed_by || null,
   };
 }
 

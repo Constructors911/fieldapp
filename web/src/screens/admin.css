@@ -202,6 +202,15 @@
   .adm-hours-user { break-inside: avoid; box-shadow: none; }
 }
 
+.adm-adj-list { display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.adm-adj-card {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px;
+}
+.adm-adj-card header { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.adm-adj-card header span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.adm-adj-clock { margin: 6px 0 0; font-size: 13px; color: var(--navy); }
+.adm-adj-reason { margin: 8px 0 12px; font-size: 14px; white-space: pre-wrap; }
+
 .adm-crew-note { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 560px; }
 .adm-crew-list { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
 .adm-crew-row {

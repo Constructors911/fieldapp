@@ -3,6 +3,7 @@ import Clock from './screens/Clock.jsx';
 import Today from './screens/Today.jsx';
 import Log from './screens/Log.jsx';
 import Week from './screens/Week.jsx';
+import Hours from './screens/Hours.jsx';
 import Admin from './screens/Admin.jsx';
 import Login from './screens/Login.jsx';
 import { getBootstrap, authMe, getToken, authLogout } from './api.js';
@@ -14,7 +15,8 @@ const TABS = [
   { id: 'clock', label: 'Clock', icon: '⏱' },
   { id: 'today', label: 'Today', icon: '☑' },
   { id: 'log', label: 'Log', icon: '✎' },
-  { id: 'week', label: 'Week', icon: '▦' }
+  { id: 'week', label: 'Week', icon: '▦' },
+  { id: 'hours', label: 'Hours', icon: '◷' }
 ];
 
 export default function App() {
@@ -154,6 +156,7 @@ export default function App() {
         {tab === 'today' && <Today boot={boot} />}
         {tab === 'log' && <Log boot={boot} me={me} onMeUpdate={setMe} onRefreshJobs={() => getBootstrap().then(setBoot)} />}
         {tab === 'week' && <Week boot={boot} />}
+        {tab === 'hours' && <Hours />}
       </main>
       <nav className="tabbar" role="tablist" aria-label="Main">
         {TABS.map(t => (

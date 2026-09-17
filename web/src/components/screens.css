@@ -337,6 +337,54 @@
   border: 1px solid #dde3e8;
 }
 
+/* --- crew hours (pay period) --- */
+.hrs-toggle {
+  display: flex; gap: 0; margin-bottom: 10px;
+  border: 1px solid #cfd6dd; border-radius: 12px; overflow: hidden;
+}
+.hrs-tog {
+  flex: 1; min-height: 48px; border: 0; background: var(--card);
+  color: var(--muted); font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.hrs-tog + .hrs-tog { border-left: 1px solid #cfd6dd; }
+.hrs-tog.active { background: var(--navy); color: #fff; }
+.hrs-range { margin: 0 0 14px; text-align: center; font-size: 14px; font-weight: 700; color: var(--navy); }
+.hrs-summary { display: flex; gap: 8px; margin-bottom: 8px; }
+.hrs-stat {
+  flex: 1; background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
+  padding: 10px 8px; text-align: center;
+}
+.hrs-stat span { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: var(--muted); }
+.hrs-stat strong { display: block; margin-top: 2px; font-size: 22px; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; }
+.hrs-stat.is-ot { background: #fdf0e5; }
+.hrs-stat.is-ot strong { color: #a35315; }
+.hrs-weeknote { margin: 0 0 14px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.hrs-day { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 4px 14px 8px; margin-bottom: 10px; }
+.hrs-dayhead {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 0 6px; border-bottom: 1px solid var(--bg);
+}
+.hrs-dayhead h2 { margin: 0; font-size: 15px; color: var(--navy); }
+.hrs-dayhead strong { font-variant-numeric: tabular-nums; color: var(--navy); }
+.hrs-day.is-today .hrs-dayhead h2 { color: var(--orange); }
+.hrs-row {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+  padding: 12px 0; border-bottom: 1px solid var(--bg); min-height: var(--tap);
+}
+.hrs-row:last-child { border-bottom: 0; }
+.hrs-row-main { min-width: 0; flex: 1; }
+.hrs-job { margin: 0; font-size: 15px; font-weight: 700; color: var(--navy); }
+.hrs-meta { margin: 3px 0 0; font-size: 13px; color: var(--muted); }
+.hrs-flag { margin: 6px 0 0; font-size: 12px; font-weight: 700; color: #a35315; }
+.hrs-row-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.hrs-mins { font-size: 16px; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; }
+.hrs-ask {
+  min-height: var(--tap); padding: 0 12px; border: 1px solid #cfd6dd; border-radius: 8px;
+  background: #fff; color: var(--navy); font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.hrs-ask-lead { margin: 0 0 12px; font-size: 14px; color: var(--navy); font-weight: 600; line-height: 1.4; }
+.hrs-ask-hint { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+
 /* --- week --- */
 .c-week-nav {
   display: flex;

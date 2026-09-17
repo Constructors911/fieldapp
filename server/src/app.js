@@ -362,6 +362,42 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ entries: punches.map(punchToEntry) });
   }));
 
+  app.get('/api/time/adjustments', requireSession, wrap(async (req, res) => {
+    const adjustments = await store.listTimeAdjustments({ employeeId: req.employee.id });
+    res.json({ adjustments });
+  }));
+
+  app.post('/api/time/entries/:id/adjust', requireSession, wrap(async (req, res) => {
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (reason.length < 8 || reason.length > 400) {
+      throw new HttpError(400, 'Tell us what is wrong (8–400 characters)');
+    }
+    const punch = await store.getPunch(req.params.id);
+    if (!punch || punch.userId !== req.employee.jtUserId) {
+      throw new HttpError(404, 'Time entry not found');
+    }
+    if (!punch.endedAt || punch.status === 'void') {
+      throw new HttpError(400, 'Only a finished clock can be sent for adjustment');
+    }
+    if (await store.getPendingTimeAdjustment(punch.id)) {
+      throw new HttpError(409, 'A change request is already pending for this clock');
+    }
+    const gross = Math.round((new Date(punch.endedAt) - new Date(punch.startedAt)) / 60000);
+    const minutes = Math.max(0, gross - (punch.breakMinutes || 0));
+    const adjustment = await store.createTimeAdjustment({
+      punchId: punch.id,
+      employeeId: req.employee.id,
+      employeeName: req.employee.name || req.employee.email,
+      employeeEmail: req.employee.email,
+      jobName: punch.jobName,
+      startedAt: punch.startedAt,
+      endedAt: punch.endedAt,
+      minutes,
+      reason,
+    });
+    res.json({ adjustment });
+  }));
+
   // App-wake breadcrumb while clocked in (not continuous tracking).
   app.post('/api/time/location', requireSession, wrap(async (req, res) => {
     const { coordinates, at } = req.body ?? {};
@@ -454,6 +490,17 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const punches = await store.listPunchesByDateRange(from, to);
     return { from, to, report: buildHoursReport(punches, from, to) };
   }
+
+  app.get('/api/admin/adjustments', requireAdmin, wrap(async (req, res) => {
+    const status = qp(req.query.status);
+    const adjustments = await store.listTimeAdjustments({ status: status || undefined });
+    res.json({ adjustments });
+  }));
+
+  app.post('/api/admin/adjustments/:id/review', requireAdmin, wrap(async (req, res) => {
+    const adjustment = await store.setTimeAdjustmentStatus(req.params.id, 'reviewed', actorOf(req));
+    res.json({ adjustment });
+  }));
 
   app.get('/api/admin/hours', requireAdmin, wrap(async (req, res) => {
     const { report } = await hoursReportForRange(req);
