@@ -18,6 +18,7 @@ import { registerLogs } from './routes/logs.js';
 import { registerAdminMap } from './routes/adminMap.js';
 import { registerGeofences } from './routes/geofences.js';
 import { onClockInGeofence, onClockOutGeofence, onWakeGeofence } from './geofence.js';
+import { sweepClockOutReminderEmails } from './clockOutEmails.js';
 
 export function createApp(adapter, store = createStore(), { verifyGoogle = verifyGoogleIdToken } = {}) {
   const app = express();
@@ -273,6 +274,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   app.get('/api/time/current', requireSession, wrap(async (req, res) => {
     const punch = await store.getOpenPunch(req.employee.jtUserId);
     res.json({ entry: punch ? punchToEntry(punch) : null });
+    sweepClockOutReminderEmails(store).catch((e) => console.error('[reminders]', e));
   }));
 
   app.post('/api/time/clock-in', requireSession, wrap(async (req, res) => {
@@ -424,6 +426,29 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       job,
     }).catch((e) => console.error('[geofence] wake eval failed', e));
     res.json({ ok: true, ping });
+    sweepClockOutReminderEmails(store).catch((e) => console.error('[reminders]', e));
+  }));
+
+  const requireCron = (req, res, next) => {
+    const secret = process.env.CRON_SECRET;
+    const auth = req.get('authorization') || '';
+    const header = req.get('x-cron-secret') || '';
+    if (secret && (auth === `Bearer ${secret}` || header === secret)) {
+      next();
+      return;
+    }
+    if (!secret && !process.env.VERCEL && process.env.NODE_ENV !== 'production') {
+      next();
+      return;
+    }
+    res.status(401).json({ error: 'Cron secret required' });
+  };
+
+  app.get('/api/cron/clock-out-reminders', requireCron, wrap(async (_req, res) => {
+    res.json(await sweepClockOutReminderEmails(store));
+  }));
+  app.post('/api/cron/clock-out-reminders', requireCron, wrap(async (_req, res) => {
+    res.json(await sweepClockOutReminderEmails(store));
   }));
 
   // ---- admin: punch review + push to JobTread ---------------------------

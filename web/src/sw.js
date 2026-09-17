@@ -6,7 +6,7 @@
  * - Bump VERSION to invalidate old caches (cleaned up on activate).
  */
 
-const VERSION = 'c911-v1';
+const VERSION = 'c911-v2';
 const SHELL_CACHE = `shell-${VERSION}`;
 const API_CACHE = `api-${VERSION}`;
 
@@ -78,6 +78,20 @@ async function shellNavigate(request) {
     throw err;
   }
 }
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = windows[0];
+    if (existing) {
+      await existing.focus();
+      existing.postMessage({ type: 'open-clock' });
+      return;
+    }
+    await self.clients.openWindow('/');
+  })());
+});
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;

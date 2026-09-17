@@ -41,6 +41,15 @@
   font-weight: 600;
   margin: 0 0 12px;
 }
+.clk-remind {
+  background: #fdf0e5;
+  color: #a35315;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  text-align: left;
+}
+.clk-remind p { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.35; }
 
 .clk-entry {
   display: flex;

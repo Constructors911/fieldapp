@@ -9,6 +9,7 @@ import Login from './screens/Login.jsx';
 import { getBootstrap, authMe, getToken, authLogout } from './api.js';
 import { pendingCount, subscribePending, subscribeDropped, flushQueue } from './lib/offlineQueue.js';
 import { startLocationWakePings } from './lib/locationWake.js';
+import { startClockOutReminders } from './lib/clockOutReminderWatch.js';
 import ErrorBanner from './components/ErrorBanner.jsx';
 
 const TABS = [
@@ -57,12 +58,19 @@ export default function App() {
     document.addEventListener('visibilitychange', onVis);
     flushQueue();
     const stopPings = startLocationWakePings();
+    const stopReminders = startClockOutReminders();
+    const onSw = (e) => {
+      if (e.data?.type === 'open-clock') setTab('clock');
+    };
+    navigator.serviceWorker?.addEventListener?.('message', onSw);
     return () => {
       un();
       unDrop();
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVis);
       stopPings();
+      stopReminders();
+      navigator.serviceWorker?.removeEventListener?.('message', onSw);
     };
   }, [me]);
 

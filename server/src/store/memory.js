@@ -16,6 +16,7 @@ export function createMemoryStore() {
   const geofences = new Map(); // jobId -> fence
   const geofenceEvents = []; // events
   const timeAdjustments = [];
+  const clockOutReminders = new Set(); // `${punchId}:${hours}`
 
   function fenceRow(f) {
     if (!f) return null;
@@ -88,6 +89,21 @@ export function createMemoryStore() {
         status: punch.costItemId ? 'approved' : 'pending',
       });
       return { ...punch };
+    },
+
+    async listOpenPunches() {
+      return punches.filter((p) => p.status === 'open').map((p) => ({ ...p }));
+    },
+
+    async tryRecordClockOutReminder(punchId, hours) {
+      const key = `${punchId}:${hours}`;
+      if (clockOutReminders.has(key)) return false;
+      clockOutReminders.add(key);
+      return true;
+    },
+
+    async deleteClockOutReminder(punchId, hours) {
+      clockOutReminders.delete(`${punchId}:${hours}`);
     },
 
     async listPunches({ from, to, userId } = {}) {

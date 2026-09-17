@@ -162,6 +162,12 @@ export function createNeonStore(databaseUrl) {
           reviewed_by text
         )`;
         await sql`create index if not exists time_adjustments_status_idx on time_adjustments(status, created_at desc)`;
+        await sql`create table if not exists clock_out_reminder_emails (
+          punch_id uuid not null,
+          hours integer not null,
+          sent_at timestamptz not null default now(),
+          primary key (punch_id, hours)
+        )`;
         await sql`create table if not exists admin_sessions (
           token uuid primary key default gen_random_uuid(),
           email text not null,
@@ -230,6 +236,28 @@ export function createNeonStore(databaseUrl) {
         returning *`;
       if (!rows[0]) throw new HttpError(409, 'No open time entry - clock in first');
       return rowToPunch(rows[0]);
+    },
+
+    async listOpenPunches() {
+      await migrate();
+      const rows = await sql`select * from punches where status = 'open' order by started_at`;
+      return rows.map(rowToPunch);
+    },
+
+    async tryRecordClockOutReminder(punchId, hours) {
+      await migrate();
+      const rows = await sql`
+        insert into clock_out_reminder_emails (punch_id, hours)
+        values (${punchId}, ${hours})
+        on conflict (punch_id, hours) do nothing
+        returning punch_id`;
+      return Boolean(rows[0]);
+    },
+
+    async deleteClockOutReminder(punchId, hours) {
+      await migrate();
+      await sql`delete from clock_out_reminder_emails
+        where punch_id = ${punchId} and hours = ${hours}`;
     },
 
     async listPunches({ from, to, userId } = {}) {

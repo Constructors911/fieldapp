@@ -9,6 +9,7 @@ import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import ClockOutSheet from './ClockOutSheet.jsx';
 import { todayRange, fmtTime, localToday, fmtMins, fmtElapsed, getGps, completedTaskNames, remainingTaskNames } from '../lib/clockHelpers.js';
+import { askClockOutNotifyPermission, latestReminderHours, reminderCopy } from '../lib/clockOutReminder.js';
 import { emptyLogCapture, captureToCompose, validateLogCapture, photosHaveTag } from '../lib/logCapture.js';
 import '../components/screens.css';
 
@@ -138,6 +139,7 @@ export default function Clock({ boot, onRefreshJobs }) {
   // Live elapsed ticker while clocked in
   useEffect(() => {
     if (!current) return undefined;
+    askClockOutNotifyPermission();
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [current]);
@@ -213,6 +215,7 @@ export default function Clock({ boot, onRefreshJobs }) {
         setNotice(null);
         load();
       }
+      askClockOutNotifyPermission();
       resetFlow();
     } catch (e) {
       // Covers 409 (already clocked in): re-sync with the server.
@@ -328,6 +331,7 @@ export default function Clock({ boot, onRefreshJobs }) {
   const completed = entries.filter((e) => e.endedAt);
   const runningMins = current ? Math.max(0, (now - new Date(current.startedAt).getTime()) / 60000) : 0;
   const totalMins = completed.reduce((sum, e) => sum + (e.minutes || 0), 0) + runningMins;
+  const remindHours = current ? latestReminderHours(current.startedAt, now) : null;
 
   // Picker: this job's budget labor items first (auto-approve), then the
   // standard Employee Labor catalog (manager maps those later).
@@ -358,6 +362,11 @@ export default function Clock({ boot, onRefreshJobs }) {
               <p className="clk-subline">
                 {current.costItemName} · since {fmtTime(current.startedAt)}
               </p>
+              {remindHours && (
+                <div className="clk-remind" role="status">
+                  <p>{reminderCopy(remindHours).body}</p>
+                </div>
+              )}
               <button
                 type="button"
                 className="c-btn c-btn-big c-btn-block c-btn-red"
