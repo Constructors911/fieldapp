@@ -1,14 +1,24 @@
-import { getCurrentEntry } from '../api.js';
-import { showClockOutNotification, takeUnfiredReminders } from './clockOutReminder.js';
+import { getCurrentEntry, getTimeEntries } from '../api.js';
+import { todayRange, localToday } from './clockHelpers.js';
+import {
+  dayElapsedHours, reminderScopeId, showClockOutNotification, takeUnfiredReminders,
+} from './clockOutReminder.js';
 
 let listening = false;
 
 async function check() {
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   try {
-    const { entry } = await getCurrentEntry();
+    const { from, to } = todayRange();
+    const [{ entry }, ent] = await Promise.all([
+      getCurrentEntry(),
+      getTimeEntries(from, to).catch(() => ({ entries: [] })),
+    ]);
     if (!entry || entry.endedAt) return;
-    const fresh = takeUnfiredReminders(entry.id, entry.startedAt);
+    const punches = [...(ent.entries || [])];
+    if (!punches.some((p) => p.id === entry.id)) punches.push(entry);
+    const elapsedH = dayElapsedHours(punches, Date.now(), localToday());
+    const fresh = takeUnfiredReminders(reminderScopeId(entry.userId, localToday()), elapsedH);
     for (const hours of fresh) {
       await showClockOutNotification(hours);
     }

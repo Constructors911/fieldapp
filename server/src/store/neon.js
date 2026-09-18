@@ -168,11 +168,14 @@ export function createNeonStore(databaseUrl) {
         await sql`alter table time_adjustments add column if not exists applied_break_minutes integer`;
         await sql`alter table time_adjustments add column if not exists applied_minutes integer`;
         await sql`create table if not exists clock_out_reminder_emails (
-          punch_id uuid not null,
+          punch_id text not null,
           hours integer not null,
           sent_at timestamptz not null default now(),
           primary key (punch_id, hours)
         )`;
+        // Scope id is day:user:YYYY-MM-DD so 8/12/16 fire once per work day.
+        await sql`alter table clock_out_reminder_emails
+          alter column punch_id type text using punch_id::text`;
         await sql`create table if not exists admin_sessions (
           token uuid primary key default gen_random_uuid(),
           email text not null,

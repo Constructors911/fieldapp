@@ -1,4 +1,6 @@
-import { crossedReminderHours, reminderCopy } from './util/clockOutReminder.js';
+import {
+  crossedReminderHours, dayElapsedHours, reminderCopy, reminderScopeId, workDateOf,
+} from './util/clockOutReminder.js';
 import { mailConfigured, sendMail } from './util/mail.js';
 
 function fmtWhen(iso) {
@@ -19,6 +21,9 @@ export async function sweepClockOutReminderEmails(store, {
     store.listOpenPunches(),
     store.listEmployees(),
   ]);
+  if (!open.length) return { sent: 0 };
+  const from = new Date(now - 40 * 3600_000).toISOString();
+  const recent = await store.listPunches({ from, to: new Date(now + 60_000).toISOString() });
   const byJt = new Map(employees.filter((e) => e.jtUserId).map((e) => [e.jtUserId, e]));
   const jtEmailByUser = new Map();
   if (adapter?.listInternalMemberships) {
@@ -33,21 +38,26 @@ export async function sweepClockOutReminderEmails(store, {
   let sent = 0;
   const errors = [];
   for (const punch of open) {
-    const due = crossedReminderHours(punch.startedAt, now);
+    const workDate = workDateOf(punch.startedAt, now);
+    const dayPunches = recent.filter((p) => p.userId === punch.userId);
+    const elapsedH = dayElapsedHours(dayPunches, now, workDate);
+    const due = crossedReminderHours(elapsedH);
     if (!due.length) continue;
     const emp = byJt.get(punch.userId);
     const to = jtEmailByUser.get(punch.userId) || emp?.email;
     if (!to) continue;
+    const scopeId = reminderScopeId(punch.userId, workDate);
     for (const hours of due) {
-      const claimed = await store.tryRecordClockOutReminder(punch.id, hours);
+      const claimed = await store.tryRecordClockOutReminder(scopeId, hours);
       if (!claimed) continue;
       const copy = reminderCopy(hours);
       const text = [
         copy.body,
         '',
+        `Today so far: ${elapsedH.toFixed(1)} hrs (all clock-ins)`,
         `Job: ${punch.jobName || '—'}`,
         `Activity: ${punch.activity || '—'}`,
-        `Clocked in: ${fmtWhen(punch.startedAt)}`,
+        `This clock-in: ${fmtWhen(punch.startedAt)}`,
         '',
         'Open the Field App and tap Clock Out if you are done.',
       ].join('\n');
@@ -55,7 +65,7 @@ export async function sweepClockOutReminderEmails(store, {
         await send({ to, subject: copy.title, text });
         sent += 1;
       } catch (e) {
-        await store.deleteClockOutReminder(punch.id, hours).catch(() => {});
+        await store.deleteClockOutReminder(scopeId, hours).catch(() => {});
         errors.push(e.message || String(e));
       }
     }

@@ -54,6 +54,51 @@ test('sweep emails 8h then 12h once each and skips when mail is off', async () =
   assert.equal(punch.status, 'open');
 });
 
+test('sweep uses the day total across every clock-in, not one punch', async () => {
+  const store = createMemoryStore();
+  await store.createEmployee({
+    email: 'crew@constructors911.com',
+    name: 'Casey Crew',
+    pinHash: 'x',
+    jtUserId: 'user_crew',
+  });
+  const firstIn = new Date(Date.now() - 8.4 * 3600_000).toISOString();
+  const firstOut = new Date(Date.now() - 4.2 * 3600_000).toISOString();
+  await store.createPunch({
+    userId: 'user_crew',
+    userName: 'Casey Crew',
+    jobId: 'job_1',
+    jobName: 'Maplewood',
+    activity: 'Mason',
+    startedAt: firstIn,
+  });
+  await store.closePunch('user_crew', { endedAt: firstOut, breakMinutes: 0 });
+  const second = await store.createPunch({
+    userId: 'user_crew',
+    userName: 'Casey Crew',
+    jobId: 'job_2',
+    jobName: 'Riverside',
+    activity: 'Painter',
+    startedAt: firstOut,
+  });
+
+  const sent = [];
+  const first = await sweepClockOutReminderEmails(store, {
+    configured: true,
+    send: async (m) => { sent.push(m); },
+  });
+  assert.equal(first.sent, 1, '4h finished + 4.2h open should hit 8 hours');
+  assert.match(sent[0].subject, /8 hours/);
+  assert.match(sent[0].text, /all clock-ins/i);
+
+  const again = await sweepClockOutReminderEmails(store, {
+    configured: true,
+    send: async (m) => { sent.push(m); },
+  });
+  assert.equal(again.sent, 0);
+  assert.equal(second.status, 'open');
+});
+
 test('uses the JobTread membership email for the punch user', async () => {
   const store = createMemoryStore();
   const punch = await store.createPunch({

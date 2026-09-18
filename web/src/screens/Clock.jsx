@@ -331,7 +331,7 @@ export default function Clock({ boot, onRefreshJobs }) {
   const completed = entries.filter((e) => e.endedAt);
   const runningMins = current ? Math.max(0, (now - new Date(current.startedAt).getTime()) / 60000) : 0;
   const totalMins = completed.reduce((sum, e) => sum + (e.minutes || 0), 0) + runningMins;
-  const remindHours = current ? latestReminderHours(current.startedAt, now) : null;
+  const remindHours = current ? latestReminderHours(totalMins / 60) : null;
 
   // Picker: this job's budget labor items first (auto-approve), then the
   // standard Employee Labor catalog (manager maps those later).

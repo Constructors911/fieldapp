@@ -16,7 +16,7 @@ export function createMemoryStore() {
   const geofences = new Map(); // jobId -> fence
   const geofenceEvents = []; // events
   const timeAdjustments = [];
-  const clockOutReminders = new Set(); // `${punchId}:${hours}`
+  const clockOutReminders = new Set(); // `${scopeId}:${hours}` (scope = day:user:date)
 
   function fenceRow(f) {
     if (!f) return null;
