@@ -215,14 +215,30 @@
   .adm-hours-user { break-inside: avoid; box-shadow: none; }
 }
 
-.adm-adj-list { display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.adm-adj-list { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
 .adm-adj-card {
   background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px;
 }
 .adm-adj-card header { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .adm-adj-card header span { font-size: 12px; color: var(--muted); font-weight: 600; }
 .adm-adj-clock { margin: 6px 0 0; font-size: 13px; color: var(--navy); }
-.adm-adj-reason { margin: 8px 0 12px; font-size: 14px; white-space: pre-wrap; }
+.adm-adj-label { margin: 12px 0 4px; font-size: 11px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; color: var(--muted); }
+.adm-adj-reason { margin: 0 0 8px; font-size: 14px; white-space: pre-wrap; }
+.adm-adj-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px 12px; margin: 8px 0 4px; }
+.adm-adj-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.adm-adj-form input { min-height: 40px; }
+.adm-adj-preview { grid-column: 1 / -1; margin: 0; font-size: 13px; font-weight: 700; color: var(--navy); }
+.adm-adj-note { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); margin: 10px 0 0; }
+.adm-adj-note textarea { min-height: 72px; resize: vertical; padding: 8px 10px; border: 1px solid #cfd6dd; border-radius: 8px; font: inherit; }
+.adm-adj-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.adm-adj-warn { margin: 8px 0 0; font-size: 13px; color: #a35315; }
+.adm-adj-logbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.adm-adj-outcome { margin: 8px 0 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.adm-adj-outcome.is-applied { color: var(--green); }
+@media print {
+  .adm-toolbar, .adm-tabs, .adm-adj-logbar, .adm-crew-note, .c-topbar { display: none !important; }
+  .adm-adj-card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
+}
 
 .adm-crew-note { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 560px; }
 .adm-crew-list { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }

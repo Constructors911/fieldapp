@@ -107,6 +107,13 @@ export default function Hours() {
     }
     return m;
   }, [adjustments]);
+  const resolvedByPunch = useMemo(() => {
+    const m = new Map();
+    for (const a of adjustments) {
+      if ((a.status === 'applied' || a.status === 'reviewed') && !m.has(a.punchId)) m.set(a.punchId, a);
+    }
+    return m;
+  }, [adjustments]);
 
   async function submitAdjust() {
     if (!ask || busy) return;
@@ -193,6 +200,7 @@ export default function Hours() {
               </header>
               {day.entries.map((e) => {
                 const pending = pendingByPunch.get(e.id);
+                const resolved = resolvedByPunch.get(e.id);
                 return (
                   <article className="hrs-row" key={e.id}>
                     <div className="hrs-row-main">
@@ -203,6 +211,8 @@ export default function Hours() {
                         {fmtWhen(e.startedAt)} → {e.endedAt ? fmtWhen(e.endedAt) : 'open'}
                       </p>
                       {pending && <p className="hrs-flag">Change requested — office will review</p>}
+                      {!pending && resolved?.status === 'applied' && <p className="hrs-flag">Office updated this clock</p>}
+                      {!pending && resolved?.status === 'reviewed' && <p className="hrs-flag">Office reviewed — no change</p>}
                     </div>
                     <div className="hrs-row-side">
                       <span className="hrs-mins">{e.endedAt ? fmtHours(e.minutes) : '—'}</span>

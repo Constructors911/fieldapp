@@ -162,6 +162,11 @@ export function createNeonStore(databaseUrl) {
           reviewed_by text
         )`;
         await sql`create index if not exists time_adjustments_status_idx on time_adjustments(status, created_at desc)`;
+        await sql`alter table time_adjustments add column if not exists admin_note text`;
+        await sql`alter table time_adjustments add column if not exists applied_started_at timestamptz`;
+        await sql`alter table time_adjustments add column if not exists applied_ended_at timestamptz`;
+        await sql`alter table time_adjustments add column if not exists applied_break_minutes integer`;
+        await sql`alter table time_adjustments add column if not exists applied_minutes integer`;
         await sql`create table if not exists clock_out_reminder_emails (
           punch_id uuid not null,
           hours integer not null,
@@ -633,12 +638,23 @@ export function createNeonStore(databaseUrl) {
       return adjustmentRow(rows[0]);
     },
 
+    async getTimeAdjustment(id) {
+      await migrate();
+      const rows = await sql`select * from time_adjustments where id = ${id} limit 1`;
+      return adjustmentRow(rows[0]);
+    },
+
     async listTimeAdjustments({ employeeId, status } = {}) {
       await migrate();
-      const rows = await sql`select * from time_adjustments
-        where (${employeeId ?? null}::uuid is null or employee_id = ${employeeId ?? null})
-          and (${status ?? null}::text is null or status = ${status ?? null})
-        order by created_at desc`;
+      const rows = status === 'log'
+        ? await sql`select * from time_adjustments
+            where (${employeeId ?? null}::uuid is null or employee_id = ${employeeId ?? null})
+              and status <> 'pending'
+            order by reviewed_at desc nulls last, created_at desc`
+        : await sql`select * from time_adjustments
+            where (${employeeId ?? null}::uuid is null or employee_id = ${employeeId ?? null})
+              and (${status ?? null}::text is null or status = ${status ?? null})
+            order by created_at desc`;
       return rows.map(adjustmentRow);
     },
 
@@ -651,6 +667,23 @@ export function createNeonStore(databaseUrl) {
         where id = ${id}
         returning *`;
       if (!rows[0]) throw new HttpError(404, 'Adjustment request not found');
+      return adjustmentRow(rows[0]);
+    },
+
+    async resolveTimeAdjustment(id, patch) {
+      await migrate();
+      const rows = await sql`update time_adjustments set
+          status = ${patch.status},
+          admin_note = ${patch.adminNote ?? null},
+          applied_started_at = ${patch.appliedStartedAt ?? null},
+          applied_ended_at = ${patch.appliedEndedAt ?? null},
+          applied_break_minutes = ${patch.appliedBreakMinutes ?? null},
+          applied_minutes = ${patch.appliedMinutes ?? null},
+          reviewed_at = now(),
+          reviewed_by = ${patch.by ?? null}
+        where id = ${id} and status = 'pending'
+        returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Adjustment request not found or already resolved');
       return adjustmentRow(rows[0]);
     },
   };
@@ -669,6 +702,11 @@ function adjustmentRow(r) {
     endedAt: r.ended_at instanceof Date ? r.ended_at.toISOString() : r.ended_at,
     minutes: r.minutes,
     reason: r.reason,
+    adminNote: r.admin_note || null,
+    appliedStartedAt: r.applied_started_at instanceof Date ? r.applied_started_at.toISOString() : r.applied_started_at || null,
+    appliedEndedAt: r.applied_ended_at instanceof Date ? r.applied_ended_at.toISOString() : r.applied_ended_at || null,
+    appliedBreakMinutes: r.applied_break_minutes ?? null,
+    appliedMinutes: r.applied_minutes ?? null,
     status: r.status,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
     reviewedAt: r.reviewed_at instanceof Date ? r.reviewed_at.toISOString() : r.reviewed_at,

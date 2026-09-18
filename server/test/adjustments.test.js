@@ -80,9 +80,70 @@ test('admin can list and review adjustment requests', async () => {
   assert.equal(listed.status, 200);
   assert.ok(listed.json.adjustments.some((a) => a.id === created.json.adjustment.id));
 
+  const missingNote = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/review`, {
+    method: 'POST',
+    body: {},
+  });
+  assert.equal(missingNote.status, 400);
+
   const reviewed = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/review`, {
     method: 'POST',
+    body: { note: 'GPS matches the original clock-out. No change.' },
   });
   assert.equal(reviewed.status, 200);
   assert.equal(reviewed.json.adjustment.status, 'reviewed');
+  assert.match(reviewed.json.adjustment.adminNote, /GPS matches/);
+});
+
+test('admin can apply a time change with a required note', async () => {
+  const entry = await closedPunch();
+  const created = await api(srv.base, `/api/time/entries/${entry.id}/adjust`, {
+    method: 'POST',
+    headers,
+    body: { reason: 'I stayed until 4:00, not when I tapped out.' },
+  });
+  assert.equal(created.status, 200);
+  const id = created.json.adjustment.id;
+  const startedAt = new Date(Date.now() - 8 * 3600_000).toISOString();
+  const endedAt = new Date(Date.now() - 1 * 3600_000).toISOString();
+
+  const noNote = await api(srv.base, `/api/admin/adjustments/${id}/apply`, {
+    method: 'POST',
+    body: { startedAt, endedAt, breakMinutes: 30 },
+  });
+  assert.equal(noNote.status, 400);
+
+  const backwards = await api(srv.base, `/api/admin/adjustments/${id}/apply`, {
+    method: 'POST',
+    body: { startedAt: endedAt, endedAt: startedAt, breakMinutes: 0, note: 'Fixing the clock-out time for Casey.' },
+  });
+  assert.equal(backwards.status, 400);
+
+  const applied = await api(srv.base, `/api/admin/adjustments/${id}/apply`, {
+    method: 'POST',
+    body: { startedAt, endedAt, breakMinutes: 30, note: 'Supervisor confirmed they stayed until 4.' },
+  });
+  assert.equal(applied.status, 200, applied.json?.error);
+  assert.equal(applied.json.adjustment.status, 'applied');
+  assert.equal(applied.json.punch.startedAt, startedAt);
+  assert.equal(applied.json.punch.endedAt, endedAt);
+  assert.equal(applied.json.punch.breakMinutes, 30);
+  assert.equal(applied.json.adjustment.appliedBreakMinutes, 30);
+  assert.ok(applied.json.adjustment.appliedMinutes > 0);
+
+  const again = await api(srv.base, `/api/admin/adjustments/${id}/apply`, {
+    method: 'POST',
+    body: { startedAt, endedAt, breakMinutes: 30, note: 'Trying to apply this request a second time.' },
+  });
+  assert.equal(again.status, 409);
+
+  const log = await api(srv.base, '/api/admin/adjustments?status=log');
+  assert.equal(log.status, 200);
+  const row = log.json.adjustments.find((a) => a.id === id);
+  assert.ok(row);
+  assert.equal(row.status, 'applied');
+  assert.match(row.adminNote, /Supervisor confirmed/);
+
+  const audit = await api(srv.base, `/api/admin/punches/${entry.id}/audit`);
+  assert.ok(audit.json.events.some((e) => e.action === 'edited' && e.detail?.adminNote));
 });

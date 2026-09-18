@@ -445,6 +445,11 @@ export function createMemoryStore() {
         endedAt: r.endedAt ?? null,
         minutes: r.minutes ?? 0,
         reason: r.reason,
+        adminNote: null,
+        appliedStartedAt: null,
+        appliedEndedAt: null,
+        appliedBreakMinutes: null,
+        appliedMinutes: null,
         status: 'pending',
         createdAt: new Date().toISOString(),
         reviewedAt: null,
@@ -458,10 +463,20 @@ export function createMemoryStore() {
       return timeAdjustments.find((x) => x.punchId === punchId && x.status === 'pending') || null;
     },
 
+    async getTimeAdjustment(id) {
+      const row = timeAdjustments.find((x) => x.id === id);
+      return row ? { ...row } : null;
+    },
+
     async listTimeAdjustments({ employeeId, status } = {}) {
       return timeAdjustments
-        .filter((x) => (!employeeId || x.employeeId === employeeId) && (!status || x.status === status))
-        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+        .filter((x) => {
+          if (employeeId && x.employeeId !== employeeId) return false;
+          if (status === 'log') return x.status !== 'pending';
+          if (status && x.status !== status) return false;
+          return true;
+        })
+        .sort((a, b) => String(b.reviewedAt || b.createdAt).localeCompare(String(a.reviewedAt || a.createdAt)))
         .map((x) => ({ ...x }));
     },
 
@@ -471,6 +486,22 @@ export function createMemoryStore() {
       row.status = status;
       row.reviewedAt = new Date().toISOString();
       row.reviewedBy = by ?? null;
+      return { ...row };
+    },
+
+    async resolveTimeAdjustment(id, patch) {
+      const row = timeAdjustments.find((x) => x.id === id);
+      if (!row || row.status !== 'pending') {
+        throw new HttpError(404, 'Adjustment request not found or already resolved');
+      }
+      row.status = patch.status;
+      row.adminNote = patch.adminNote ?? null;
+      row.appliedStartedAt = patch.appliedStartedAt ?? null;
+      row.appliedEndedAt = patch.appliedEndedAt ?? null;
+      row.appliedBreakMinutes = patch.appliedBreakMinutes ?? null;
+      row.appliedMinutes = patch.appliedMinutes ?? null;
+      row.reviewedAt = new Date().toISOString();
+      row.reviewedBy = patch.by ?? null;
       return { ...row };
     },
   };
