@@ -274,7 +274,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   app.get('/api/time/current', requireSession, wrap(async (req, res) => {
     const punch = await store.getOpenPunch(req.employee.jtUserId);
     res.json({ entry: punch ? punchToEntry(punch) : null });
-    sweepClockOutReminderEmails(store).catch((e) => console.error('[reminders]', e));
+    sweepClockOutReminderEmails(store, { adapter }).catch((e) => console.error('[reminders]', e));
   }));
 
   app.post('/api/time/clock-in', requireSession, wrap(async (req, res) => {
@@ -426,7 +426,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       job,
     }).catch((e) => console.error('[geofence] wake eval failed', e));
     res.json({ ok: true, ping });
-    sweepClockOutReminderEmails(store).catch((e) => console.error('[reminders]', e));
+    sweepClockOutReminderEmails(store, { adapter }).catch((e) => console.error('[reminders]', e));
   }));
 
   const requireCron = (req, res, next) => {
@@ -445,10 +445,10 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   };
 
   app.get('/api/cron/clock-out-reminders', requireCron, wrap(async (_req, res) => {
-    res.json(await sweepClockOutReminderEmails(store));
+    res.json(await sweepClockOutReminderEmails(store, { adapter }));
   }));
   app.post('/api/cron/clock-out-reminders', requireCron, wrap(async (_req, res) => {
-    res.json(await sweepClockOutReminderEmails(store));
+    res.json(await sweepClockOutReminderEmails(store, { adapter }));
   }));
 
   // ---- admin: punch review + push to JobTread ---------------------------

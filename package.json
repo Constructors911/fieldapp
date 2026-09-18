@@ -3,6 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "engines": { "node": "22.x" },
-  "dependencies": { "express": "^4.21.2", "multer": "^1.4.5-lts.1", "@neondatabase/serverless": "^1.0.1" }
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.1",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.10.1"
+  }
 }

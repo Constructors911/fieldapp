@@ -12,6 +12,7 @@ export async function sweepClockOutReminderEmails(store, {
   now = Date.now(),
   send = sendMail,
   configured = mailConfigured(),
+  adapter = null,
 } = {}) {
   if (!configured) return { sent: 0, skipped: 'mail-not-configured' };
   const [open, employees] = await Promise.all([
@@ -19,13 +20,23 @@ export async function sweepClockOutReminderEmails(store, {
     store.listEmployees(),
   ]);
   const byJt = new Map(employees.filter((e) => e.jtUserId).map((e) => [e.jtUserId, e]));
+  const jtEmailByUser = new Map();
+  if (adapter?.listInternalMemberships) {
+    try {
+      for (const m of await adapter.listInternalMemberships()) {
+        if (m.userId && m.email) jtEmailByUser.set(m.userId, String(m.email).trim().toLowerCase());
+      }
+    } catch (e) {
+      console.error('[reminders] JobTread roster lookup failed', e);
+    }
+  }
   let sent = 0;
   const errors = [];
   for (const punch of open) {
     const due = crossedReminderHours(punch.startedAt, now);
     if (!due.length) continue;
     const emp = byJt.get(punch.userId);
-    const to = emp?.email;
+    const to = jtEmailByUser.get(punch.userId) || emp?.email;
     if (!to) continue;
     for (const hours of due) {
       const claimed = await store.tryRecordClockOutReminder(punch.id, hours);

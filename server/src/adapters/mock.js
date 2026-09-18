@@ -216,12 +216,17 @@ export function createMockAdapter() {
     },
 
     /** Mock membership lookup: the seeded user, plus a second crew member. */
+    async listInternalMemberships() {
+      return [
+        { userId: db.user.id, name: db.user.name, email: db.user.email },
+        { userId: 'user_crew', name: 'Casey Crew', email: 'crew@constructors911.com' },
+      ];
+    },
+
     async findMembershipByEmail(email) {
-      const roster = {
-        [db.user.email]: { userId: db.user.id, name: db.user.name },
-        'crew@constructors911.com': { userId: 'user_crew', name: 'Casey Crew' },
-      };
-      return roster[email] ?? null;
+      const target = String(email || '').toLowerCase();
+      const m = (await this.listInternalMemberships()).find((n) => n.email === target);
+      return m ? { userId: m.userId, name: m.name } : null;
     },
 
     async getCurrentEntry() {

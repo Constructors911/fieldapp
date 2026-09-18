@@ -2,7 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStore } from '../src/store/memory.js';
 import { sweepClockOutReminderEmails } from '../src/clockOutEmails.js';
+import { mailConfigured } from '../src/util/mail.js';
 import { startServer, api } from './helpers.js';
+
+test('mailConfigured accepts Workspace SMTP or Resend', () => {
+  assert.equal(mailConfigured({}), false);
+  assert.equal(mailConfigured({ SMTP_USER: 'noreply@constructors911.com', SMTP_PASS: 'app-pass' }), true);
+  assert.equal(mailConfigured({ RESEND_API_KEY: 're_x', MAIL_FROM: 'noreply@constructors911.com' }), true);
+});
 
 test('sweep emails 8h then 12h once each and skips when mail is off', async () => {
   const store = createMemoryStore();
@@ -44,6 +51,32 @@ test('sweep emails 8h then 12h once each and skips when mail is off', async () =
   const later = await sweepClockOutReminderEmails(store, { configured: true, send, now: at12 });
   assert.equal(later.sent, 1);
   assert.match(sent[1].subject, /12 hours/);
+  assert.equal(punch.status, 'open');
+});
+
+test('uses the JobTread membership email for the punch user', async () => {
+  const store = createMemoryStore();
+  const punch = await store.createPunch({
+    userId: 'user_crew',
+    userName: 'Casey Crew',
+    jobId: 'job_1',
+    jobName: 'Maplewood',
+    activity: 'Mason',
+    startedAt: new Date(Date.now() - 8.2 * 3600_000).toISOString(),
+  });
+  const sent = [];
+  const adapter = {
+    async listInternalMemberships() {
+      return [{ userId: 'user_crew', name: 'Casey Crew', email: 'casey@constructors911.com' }];
+    },
+  };
+  const r = await sweepClockOutReminderEmails(store, {
+    configured: true,
+    send: async (m) => { sent.push(m); },
+    adapter,
+  });
+  assert.equal(r.sent, 1);
+  assert.equal(sent[0].to, 'casey@constructors911.com');
   assert.equal(punch.status, 'open');
 });
 

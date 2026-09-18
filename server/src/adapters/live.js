@@ -344,6 +344,7 @@ export function createLiveAdapter({
   // membership timeEntryTypes (Regular / Overtime / … — not always "Standard").
   const typeCache = new Map(); // jtUserId -> string[]
   let rosterTypesLoaded = false;
+  let memberCache = { at: 0, list: null };
 
   async function timeEntryTypeNames(forUserId = userId) {
     const key = forUserId || userId;
@@ -593,12 +594,11 @@ export function createLiveAdapter({
     },
 
     /**
-     * Find an org member by email for sign-in linking. {userId, name} | null.
-     * Fetches internal memberships and matches case-insensitively client-side
-     * (JT stores emails with their original casing, e.g. "Sierra@...").
+     * Internal JT users with the email on their membership (the Field App
+     * login link). Cached a few minutes so reminder sweeps are cheap.
      */
-    async findMembershipByEmail(email) {
-      const target = String(email).toLowerCase();
+    async listInternalMemberships() {
+      if (memberCache.list && Date.now() - memberCache.at < 5 * 60_000) return memberCache.list;
       const data = await pave({
         organization: {
           $: { id: organizationId },
@@ -609,10 +609,26 @@ export function createLiveAdapter({
           },
         },
       });
-      const m = (data?.organization?.memberships?.nodes ?? []).find(
-        (n) => String(n.user?.emailAddress ?? '').toLowerCase() === target
-      );
-      return m?.user ? { userId: m.user.id, name: m.user.name } : null;
+      const list = (data?.organization?.memberships?.nodes ?? [])
+        .map((n) => ({
+          userId: n.user?.id,
+          name: n.user?.name || '',
+          email: String(n.user?.emailAddress || '').trim().toLowerCase(),
+        }))
+        .filter((m) => m.userId);
+      memberCache = { at: Date.now(), list };
+      return list;
+    },
+
+    /**
+     * Find an org member by email for sign-in linking. {userId, name} | null.
+     * Fetches internal memberships and matches case-insensitively client-side
+     * (JT stores emails with their original casing, e.g. "Sierra@...").
+     */
+    async findMembershipByEmail(email) {
+      const target = String(email).toLowerCase();
+      const m = (await this.listInternalMemberships()).find((n) => n.email === target);
+      return m ? { userId: m.userId, name: m.name } : null;
     },
 
     async getJobCostItems(jobId) {
