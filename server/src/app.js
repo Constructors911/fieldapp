@@ -505,6 +505,57 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ punches: await store.adminListPunches({ status }) });
   }));
 
+  app.get('/api/admin/jobs', requireAdmin, wrap(async (_req, res) => {
+    const { jobs } = await boot();
+    res.json({ jobs });
+  }));
+
+  app.post('/api/admin/punches', requireAdmin, wrap(async (req, res) => {
+    const { userId, jobId, jobName, activity, costItemId, startedAt, endedAt, breakMinutes, notes } = req.body ?? {};
+    if (typeof userId !== 'string' || !userId) throw new HttpError(400, 'Pick a crew member');
+    if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'Pick a job');
+    if (typeof activity !== 'string' || !activity.trim()) throw new HttpError(400, 'Pick an activity');
+    if (!isValidISO(startedAt)) throw new HttpError(400, 'Clock-in time is required');
+    if (!isValidISO(endedAt)) throw new HttpError(400, 'Clock-out time is required');
+    const start = new Date(startedAt);
+    const end = new Date(endedAt);
+    if (end <= start) throw new HttpError(400, 'Clock-out must be after clock-in');
+    if (start.getTime() > Date.now() + 2 * 60_000) throw new HttpError(400, 'Clock-in cannot be in the future');
+    const brk = breakMinutes === undefined || breakMinutes === '' ? 0 : Number(breakMinutes);
+    if (!Number.isFinite(brk) || brk < 0) throw new HttpError(400, 'Break minutes must be zero or more');
+    if ((end - start) / 60_000 <= brk) throw new HttpError(400, 'Break exceeds punch duration');
+    if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
+
+    const employees = await store.listEmployees();
+    const employee = employees.find((e) => e.jtUserId === userId);
+    if (!employee) throw new HttpError(404, 'Crew member not found');
+    const job = await resolveJob(jobId, jobName);
+    if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
+
+    let costItem = null;
+    if (costItemId) {
+      if (typeof costItemId !== 'string') throw new HttpError(400, 'costItemId must be a string');
+      costItem = (await jobCostItems(job.id)).find((c) => c.id === costItemId);
+      if (!costItem) throw new HttpError(400, "Cost item is not on this job's budget");
+    }
+
+    const punch = await store.createManualPunch({
+      userId: employee.jtUserId,
+      userName: employee.name || employee.email,
+      jobId: job.id,
+      jobName: job.name,
+      activity: activity.trim(),
+      costItemId: costItem?.id ?? null,
+      costItemName: costItem?.name ?? null,
+      startedAt: start.toISOString(),
+      endedAt: end.toISOString(),
+      breakMinutes: brk,
+      notes: typeof notes === 'string' ? notes.trim() : '',
+    });
+    await store.logAudit(punch.id, 'created-manual', { by: actorOf(req) });
+    res.json({ punch });
+  }));
+
   async function hoursReportForRange(req) {
     const from = qp(req.query.from);
     const to = qp(req.query.to);

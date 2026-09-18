@@ -9,6 +9,7 @@ import AdminGeofenceEvents from './AdminGeofenceEvents.jsx';
 import AdminCrew from './AdminCrew.jsx';
 import AdminHours from './AdminHours.jsx';
 import AdminAdjustments from './AdminAdjustments.jsx';
+import AdminManualTime from './AdminManualTime.jsx';
 import './admin.css';
 
 const KEY_STORAGE = 'c911_admin_key';
@@ -174,7 +175,7 @@ function SignIn({ onAuthed }) {
 export default function Admin() {
   const [authed, setAuthed] = useState(() =>
     Boolean(localStorage.getItem(SESSION_STORAGE) || localStorage.getItem(KEY_STORAGE)));
-  const [section, setSection] = useState('review'); // 'review' | 'map' | 'geofence' | 'crew' | 'hours' | 'adjust'
+  const [section, setSection] = useState('review'); // review | add | hours | adjust | map | geofence | crew
   const [tab, setTab] = useState('pending');
   const [userFilter, setUserFilter] = useState('');
   const [punches, setPunches] = useState(undefined);
@@ -364,67 +365,44 @@ export default function Admin() {
   return (
     <div className="adm-wrap adm-wide">
       <div className="adm-toolbar">
-        <h1 className="adm-title">
-          {section === 'map' ? 'Crew map' : section === 'geofence' ? 'Geofence log' : section === 'crew' ? 'Crew' : section === 'hours' ? 'Hours' : section === 'adjust' ? 'Adjustments' : 'Time review'}
-        </h1>
-        <div className="adm-sections" role="tablist" aria-label="Admin sections">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={section === 'review'}
-            className={section === 'review' ? 'adm-section active' : 'adm-section'}
-            onClick={() => setSection('review')}
-          >
-            Time review
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={section === 'map'}
-            className={section === 'map' ? 'adm-section active' : 'adm-section'}
-            onClick={() => setSection('map')}
-          >
-            Crew map
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={section === 'geofence'}
-            className={section === 'geofence' ? 'adm-section active' : 'adm-section'}
-            onClick={() => setSection('geofence')}
-          >
-            Geofence log
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={section === 'crew'}
-            className={section === 'crew' ? 'adm-section active' : 'adm-section'}
-            onClick={() => setSection('crew')}
-          >
-            Crew
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={section === 'hours'}
-            className={section === 'hours' ? 'adm-section active' : 'adm-section'}
-            onClick={() => setSection('hours')}
-          >
-            Hours
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={section === 'adjust'}
-            className={section === 'adjust' ? 'adm-section active' : 'adm-section'}
-            onClick={() => setSection('adjust')}
-          >
-            Adjustments
-          </button>
+        <div className="adm-toolbar-top">
+          <h1 className="adm-title">
+            {section === 'add' ? 'Add time'
+              : section === 'map' ? 'Crew map'
+              : section === 'geofence' ? 'Geofence log'
+              : section === 'crew' ? 'Crew'
+              : section === 'hours' ? 'Hours'
+              : section === 'adjust' ? 'Adjustments'
+              : 'Time review'}
+          </h1>
+          <button type="button" className="adm-linklike" onClick={signOut}>Sign out</button>
         </div>
+        <nav className="adm-nav" aria-label="Admin">
+          <div className="adm-nav-group">
+            <p className="adm-nav-label">Time</p>
+            <div className="adm-sections" role="tablist" aria-label="Time">
+              <button type="button" role="tab" aria-selected={section === 'review'} className={section === 'review' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('review')}>Review</button>
+              <button type="button" role="tab" aria-selected={section === 'add'} className={section === 'add' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('add')}>Add time</button>
+              <button type="button" role="tab" aria-selected={section === 'hours'} className={section === 'hours' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('hours')}>Hours</button>
+              <button type="button" role="tab" aria-selected={section === 'adjust'} className={section === 'adjust' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('adjust')}>Adjustments</button>
+            </div>
+          </div>
+          <div className="adm-nav-group">
+            <p className="adm-nav-label">Field</p>
+            <div className="adm-sections" role="tablist" aria-label="Field">
+              <button type="button" role="tab" aria-selected={section === 'map'} className={section === 'map' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('map')}>Crew map</button>
+              <button type="button" role="tab" aria-selected={section === 'geofence'} className={section === 'geofence' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('geofence')}>Geofence</button>
+            </div>
+          </div>
+          <div className="adm-nav-group">
+            <p className="adm-nav-label">People</p>
+            <div className="adm-sections" role="tablist" aria-label="People">
+              <button type="button" role="tab" aria-selected={section === 'crew'} className={section === 'crew' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('crew')}>Crew</button>
+            </div>
+          </div>
+        </nav>
         {section === 'review' && (
-          <>
+          <div className="adm-toolbar-filters">
             <div className="adm-tabs">
               {STATUS_TABS.map((t) => (
                 <button key={t} type="button" className={tab === t ? 'adm-tab active' : 'adm-tab'} onClick={() => setTab(t)}>
@@ -437,9 +415,8 @@ export default function Admin() {
               {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
             <button type="button" className="tdy-refresh" onClick={load}>↻</button>
-          </>
+          </div>
         )}
-        <button type="button" className="adm-linklike" onClick={signOut}>Sign out</button>
       </div>
 
       {section === 'map' ? (
@@ -452,6 +429,8 @@ export default function Admin() {
         <AdminHours adminFetch={adminFetch} />
       ) : section === 'adjust' ? (
         <AdminAdjustments adminFetch={adminFetch} />
+      ) : section === 'add' ? (
+        <AdminManualTime adminFetch={adminFetch} onReview={() => { setTab('pending'); setSection('review'); }} />
       ) : (
       <>
       <ErrorBanner message={err} onDismiss={() => setErr(null)} />

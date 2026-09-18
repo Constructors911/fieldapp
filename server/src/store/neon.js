@@ -222,6 +222,20 @@ export function createNeonStore(databaseUrl) {
       return rowToPunch(rows[0]);
     },
 
+    async createManualPunch(p) {
+      await migrate();
+      const status = p.costItemId ? 'approved' : 'pending';
+      const rows = await sql`insert into punches
+        (user_id, user_name, job_id, job_name, activity, cost_item_id, cost_item_name, entry_type,
+         started_at, ended_at, break_minutes, notes, status)
+        values (${p.userId}, ${p.userName ?? ''}, ${p.jobId}, ${p.jobName ?? ''}, ${p.activity},
+                ${p.costItemId ?? null}, ${p.costItemName ?? null},
+                ${p.entryType ?? 'Standard'}, ${p.startedAt}, ${p.endedAt}, ${p.breakMinutes ?? 0},
+                ${p.notes ?? ''}, ${status})
+        returning *`;
+      return rowToPunch(rows[0]);
+    },
+
     async closePunch(userId, { endedAt, breakMinutes = 0, endCoordinates } = {}) {
       await migrate();
       const rows = await sql`update punches set

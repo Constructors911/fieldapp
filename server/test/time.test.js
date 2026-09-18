@@ -376,3 +376,63 @@ test('admin: voiding a punch removes it from the pipeline and frees the employee
   const again = await api(srv.base, `/api/admin/punches/${openId}/void`, { method: 'POST' });
   assert.equal(again.status, 404);
 });
+
+test('GET /api/admin/jobs lists open jobs for the add-time form', async () => {
+  const { status, json } = await api(srv.base, '/api/admin/jobs');
+  assert.equal(status, 200);
+  assert.ok(json.jobs.some((j) => j.id === 'job_maplewood'));
+});
+
+test('admin can add a closed punch even while the employee is clocked in', async () => {
+  const cin = await authed('/api/time/clock-in', {
+    method: 'POST',
+    body: { jobId: 'job_sunset', activity: 'Paint Labor' },
+  });
+  assert.equal(cin.status, 200);
+
+  const startedAt = new Date(Date.now() - 10 * 3600_000).toISOString();
+  const endedAt = new Date(Date.now() - 2 * 3600_000).toISOString();
+  const added = await api(srv.base, '/api/admin/punches', {
+    method: 'POST',
+    body: {
+      userId: 'user_david',
+      jobId: 'job_maplewood',
+      activity: 'Finish Carpentry',
+      startedAt,
+      endedAt,
+      breakMinutes: 30,
+      notes: 'Missed clock from yesterday',
+    },
+  });
+  assert.equal(added.status, 200, added.json?.error);
+  assert.equal(added.json.punch.status, 'pending');
+  assert.equal(added.json.punch.endedAt, endedAt);
+  assert.equal(added.json.punch.breakMinutes, 30);
+  assert.equal(added.json.punch.userId, 'user_david');
+  assert.equal(added.json.punch.activity, 'Finish Carpentry');
+
+  const stillOpen = await authed('/api/time/current');
+  assert.equal(stillOpen.json.entry.id, cin.json.entry.id);
+
+  const audit = await api(srv.base, `/api/admin/punches/${added.json.punch.id}/audit`);
+  assert.ok(audit.json.events.some((e) => e.action === 'created-manual'));
+
+  await authed('/api/time/clock-out', { method: 'POST', body: {} });
+});
+
+test('admin add time rejects clock-out before clock-in', async () => {
+  const startedAt = new Date(Date.now() - 2 * 3600_000).toISOString();
+  const endedAt = new Date(Date.now() - 4 * 3600_000).toISOString();
+  const bad = await api(srv.base, '/api/admin/punches', {
+    method: 'POST',
+    body: {
+      userId: 'user_david',
+      jobId: 'job_maplewood',
+      activity: 'Finish Carpentry',
+      startedAt,
+      endedAt,
+    },
+  });
+  assert.equal(bad.status, 400);
+  assert.match(bad.json.error, /after clock-in/i);
+});

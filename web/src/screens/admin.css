@@ -50,8 +50,21 @@
   background: none; border: 0; color: var(--navy); font-size: 13px; font-weight: 600;
   cursor: pointer; text-decoration: underline; padding: 8px 0; min-height: var(--tap);
 }
-.adm-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.adm-title { font-size: 20px; font-weight: 800; color: var(--navy); margin: 0; flex: 1; }
+.adm-toolbar { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 16px; }
+.adm-toolbar-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.adm-title { font-size: 20px; font-weight: 800; color: var(--navy); margin: 0; }
+.adm-nav { display: flex; flex-wrap: wrap; gap: 16px 28px; }
+.adm-nav-group { display: flex; flex-direction: column; gap: 6px; }
+.adm-nav-label {
+  margin: 0; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--muted);
+}
+.adm-toolbar-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.adm-addform { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; }
+.adm-addform label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.adm-addform input, .adm-addform select { min-height: 40px; }
+.adm-addform-wide { grid-column: 1 / -1; }
+.adm-addform-actions { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .adm-tabs { display: flex; gap: 4px; }
 .adm-tab {
   min-height: 36px; padding: 0 14px; border: 1px solid #cfd6dd; background: var(--card);
@@ -87,7 +100,7 @@
 }
 .adm-pushbar .c-btn { width: 100%; }
 
-/* Section switcher (Time review | Crew map) */
+/* Grouped section switcher (Time / Field / People) */
 .adm-sections { display: flex; gap: 4px; }
 .adm-section {
   min-height: 36px; padding: 0 14px; border: 1px solid #cfd6dd; background: var(--card);

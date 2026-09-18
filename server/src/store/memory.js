@@ -78,6 +78,31 @@ export function createMemoryStore() {
       return { ...punch };
     },
 
+    async createManualPunch(p) {
+      const punch = {
+        id: randomUUID(),
+        userId: p.userId,
+        userName: p.userName ?? '',
+        jobId: p.jobId,
+        jobName: p.jobName ?? '',
+        activity: p.activity,
+        costItemId: p.costItemId ?? null,
+        costItemName: p.costItemName ?? null,
+        entryType: p.entryType ?? 'Standard',
+        startedAt: p.startedAt,
+        endedAt: p.endedAt,
+        breakMinutes: p.breakMinutes ?? 0,
+        notes: p.notes ?? '',
+        coordinates: null,
+        endCoordinates: null,
+        status: p.costItemId ? 'approved' : 'pending',
+        jtTimeEntryId: null,
+        syncError: null,
+      };
+      punches.push(punch);
+      return { ...punch };
+    },
+
     async closePunch(userId, { endedAt, breakMinutes = 0, endCoordinates } = {}) {
       const punch = await this.getOpenPunch(userId);
       if (!punch) throw new HttpError(409, 'No open time entry - clock in first');
