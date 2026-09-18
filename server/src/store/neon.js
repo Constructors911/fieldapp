@@ -167,6 +167,14 @@ export function createNeonStore(databaseUrl) {
         await sql`alter table time_adjustments add column if not exists applied_ended_at timestamptz`;
         await sql`alter table time_adjustments add column if not exists applied_break_minutes integer`;
         await sql`alter table time_adjustments add column if not exists applied_minutes integer`;
+        await sql`alter table time_adjustments alter column punch_id drop not null`;
+        await sql`alter table time_adjustments add column if not exists kind text not null default 'change'`;
+        await sql`alter table time_adjustments add column if not exists requested_job_id text`;
+        await sql`alter table time_adjustments add column if not exists requested_job_name text`;
+        await sql`alter table time_adjustments add column if not exists requested_activity text`;
+        await sql`alter table time_adjustments add column if not exists requested_started_at timestamptz`;
+        await sql`alter table time_adjustments add column if not exists requested_ended_at timestamptz`;
+        await sql`alter table time_adjustments add column if not exists requested_break_minutes integer`;
         await sql`create table if not exists clock_out_reminder_emails (
           punch_id text not null,
           hours integer not null,
@@ -313,10 +321,13 @@ export function createNeonStore(databaseUrl) {
 
     async updatePunch(id, patch) {
       await migrate();
+      const clearCost = Boolean(patch.clearCostItem);
       const rows = await sql`update punches set
+          job_id = coalesce(${patch.jobId ?? null}, job_id),
+          job_name = coalesce(${patch.jobName ?? null}, job_name),
           activity = coalesce(${patch.activity ?? null}, activity),
-          cost_item_id = coalesce(${patch.costItemId ?? null}, cost_item_id),
-          cost_item_name = coalesce(${patch.costItemName ?? null}, cost_item_name),
+          cost_item_id = case when ${clearCost} then null else coalesce(${patch.costItemId ?? null}, cost_item_id) end,
+          cost_item_name = case when ${clearCost} then null else coalesce(${patch.costItemName ?? null}, cost_item_name) end,
           entry_type = coalesce(${patch.entryType ?? null}, entry_type),
           started_at = coalesce(${patch.startedAt ?? null}, started_at),
           ended_at = coalesce(${patch.endedAt ?? null}, ended_at),
@@ -627,9 +638,14 @@ export function createNeonStore(databaseUrl) {
     async createTimeAdjustment(r) {
       await migrate();
       const rows = await sql`insert into time_adjustments
-        (punch_id, employee_id, employee_name, employee_email, job_name, started_at, ended_at, minutes, reason)
-        values (${r.punchId}, ${r.employeeId}, ${r.employeeName ?? ''}, ${r.employeeEmail ?? ''},
-                ${r.jobName ?? ''}, ${r.startedAt ?? null}, ${r.endedAt ?? null}, ${r.minutes ?? 0}, ${r.reason})
+        (punch_id, employee_id, employee_name, employee_email, job_name, started_at, ended_at, minutes, reason,
+         kind, requested_job_id, requested_job_name, requested_activity,
+         requested_started_at, requested_ended_at, requested_break_minutes)
+        values (${r.punchId ?? null}, ${r.employeeId}, ${r.employeeName ?? ''}, ${r.employeeEmail ?? ''},
+                ${r.jobName ?? ''}, ${r.startedAt ?? null}, ${r.endedAt ?? null}, ${r.minutes ?? 0}, ${r.reason},
+                ${r.kind ?? 'change'}, ${r.requestedJobId ?? null}, ${r.requestedJobName ?? null},
+                ${r.requestedActivity ?? null}, ${r.requestedStartedAt ?? null}, ${r.requestedEndedAt ?? null},
+                ${r.requestedBreakMinutes ?? null})
         returning *`;
       return adjustmentRow(rows[0]);
     },
@@ -678,6 +694,7 @@ export function createNeonStore(databaseUrl) {
       const rows = await sql`update time_adjustments set
           status = ${patch.status},
           admin_note = ${patch.adminNote ?? null},
+          punch_id = coalesce(${patch.punchId ?? null}, punch_id),
           applied_started_at = ${patch.appliedStartedAt ?? null},
           applied_ended_at = ${patch.appliedEndedAt ?? null},
           applied_break_minutes = ${patch.appliedBreakMinutes ?? null},
@@ -705,6 +722,13 @@ function adjustmentRow(r) {
     endedAt: r.ended_at instanceof Date ? r.ended_at.toISOString() : r.ended_at,
     minutes: r.minutes,
     reason: r.reason,
+    kind: r.kind || 'change',
+    requestedJobId: r.requested_job_id || null,
+    requestedJobName: r.requested_job_name || null,
+    requestedActivity: r.requested_activity || null,
+    requestedStartedAt: r.requested_started_at instanceof Date ? r.requested_started_at.toISOString() : r.requested_started_at || null,
+    requestedEndedAt: r.requested_ended_at instanceof Date ? r.requested_ended_at.toISOString() : r.requested_ended_at || null,
+    requestedBreakMinutes: r.requested_break_minutes ?? null,
     adminNote: r.admin_note || null,
     appliedStartedAt: r.applied_started_at instanceof Date ? r.applied_started_at.toISOString() : r.applied_started_at || null,
     appliedEndedAt: r.applied_ended_at instanceof Date ? r.applied_ended_at.toISOString() : r.applied_ended_at || null,

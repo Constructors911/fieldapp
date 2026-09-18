@@ -393,6 +393,20 @@
 }
 .hrs-ask-lead { margin: 0 0 12px; font-size: 14px; color: var(--navy); font-weight: 600; line-height: 1.4; }
 .hrs-ask-hint { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+.hrs-add {
+  width: 100%; min-height: var(--tap); margin: 0 0 12px; border: 1px dashed #cfd6dd;
+  border-radius: 12px; background: var(--card); color: var(--navy); font-size: 15px; font-weight: 700;
+  cursor: pointer;
+}
+.hrs-pendingadds { margin: 0 0 12px; }
+.hrs-kind { display: flex; gap: 0; margin: 0 0 12px; border: 1px solid #cfd6dd; border-radius: 10px; overflow: hidden; }
+.hrs-kind-btn {
+  flex: 1; min-height: 44px; border: 0; background: #fff; color: var(--muted);
+  font-size: 13px; font-weight: 700; cursor: pointer; padding: 0 8px;
+}
+.hrs-kind-btn + .hrs-kind-btn { border-left: 1px solid #cfd6dd; }
+.hrs-kind-btn.active { background: var(--navy); color: #fff; }
+.hrs-kind-btn:disabled { opacity: 0.45; cursor: default; }
 
 /* --- week --- */
 .c-week-nav {

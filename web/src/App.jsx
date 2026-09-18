@@ -164,7 +164,7 @@ export default function App() {
         {tab === 'today' && <Today boot={boot} />}
         {tab === 'log' && <Log boot={boot} me={me} onMeUpdate={setMe} onRefreshJobs={() => getBootstrap().then(setBoot)} />}
         {tab === 'week' && <Week boot={boot} />}
-        {tab === 'hours' && <Hours />}
+        {tab === 'hours' && <Hours boot={boot} />}
       </main>
       <nav className="tabbar" role="tablist" aria-label="Main">
         {TABS.map(t => (

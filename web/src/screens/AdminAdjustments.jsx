@@ -43,11 +43,17 @@ function csvEscape(v) {
 function draftFrom(a) {
   const punch = a.punch;
   return {
-    start: isoToLocalInput(punch?.startedAt || a.startedAt),
-    end: isoToLocalInput(punch?.endedAt || a.endedAt),
-    brk: String(punch?.breakMinutes ?? 0),
+    start: isoToLocalInput(a.requestedStartedAt || punch?.startedAt || a.startedAt),
+    end: isoToLocalInput(a.requestedEndedAt || punch?.endedAt || a.endedAt),
+    brk: String(a.requestedBreakMinutes ?? punch?.breakMinutes ?? 0),
+    jobId: a.requestedJobId || punch?.jobId || '',
+    activity: a.requestedActivity || punch?.activity || a.jobName || '',
     note: '',
   };
+}
+
+function kindLabel(a) {
+  return a.kind === 'add' ? 'Add missing time' : 'Change clock';
 }
 
 export default function AdminAdjustments({ adminFetch }) {
@@ -56,14 +62,19 @@ export default function AdminAdjustments({ adminFetch }) {
   const [err, setErr] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [drafts, setDrafts] = useState({});
+  const [jobs, setJobs] = useState([]);
 
   const load = useCallback(async () => {
     setItems(undefined);
     setErr(null);
     try {
-      const r = await adminFetch(`/api/admin/adjustments?status=${tab === 'log' ? 'log' : 'pending'}`);
+      const [r, jr] = await Promise.all([
+        adminFetch(`/api/admin/adjustments?status=${tab === 'log' ? 'log' : 'pending'}`),
+        tab === 'pending' ? adminFetch('/api/admin/jobs').catch(() => ({ jobs: [] })) : Promise.resolve({ jobs: [] }),
+      ]);
       const list = r.adjustments || [];
       setItems(list);
+      if (jr.jobs) setJobs(jr.jobs);
       if (tab === 'pending') {
         setDrafts((prev) => {
           const next = { ...prev };
@@ -91,12 +102,16 @@ export default function AdminAdjustments({ adminFetch }) {
     setBusyId(a.id);
     setErr(null);
     try {
+      const job = jobs.find((j) => j.id === draft.jobId);
       await adminFetch(`/api/admin/adjustments/${a.id}/apply`, {
         method: 'POST',
         body: {
           startedAt: new Date(draft.start).toISOString(),
           endedAt: new Date(draft.end).toISOString(),
           breakMinutes: parseInt(draft.brk, 10) || 0,
+          jobId: draft.jobId || undefined,
+          jobName: job?.name,
+          activity: draft.activity || undefined,
           note: draft.note,
         },
       });
@@ -180,7 +195,7 @@ export default function AdminAdjustments({ adminFetch }) {
       </div>
       <p className="adm-crew-note">
         {tab === 'pending'
-          ? 'Change the clock if the request is valid, and write why. That note is stored in the adjustment log for management review.'
+          ? 'Apply the requested times and job, or dismiss with a note. Add-time requests create a new clock. Wrong-job requests can move the existing one.'
           : 'Every office decision on a crew change request — times changed or not — with the reason note.'}
       </p>
       {tab === 'log' && Array.isArray(items) && items.length > 0 && (
@@ -203,15 +218,32 @@ export default function AdminAdjustments({ adminFetch }) {
           {items.map((a) => {
             const draft = drafts[a.id] || draftFrom(a);
             const locked = a.punch && (a.punch.status === 'pushed' || a.punch.status === 'void');
+            const askedJob = a.requestedJobName || a.jobName;
             return (
               <article className="adm-adj-card" key={a.id}>
                 <header>
                   <strong>{a.employeeName || a.employeeEmail}</strong>
-                  <span>{fmtWhen(tab === 'log' ? a.reviewedAt || a.createdAt : a.createdAt)}</span>
+                  <span>{kindLabel(a)} · {fmtWhen(tab === 'log' ? a.reviewedAt || a.createdAt : a.createdAt)}</span>
                 </header>
                 <p className="adm-adj-clock">
-                  {a.jobName || 'Job'} · {clockLabel(a.startedAt, a.endedAt, a.minutes)}
+                  {a.kind === 'add' ? 'Requested' : 'Current'}
+                  {': '}
+                  {a.kind === 'add' ? askedJob : (a.jobName || 'Job')}
+                  {' · '}
+                  {clockLabel(
+                    a.kind === 'add' ? a.requestedStartedAt || a.startedAt : a.startedAt,
+                    a.kind === 'add' ? a.requestedEndedAt || a.endedAt : a.endedAt,
+                    a.kind === 'add' ? (a.requestedStartedAt ? netMinutes(a.requestedStartedAt, a.requestedEndedAt, a.requestedBreakMinutes) : a.minutes) : a.minutes,
+                    a.kind === 'add' ? a.requestedBreakMinutes : undefined
+                  )}
                 </p>
+                {a.kind !== 'add' && a.requestedJobName && (
+                  <p className="adm-adj-clock">
+                    Requested: {a.requestedJobName}
+                    {a.requestedActivity ? ` · ${a.requestedActivity}` : ''}
+                    {a.requestedStartedAt ? ` · ${clockLabel(a.requestedStartedAt, a.requestedEndedAt, netMinutes(a.requestedStartedAt, a.requestedEndedAt, a.requestedBreakMinutes), a.requestedBreakMinutes)}` : ''}
+                  </p>
+                )}
                 <p className="adm-adj-label">Crew reason</p>
                 <p className="adm-adj-reason">{a.reason}</p>
                 {tab === 'pending' && (
@@ -225,6 +257,19 @@ export default function AdminAdjustments({ adminFetch }) {
                     )}
                     {!locked && (
                       <div className="adm-adj-form">
+                        <label>
+                          Job
+                          <select className="adm-select" value={draft.jobId} onChange={(e) => setDraft(a.id, { jobId: e.target.value })}>
+                            <option value="">Select…</option>
+                            {jobs.map((j) => (
+                              <option key={j.id} value={j.id}>{j.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Activity
+                          <input type="text" value={draft.activity} onChange={(e) => setDraft(a.id, { activity: e.target.value })} />
+                        </label>
                         <label>
                           Clock in
                           <input type="datetime-local" value={draft.start} onChange={(e) => setDraft(a.id, { start: e.target.value })} />
@@ -252,7 +297,7 @@ export default function AdminAdjustments({ adminFetch }) {
                     <div className="adm-adj-actions">
                       {!locked && (
                         <button type="button" className="c-btn" disabled={busyId === a.id} onClick={() => apply(a)}>
-                          {busyId === a.id ? 'Saving…' : 'Apply time change'}
+                          {busyId === a.id ? 'Saving…' : (a.kind === 'add' ? 'Add this time' : 'Apply change')}
                         </button>
                       )}
                       <button type="button" className="c-btn c-btn-ghost" disabled={busyId === a.id} onClick={() => dismiss(a)}>
@@ -264,7 +309,7 @@ export default function AdminAdjustments({ adminFetch }) {
                 {tab === 'log' && (
                   <div className="adm-adj-log">
                     <p className={a.status === 'applied' ? 'adm-adj-outcome is-applied' : 'adm-adj-outcome'}>
-                      {a.status === 'applied' ? 'Times changed' : 'No change'}
+                      {a.status === 'applied' ? (a.kind === 'add' ? 'Time added' : 'Times changed') : 'No change'}
                       {a.reviewedBy ? ` · ${a.reviewedBy}` : ''}
                     </p>
                     {a.status === 'applied' && (

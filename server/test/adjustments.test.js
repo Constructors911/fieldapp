@@ -147,3 +147,72 @@ test('admin can apply a time change with a required note', async () => {
   const audit = await api(srv.base, `/api/admin/punches/${entry.id}/audit`);
   assert.ok(audit.json.events.some((e) => e.action === 'edited' && e.detail?.adminNote));
 });
+
+test('crew can request missing time and admin can add it', async () => {
+  const startedAt = new Date(Date.now() - 5 * 3600_000).toISOString();
+  const endedAt = new Date(Date.now() - 1 * 3600_000).toISOString();
+  const created = await api(srv.base, '/api/time/adjustments', {
+    method: 'POST',
+    headers,
+    body: {
+      kind: 'add',
+      jobId: 'job_riverside',
+      activity: 'Painter',
+      startedAt,
+      endedAt,
+      breakMinutes: 0,
+      reason: 'I forgot to clock in after lunch on Riverside.',
+    },
+  });
+  assert.equal(created.status, 200, created.json?.error);
+  assert.equal(created.json.adjustment.kind, 'add');
+  assert.equal(created.json.adjustment.punchId, null);
+  assert.equal(created.json.adjustment.requestedJobId, 'job_riverside');
+
+  const applied = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/apply`, {
+    method: 'POST',
+    body: { note: 'Confirmed they were on Riverside after lunch.' },
+  });
+  assert.equal(applied.status, 200, applied.json?.error);
+  assert.equal(applied.json.adjustment.status, 'applied');
+  assert.equal(applied.json.punch.jobId, 'job_riverside');
+  assert.equal(applied.json.punch.activity, 'Painter');
+  assert.ok(applied.json.punch.id);
+  assert.equal(applied.json.punch.status, 'pending');
+});
+
+test('crew can request a wrong-job change on an existing clock', async () => {
+  const entry = await closedPunch();
+  const created = await api(srv.base, '/api/time/adjustments', {
+    method: 'POST',
+    headers,
+    body: {
+      kind: 'change',
+      punchId: entry.id,
+      jobId: 'job_sunset',
+      activity: 'Paint Labor',
+      startedAt: entry.startedAt,
+      endedAt: entry.endedAt,
+      breakMinutes: 0,
+      reason: 'I stayed clocked in on Maplewood but I was at Sunset.',
+    },
+  });
+  assert.equal(created.status, 200, created.json?.error);
+  assert.equal(created.json.adjustment.kind, 'change');
+  assert.equal(created.json.adjustment.requestedJobId, 'job_sunset');
+
+  const applied = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/apply`, {
+    method: 'POST',
+    body: {
+      jobId: 'job_sunset',
+      activity: 'Paint Labor',
+      startedAt: entry.startedAt,
+      endedAt: entry.endedAt,
+      breakMinutes: 0,
+      note: 'Moved this clock to the job they actually worked.',
+    },
+  });
+  assert.equal(applied.status, 200, applied.json?.error);
+  assert.equal(applied.json.punch.jobId, 'job_sunset');
+  assert.equal(applied.json.punch.jobName, 'Sunset Plaza Office TI Buildout');
+});

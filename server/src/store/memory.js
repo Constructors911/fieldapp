@@ -162,8 +162,13 @@ export function createMemoryStore() {
     async updatePunch(id, patch) {
       const punch = punches.find((p) => p.id === id && ['open', 'pending', 'approved', 'error'].includes(p.status));
       if (!punch) throw new HttpError(404, 'Punch not found or already pushed');
-      for (const k of ['activity', 'costItemId', 'costItemName', 'entryType', 'startedAt', 'endedAt', 'breakMinutes', 'notes']) {
+      const oldJob = punch.jobId;
+      for (const k of ['jobId', 'jobName', 'activity', 'costItemId', 'costItemName', 'entryType', 'startedAt', 'endedAt', 'breakMinutes', 'notes']) {
         if (patch[k] !== undefined && patch[k] !== null) punch[k] = patch[k];
+      }
+      if (patch.clearCostItem || (patch.jobId && patch.jobId !== oldJob)) {
+        punch.costItemId = patch.costItemId ?? null;
+        punch.costItemName = patch.costItemName ?? null;
       }
       return { ...punch };
     },
@@ -436,7 +441,7 @@ export function createMemoryStore() {
     async createTimeAdjustment(r) {
       const row = {
         id: randomUUID(),
-        punchId: r.punchId,
+        punchId: r.punchId ?? null,
         employeeId: r.employeeId,
         employeeName: r.employeeName ?? '',
         employeeEmail: r.employeeEmail ?? '',
@@ -445,6 +450,13 @@ export function createMemoryStore() {
         endedAt: r.endedAt ?? null,
         minutes: r.minutes ?? 0,
         reason: r.reason,
+        kind: r.kind ?? 'change',
+        requestedJobId: r.requestedJobId ?? null,
+        requestedJobName: r.requestedJobName ?? null,
+        requestedActivity: r.requestedActivity ?? null,
+        requestedStartedAt: r.requestedStartedAt ?? null,
+        requestedEndedAt: r.requestedEndedAt ?? null,
+        requestedBreakMinutes: r.requestedBreakMinutes ?? null,
         adminNote: null,
         appliedStartedAt: null,
         appliedEndedAt: null,
@@ -500,6 +512,7 @@ export function createMemoryStore() {
       row.appliedEndedAt = patch.appliedEndedAt ?? null;
       row.appliedBreakMinutes = patch.appliedBreakMinutes ?? null;
       row.appliedMinutes = patch.appliedMinutes ?? null;
+      if (patch.punchId) row.punchId = patch.punchId;
       row.reviewedAt = new Date().toISOString();
       row.reviewedBy = patch.by ?? null;
       return { ...row };

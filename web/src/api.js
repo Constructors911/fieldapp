@@ -54,6 +54,7 @@ export const getCurrentEntry = () => get('/api/time/current');
 export const getTimeEntries = (from, to) => get(`/api/time/entries?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
 export const getMyAdjustments = () => get('/api/time/adjustments');
 export const requestTimeAdjustment = (id, reason) => post(`/api/time/entries/${encodeURIComponent(id)}/adjust`, { reason });
+export const requestTimeChange = (body) => post('/api/time/adjustments', body);
 export const getTasks = (scope, weekStart) => get(`/api/tasks?scope=${scope}${weekStart ? `&weekStart=${weekStart}` : ''}`);
 export const getLogs = (date, jobId) => get(`/api/logs?date=${date}${jobId ? `&jobId=${jobId}` : ''}`);
 export const getMyLogs = ({ jobId, date } = {}) =>

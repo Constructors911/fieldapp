@@ -4,7 +4,7 @@ import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import Sheet from '../components/Sheet.jsx';
-import { getTimeEntries, getMyAdjustments, requestTimeAdjustment } from '../api.js';
+import { getTimeEntries, getMyAdjustments, getActivities, requestTimeChange } from '../api.js';
 import {
   addDays, payPeriodContaining, payPeriodOffset, periodToIsoRange, sundayOfDate,
   parseISODate, toISODate, todayISO,
@@ -28,6 +28,25 @@ function fmtDay(dateStr) {
 
 function fmtRange(from, to) {
   return `${fmtDay(from)} – ${fmtDay(to)}`;
+}
+
+function toLocalInput(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function isoToLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return toLocalInput(d);
+}
+
+function defaultAddRange() {
+  const end = new Date();
+  end.setMinutes(0, 0, 0);
+  const start = new Date(end.getTime() - 8 * 3600_000);
+  return { start: toLocalInput(start), end: toLocalInput(end) };
 }
 
 function groupMyHours(entries, from, to) {
@@ -65,17 +84,25 @@ function groupMyHours(entries, from, to) {
   return { days: dayRows, weeks, total, regular: total - overtime, overtime };
 }
 
-export default function Hours() {
+export default function Hours({ boot }) {
+  const jobs = boot?.jobs || [];
   const thisPay = useMemo(() => payPeriodContaining(), []);
   const lastPay = useMemo(() => payPeriodOffset(-1), []);
   const [which, setWhich] = useState('this');
   const period = which === 'last' ? lastPay : thisPay;
   const [entries, setEntries] = useState(undefined);
   const [adjustments, setAdjustments] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [err, setErr] = useState(null);
   const [ask, setAsk] = useState(null);
+  const [jobId, setJobId] = useState('');
+  const [activity, setActivity] = useState('');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [brk, setBrk] = useState('0');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
     setErr(null);
@@ -110,17 +137,61 @@ export default function Hours() {
   const resolvedByPunch = useMemo(() => {
     const m = new Map();
     for (const a of adjustments) {
-      if ((a.status === 'applied' || a.status === 'reviewed') && !m.has(a.punchId)) m.set(a.punchId, a);
+      if ((a.status === 'applied' || a.status === 'reviewed') && a.punchId && !m.has(a.punchId)) m.set(a.punchId, a);
     }
     return m;
   }, [adjustments]);
+  const pendingAdds = useMemo(
+    () => adjustments.filter((a) => a.status === 'pending' && (a.kind === 'add' || !a.punchId)),
+    [adjustments]
+  );
+
+  function openAdd() {
+    const range = defaultAddRange();
+    setAsk({ mode: 'add' });
+    setJobId(jobs[0]?.id || '');
+    setActivity('');
+    setStart(range.start);
+    setEnd(range.end);
+    setBrk('0');
+    setReason('');
+    setErr(null);
+  }
+
+  function openChange(entry) {
+    setAsk({ mode: 'change', entry });
+    setJobId(entry.jobId || '');
+    setActivity(entry.activity || entry.costItemName || '');
+    setStart(isoToLocalInput(entry.startedAt));
+    setEnd(isoToLocalInput(entry.endedAt));
+    setBrk('0');
+    setReason('');
+    setErr(null);
+  }
+
+  function closeAsk() {
+    if (busy) return;
+    setAsk(null);
+    setReason('');
+  }
 
   async function submitAdjust() {
     if (!ask || busy) return;
     setBusy(true);
     setErr(null);
+    const job = jobs.find((j) => j.id === jobId);
     try {
-      const { adjustment } = await requestTimeAdjustment(ask.id, reason.trim());
+      const { adjustment } = await requestTimeChange({
+        kind: ask.mode === 'change' ? 'change' : 'add',
+        punchId: ask.entry?.id,
+        jobId,
+        jobName: job?.name,
+        activity,
+        startedAt: new Date(start).toISOString(),
+        endedAt: new Date(end).toISOString(),
+        breakMinutes: parseInt(brk, 10) || 0,
+        reason: reason.trim(),
+      });
       setAdjustments((list) => [adjustment, ...list]);
       setAsk(null);
       setReason('');
@@ -157,10 +228,23 @@ export default function Hours() {
       </div>
       <p className="hrs-range">{fmtRange(period.from, period.to)}</p>
 
+      <button type="button" className="hrs-add" onClick={openAdd}>Request missing time</button>
+      {pendingAdds.length > 0 && (
+        <div className="hrs-pendingadds">
+          {pendingAdds.map((a) => (
+            <p className="hrs-flag" key={a.id}>
+              Waiting on the office
+              {a.requestedJobName ? ` · ${a.requestedJobName}` : ''}
+              {a.requestedStartedAt ? ` · ${fmtWhen(a.requestedStartedAt)} → ${fmtWhen(a.requestedEndedAt)}` : ''}
+            </p>
+          ))}
+        </div>
+      )}
+
       {err && <ErrorBanner message={err} onDismiss={() => setErr(null)} />}
       {entries === undefined && <Spinner label="Loading your hours…" />}
       {report && report.days.length === 0 && (
-        <Card><EmptyState icon="⏱" title="No clocks in this pay period" /></Card>
+        <Card><EmptyState icon="⏱" title="No clocks in this pay period" hint="Forgot to clock in? Request the missing time above." /></Card>
       )}
 
       {report && report.days.length > 0 && (
@@ -217,7 +301,7 @@ export default function Hours() {
                     <div className="hrs-row-side">
                       <span className="hrs-mins">{e.endedAt ? fmtHours(e.minutes) : '—'}</span>
                       {e.endedAt && e.status !== 'void' && !pending && (
-                        <button type="button" className="hrs-ask" onClick={() => { setAsk(e); setReason(''); setErr(null); }}>
+                        <button type="button" className="hrs-ask" onClick={() => openChange(e)}>
                           Wrong?
                         </button>
                       )}
@@ -232,23 +316,58 @@ export default function Hours() {
 
       <Sheet
         open={Boolean(ask)}
-        title="Ask for a time change"
-        onClose={() => { if (!busy) { setAsk(null); setReason(''); } }}
+        title={ask?.mode === 'change' ? 'Fix this clock' : 'Request missing time'}
+        onClose={closeAsk}
       >
         {ask && (
           <>
-            <p className="hrs-ask-lead">
-              {ask.jobName}
-              <br />
-              {fmtWhen(ask.startedAt)} → {fmtWhen(ask.endedAt)} · {fmtHours(ask.minutes)} hrs
-            </p>
-            <label className="c-label" htmlFor="hrs-reason">What should be different?</label>
+            <div className="hrs-kind" role="tablist" aria-label="Request type">
+              <button type="button" className={ask.mode === 'add' ? 'hrs-kind-btn active' : 'hrs-kind-btn'} onClick={openAdd}>
+                Forgot to clock in
+              </button>
+              <button
+                type="button"
+                className={ask.mode === 'change' ? 'hrs-kind-btn active' : 'hrs-kind-btn'}
+                disabled={!ask.entry}
+                onClick={() => ask.entry && openChange(ask.entry)}
+              >
+                Wrong job or times
+              </button>
+            </div>
+            {ask.mode === 'change' && ask.entry && (
+              <p className="hrs-ask-lead">
+                Now: {ask.entry.jobName}
+                <br />
+                {fmtWhen(ask.entry.startedAt)} → {fmtWhen(ask.entry.endedAt)} · {fmtHours(ask.entry.minutes)} hrs
+              </p>
+            )}
+            <label className="c-label" htmlFor="hrs-job">Job</label>
+            <select id="hrs-job" className="c-input" value={jobId} onChange={(e) => setJobId(e.target.value)}>
+              <option value="">Select…</option>
+              {jobs.map((j) => (
+                <option key={j.id} value={j.id}>{j.name}</option>
+              ))}
+            </select>
+            <label className="c-label" htmlFor="hrs-act">Activity</label>
+            <select id="hrs-act" className="c-input" value={activity} onChange={(e) => setActivity(e.target.value)}>
+              <option value="">Select…</option>
+              {catalog.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <label className="c-label" htmlFor="hrs-in">Clock in</label>
+            <input id="hrs-in" className="c-input" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
+            <label className="c-label" htmlFor="hrs-out">Clock out</label>
+            <input id="hrs-out" className="c-input" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
+            <label className="c-label" htmlFor="hrs-brk">Break minutes</label>
+            <input id="hrs-brk" className="c-input" type="number" min="0" step="5" value={brk} onChange={(e) => setBrk(e.target.value)} />
+            <label className="c-label" htmlFor="hrs-reason">Why does this need to be added or changed?</label>
             <textarea
               id="hrs-reason"
               className="c-textarea"
-              rows={4}
+              rows={3}
               maxLength={400}
-              placeholder="Example: I clocked out at 3:30, not 2:00. Lunch was 30 minutes."
+              placeholder="Example: I forgot to clock in after lunch. I was on Maplewood, not Riverside."
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
@@ -256,12 +375,12 @@ export default function Hours() {
               type="button"
               className="c-btn c-btn-big c-btn-block c-btn-green"
               style={{ marginTop: 12 }}
-              disabled={busy || reason.trim().length < 8}
+              disabled={busy || reason.trim().length < 8 || !jobId || !activity || !start || !end}
               onClick={submitAdjust}
             >
               {busy ? 'Sending…' : 'Send to the office'}
             </button>
-            <p className="hrs-ask-hint">This does not change your hours. A supervisor reviews it and edits the clock if needed.</p>
+            <p className="hrs-ask-hint">This does not change your hours yet. A supervisor reviews it and adds or edits the clock.</p>
           </>
         )}
       </Sheet>

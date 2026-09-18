@@ -396,6 +396,82 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       endedAt: punch.endedAt,
       minutes,
       reason,
+      kind: 'change',
+    });
+    res.json({ adjustment });
+  }));
+
+  function parseRequestedClock(body) {
+    const { jobId, jobName, activity, startedAt, endedAt, breakMinutes } = body ?? {};
+    if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'Pick a job');
+    if (typeof activity !== 'string' || !activity.trim()) throw new HttpError(400, 'Pick an activity');
+    if (!isValidISO(startedAt)) throw new HttpError(400, 'Clock-in time is required');
+    if (!isValidISO(endedAt)) throw new HttpError(400, 'Clock-out time is required');
+    const start = new Date(startedAt);
+    const end = new Date(endedAt);
+    if (end <= start) throw new HttpError(400, 'Clock-out must be after clock-in');
+    if (start.getTime() > Date.now() + 2 * 60_000) throw new HttpError(400, 'Clock-in cannot be in the future');
+    if (start.getTime() < Date.now() - 21 * 24 * 3600_000) {
+      throw new HttpError(400, 'That clock-in is too far in the past');
+    }
+    const brk = breakMinutes === undefined || breakMinutes === '' ? 0 : Number(breakMinutes);
+    if (!Number.isFinite(brk) || brk < 0) throw new HttpError(400, 'Break minutes must be zero or more');
+    if ((end - start) / 60_000 <= brk) throw new HttpError(400, 'Break exceeds punch duration');
+    return {
+      jobId,
+      jobName: typeof jobName === 'string' ? jobName.trim() : '',
+      activity: activity.trim(),
+      startedAt: start.toISOString(),
+      endedAt: end.toISOString(),
+      breakMinutes: brk,
+      minutes: netPunchMinutes(start.toISOString(), end.toISOString(), brk),
+    };
+  }
+
+  app.post('/api/time/adjustments', requireSession, wrap(async (req, res) => {
+    const kind = req.body?.kind === 'add' ? 'add' : 'change';
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (reason.length < 8 || reason.length > 400) {
+      throw new HttpError(400, 'Tell us what is wrong (8–400 characters)');
+    }
+    const asked = parseRequestedClock(req.body);
+    const job = await resolveJob(asked.jobId, asked.jobName);
+    if (!job) throw new HttpError(404, `Unknown job: ${asked.jobId}`);
+
+    let punch = null;
+    if (kind === 'change') {
+      const punchId = typeof req.body?.punchId === 'string' ? req.body.punchId : '';
+      punch = punchId ? await store.getPunch(punchId) : null;
+      if (!punch || punch.userId !== req.employee.jtUserId) {
+        throw new HttpError(404, 'Time entry not found');
+      }
+      if (!punch.endedAt || punch.status === 'void') {
+        throw new HttpError(400, 'Only a finished clock can be sent for adjustment');
+      }
+      if (await store.getPendingTimeAdjustment(punch.id)) {
+        throw new HttpError(409, 'A change request is already pending for this clock');
+      }
+    }
+
+    const adjustment = await store.createTimeAdjustment({
+      punchId: punch?.id ?? null,
+      employeeId: req.employee.id,
+      employeeName: req.employee.name || req.employee.email,
+      employeeEmail: req.employee.email,
+      jobName: punch?.jobName || job.name,
+      startedAt: punch?.startedAt ?? asked.startedAt,
+      endedAt: punch?.endedAt ?? asked.endedAt,
+      minutes: punch
+        ? Math.max(0, Math.round((new Date(punch.endedAt) - new Date(punch.startedAt)) / 60000) - (punch.breakMinutes || 0))
+        : asked.minutes,
+      reason,
+      kind,
+      requestedJobId: job.id,
+      requestedJobName: job.name,
+      requestedActivity: asked.activity,
+      requestedStartedAt: asked.startedAt,
+      requestedEndedAt: asked.endedAt,
+      requestedBreakMinutes: asked.breakMinutes,
     });
     res.json({ adjustment });
   }));
@@ -620,51 +696,94 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const current = await store.getTimeAdjustment(req.params.id);
     if (!current) throw new HttpError(404, 'Adjustment request not found');
     if (current.status !== 'pending') throw new HttpError(409, 'This request was already resolved');
-    const punch = await store.getPunch(current.punchId);
-    if (!punch) throw new HttpError(404, 'Time entry not found');
-    if (punch.status === 'void') throw new HttpError(400, 'That clock was voided');
-    if (punch.status === 'pushed') throw new HttpError(400, 'This clock was already pushed to JobTread');
 
-    const startedAt = req.body?.startedAt ?? punch.startedAt;
-    const endedAt = req.body?.endedAt ?? punch.endedAt;
+    const existing = current.punchId ? await store.getPunch(current.punchId) : null;
+    if (current.punchId && !existing) throw new HttpError(404, 'Time entry not found');
+    if (existing?.status === 'void') throw new HttpError(400, 'That clock was voided');
+    if (existing?.status === 'pushed') throw new HttpError(400, 'This clock was already pushed to JobTread');
+
+    const startedAt = req.body?.startedAt ?? current.requestedStartedAt ?? existing?.startedAt;
+    const endedAt = req.body?.endedAt ?? current.requestedEndedAt ?? existing?.endedAt;
     if (!isValidISO(startedAt)) throw new HttpError(400, 'Clock-in time is required');
     if (!isValidISO(endedAt)) throw new HttpError(400, 'Clock-out time is required');
     const start = new Date(startedAt);
     const end = new Date(endedAt);
     if (end <= start) throw new HttpError(400, 'Clock-out must be after clock-in');
     const brk = req.body?.breakMinutes === undefined || req.body?.breakMinutes === ''
-      ? (punch.breakMinutes || 0)
+      ? (current.requestedBreakMinutes ?? existing?.breakMinutes ?? 0)
       : Number(req.body.breakMinutes);
     if (!Number.isFinite(brk) || brk < 0) throw new HttpError(400, 'Break minutes must be zero or more');
     if ((end - start) / 60_000 <= brk) throw new HttpError(400, 'Break exceeds punch duration');
 
-    const patch = {
-      startedAt: start.toISOString(),
-      endedAt: end.toISOString(),
-      breakMinutes: brk,
-    };
-    const same = patch.startedAt === punch.startedAt
-      && patch.endedAt === punch.endedAt
-      && brk === (punch.breakMinutes || 0);
-    if (same) throw new HttpError(400, 'Times did not change — dismiss the request instead');
+    const activity = typeof req.body?.activity === 'string' && req.body.activity.trim()
+      ? req.body.activity.trim()
+      : (current.requestedActivity || existing?.activity || '');
+    const jobId = typeof req.body?.jobId === 'string' && req.body.jobId
+      ? req.body.jobId
+      : (current.requestedJobId || existing?.jobId);
+    const jobName = typeof req.body?.jobName === 'string' ? req.body.jobName : (current.requestedJobName || existing?.jobName);
+    const job = jobId ? await resolveJob(jobId, jobName) : null;
+    if (!job) throw new HttpError(400, 'Pick a job');
+    if (!activity) throw new HttpError(400, 'Pick an activity');
 
-    const updated = await store.updatePunch(punch.id, patch);
-    const changes = {};
-    for (const k of Object.keys(patch)) {
-      if (JSON.stringify(punch[k] ?? null) !== JSON.stringify(updated[k] ?? null)) {
-        changes[k] = { from: punch[k] ?? null, to: updated[k] ?? null };
+    let updated;
+    if (!existing) {
+      const employees = await store.listEmployees();
+      const employee = employees.find((e) => e.id === current.employeeId);
+      if (!employee) throw new HttpError(404, 'Crew member not found');
+      updated = await store.createManualPunch({
+        userId: employee.jtUserId,
+        userName: employee.name || employee.email,
+        jobId: job.id,
+        jobName: job.name,
+        activity,
+        startedAt: start.toISOString(),
+        endedAt: end.toISOString(),
+        breakMinutes: brk,
+        notes: current.reason,
+      });
+      await store.logAudit(updated.id, 'created-manual', {
+        by: actorOf(req),
+        adjustmentId: current.id,
+        crewReason: current.reason,
+        adminNote: note,
+      });
+    } else {
+      const patch = {
+        startedAt: start.toISOString(),
+        endedAt: end.toISOString(),
+        breakMinutes: brk,
+        activity,
+        jobId: job.id,
+        jobName: job.name,
+      };
+      if (job.id !== existing.jobId) patch.clearCostItem = true;
+      const same = patch.startedAt === existing.startedAt
+        && patch.endedAt === existing.endedAt
+        && brk === (existing.breakMinutes || 0)
+        && activity === existing.activity
+        && job.id === existing.jobId;
+      if (same) throw new HttpError(400, 'Nothing changed — dismiss the request instead');
+      updated = await store.updatePunch(existing.id, patch);
+      const changes = {};
+      for (const k of ['startedAt', 'endedAt', 'breakMinutes', 'activity', 'jobId', 'jobName']) {
+        if (JSON.stringify(existing[k] ?? null) !== JSON.stringify(updated[k] ?? null)) {
+          changes[k] = { from: existing[k] ?? null, to: updated[k] ?? null };
+        }
       }
+      await store.logAudit(updated.id, 'edited', {
+        by: actorOf(req),
+        adjustmentId: current.id,
+        crewReason: current.reason,
+        adminNote: note,
+        changes,
+      });
     }
-    await store.logAudit(updated.id, 'edited', {
-      by: actorOf(req),
-      adjustmentId: current.id,
-      crewReason: current.reason,
-      adminNote: note,
-      changes,
-    });
+
     const adjustment = await store.resolveTimeAdjustment(current.id, {
       status: 'applied',
       adminNote: note,
+      punchId: updated.id,
       appliedStartedAt: updated.startedAt,
       appliedEndedAt: updated.endedAt,
       appliedBreakMinutes: updated.breakMinutes || 0,
