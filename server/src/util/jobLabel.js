@@ -1,5 +1,6 @@
-// job.name from the API is already the crew-facing label (number · name).
-// Prefix only when the name is still the raw JobTread title.
+// One display name: "12056 · Wildhorse Village Condo".
+// JobTread already has number + name; bootstrap also stores that composed
+// string on job.name. Never prefix the number a second time.
 export function formatJobLabel(number, name) {
   const n = String(number || '').trim();
   const label = String(name || '').trim();
@@ -12,12 +13,6 @@ export function formatJobLabel(number, name) {
 export function jobLabel(job) {
   if (!job) return '';
   return formatJobLabel(job.number, job.name);
-}
-
-export function jobMatches(job, query) {
-  const q = String(query || '').trim().toLowerCase();
-  if (!q) return true;
-  return `${job.number || ''} ${job.name || ''} ${job.location || ''} ${jobLabel(job)}`.toLowerCase().includes(q);
 }
 
 function labelAlreadyHasNumber(label, number) {

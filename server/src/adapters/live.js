@@ -5,6 +5,7 @@ import { todayString, addDays, mondayOf } from '../util/dates.js';
 import { pickTimeEntryType } from '../util/entryType.js';
 import { HttpError } from '../util/httpError.js';
 import { normalizeGrantKey } from '../util/grantKey.js';
+import { jobLabel } from '../util/jobLabel.js';
 
 const PAVE_URL = 'https://api.jobtread.com/pave';
 
@@ -50,7 +51,7 @@ export function createLiveAdapter({
   };
 
   // Crews refer to jobs by number: '12056 · Wildhorse Village Condo'.
-  const jobLabel = (j) => (j?.number ? `${j.number} · ${j.name}` : (j?.name ?? ''));
+  // jobLabel is idempotent — JT names that already start with the number stay as-is.
 
   // Pave coordinates are objects {latitude, longitude}; our wire shape is {lat, lng}.
   const toPaveCoords = (c) => ({ latitude: c.lat, longitude: c.lng });
