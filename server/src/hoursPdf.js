@@ -44,6 +44,12 @@ function text(x, y, s, { size = 9, bold = false } = {}) {
   return `BT /${font} ${size} Tf 1 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)} Tm (${pdfEscape(s)}) Tj ET\n`;
 }
 
+function watermarkOps(label) {
+  // Light gray diagonal stamp behind the hours table (landscape letter).
+  return 'q 0.82 0.82 0.82 rg BT /F2 42 Tf 0.866 0.500 -0.500 0.866 150 200 Tm '
+    + `(${pdfEscape(label)}) Tj ET Q\n`;
+}
+
 const NAVY = [0.059, 0.153, 0.251];
 const BAND = [0.906, 0.929, 0.957];
 const RULE = [0.78, 0.82, 0.86];
@@ -95,13 +101,14 @@ function assemblePdf(pageStreams) {
   return Buffer.from(out, 'utf8');
 }
 
-export function buildHoursPdf(report) {
+export function buildHoursPdf(report, { watermark } = {}) {
   const pages = [];
   let ops = '';
   let y = PAGE_H - MARGIN;
   let pageNo = 1;
 
   const header = () => {
+    if (watermark) ops += watermarkOps(watermark);
     ops += text(MARGIN, y, 'Constructors911 Field  -  Hours report', { size: 14, bold: true });
     y -= 16;
     ops += text(MARGIN, y, `${fmtDay(report.from)} - ${fmtDay(report.to)}   Total ${fmtHours(report.totals.totalHours)} hrs   Regular ${fmtHours(report.totals.regularHours)}   OT ${fmtHours(report.totals.overtimeHours)}`, { size: 9 });

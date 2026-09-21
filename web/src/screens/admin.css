@@ -178,6 +178,8 @@
 }
 .adm-hours-review p { margin: 0 0 10px; font-size: 14px; color: var(--navy); line-height: 1.4; }
 .adm-hours-review p:last-child { margin-bottom: 0; }
+.adm-hours-finalize { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e6ea; }
+.adm-hours-finalize a { color: var(--navy); font-weight: 700; }
 .adm-hours-banner {
   display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
   background: var(--navy); color: #fff; border-radius: var(--radius); padding: 18px 20px; margin-bottom: 18px;

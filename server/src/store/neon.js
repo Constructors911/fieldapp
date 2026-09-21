@@ -200,6 +200,12 @@ export function createNeonStore(databaseUrl) {
           requested_by text not null default ''
         )`;
         await sql`alter table pay_period_reviews add column if not exists notified_at timestamptz`;
+        await sql`alter table pay_period_reviews alter column requested_at drop not null`;
+        await sql`alter table pay_period_reviews add column if not exists finalized_at timestamptz`;
+        await sql`alter table pay_period_reviews add column if not exists finalized_by text not null default ''`;
+        await sql`alter table pay_period_reviews add column if not exists finalized_file_id text`;
+        await sql`alter table pay_period_reviews add column if not exists finalized_file_url text`;
+        await sql`alter table pay_period_reviews add column if not exists finalized_file_name text`;
         await sql`create table if not exists pay_period_approvals (
           id uuid primary key default gen_random_uuid(),
           period_from text not null,
@@ -756,6 +762,26 @@ export function createNeonStore(databaseUrl) {
       return reviewRow(rows[0]);
     },
 
+    async markPayPeriodFinalized(periodFrom, periodTo, patch = {}) {
+      await migrate();
+      const rows = await sql`insert into pay_period_reviews (
+          period_from, period_to, requested_at, requested_by,
+          finalized_at, finalized_by, finalized_file_id, finalized_file_url, finalized_file_name
+        ) values (
+          ${periodFrom}, ${periodTo}, null, '',
+          now(), ${patch.by ?? ''}, ${patch.fileId ?? null}, ${patch.fileUrl ?? null}, ${patch.fileName ?? null}
+        )
+        on conflict (period_from) do update set
+          period_to = excluded.period_to,
+          finalized_at = now(),
+          finalized_by = excluded.finalized_by,
+          finalized_file_id = excluded.finalized_file_id,
+          finalized_file_url = excluded.finalized_file_url,
+          finalized_file_name = excluded.finalized_file_name
+        returning *`;
+      return reviewRow(rows[0]);
+    },
+
     async markPayPeriodReviewNotified(periodFrom) {
       await migrate();
       const rows = await sql`update pay_period_reviews set
@@ -806,6 +832,11 @@ function reviewRow(r) {
     requestedAt: r.requested_at instanceof Date ? r.requested_at.toISOString() : r.requested_at,
     requestedBy: r.requested_by || '',
     notifiedAt: r.notified_at instanceof Date ? r.notified_at.toISOString() : r.notified_at || null,
+    finalizedAt: r.finalized_at instanceof Date ? r.finalized_at.toISOString() : r.finalized_at || null,
+    finalizedBy: r.finalized_by || '',
+    finalizedFileId: r.finalized_file_id || null,
+    finalizedFileUrl: r.finalized_file_url || null,
+    finalizedFileName: r.finalized_file_name || null,
   };
 }
 

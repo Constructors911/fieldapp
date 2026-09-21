@@ -4,3 +4,5 @@ Dev: `cd server && npm i && npm start` + `cd web && npm i && npm run dev`.
 Set JT_GRANT_KEY env var on the server to switch from mock to live JobTread.
 
 Admin **Crew map** (punch GPS on Google Maps): set `GOOGLE_MAPS_API_KEY` — setup steps in [docs/GOOGLE_MAPS.md](docs/GOOGLE_MAPS.md).
+
+Admin **Hours → Finalized** archives the pay-period PDF to Google Drive folder **911 Approved Payroll**: set a Drive service account or refresh token — [docs/GOOGLE_DRIVE.md](docs/GOOGLE_DRIVE.md).

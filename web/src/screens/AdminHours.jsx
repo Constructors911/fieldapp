@@ -170,7 +170,9 @@ export default function AdminHours({ adminFetch }) {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [askBusy, setAskBusy] = useState(false);
+  const [finalizeBusy, setFinalizeBusy] = useState(false);
   const [mailNote, setMailNote] = useState(null);
+  const [finalizeNote, setFinalizeNote] = useState(null);
   const [catalog, setCatalog] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editVals, setEditVals] = useState({ start: '', end: '', brk: '0', hours: '', activity: '', note: '' });
@@ -354,6 +356,24 @@ export default function AdminHours({ adminFetch }) {
     }
   }
 
+  async function finalizePayroll() {
+    if (!report || finalizeBusy) return;
+    setFinalizeBusy(true);
+    setErr(null);
+    try {
+      const r = await adminFetch('/api/admin/hours/finalize', {
+        method: 'POST',
+        body: { from: report.from, to: report.to },
+      });
+      setFinalizeNote(r);
+      await load(report.from, report.to);
+    } catch (e) {
+      setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
+    } finally {
+      setFinalizeBusy(false);
+    }
+  }
+
   return (
     <>
       <ErrorBanner message={err} onDismiss={() => setErr(null)} />
@@ -446,6 +466,44 @@ export default function AdminHours({ adminFetch }) {
                 <p>Crew were already emailed for this period.</p>
               )}
             </>
+          )}
+          {review.periodEnded && (
+            <div className="adm-hours-finalize">
+              <p>
+                After payroll has been run, save the Hours PDF to the
+                {' '}
+                <strong>911 Approved Payroll</strong>
+                {' '}
+                Drive folder with an Approved and final watermark.
+              </p>
+              <button
+                type="button"
+                className="c-btn c-btn-small"
+                disabled={finalizeBusy}
+                onClick={finalizePayroll}
+              >
+                {finalizeBusy ? 'Saving…' : 'Finalized'}
+              </button>
+              {(review.finalized || finalizeNote?.file) && (
+                <p>
+                  Saved to 911 Approved Payroll
+                  {review.finalizedAt ? ` · ${fmtDay(review.finalizedAt.slice(0, 10))}` : ''}
+                  {(finalizeNote?.file?.url || review.finalizedFileUrl) && (
+                    <>
+                      {' · '}
+                      <a
+                        href={finalizeNote?.file?.url || review.finalizedFileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open PDF
+                      </a>
+                    </>
+                  )}
+                  .
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -114,6 +114,11 @@ test('buildHoursReport groups by user/day and computes Sun–Sat OT over 40', ()
   assert.match(pdf, /0\.059 0\.153 0\.251 RG/);
   assert.match(pdf, /12056 - Maplewood/);
   assert.doesNotMatch(pdf, /12056 \? Maplewood/);
+  assert.doesNotMatch(pdf, /APPROVED AND FINAL/);
+
+  const stamped = buildHoursPdf(report, { watermark: 'APPROVED AND FINAL' }).toString('utf8');
+  assert.match(stamped, /APPROVED AND FINAL/);
+  assert.match(stamped, /Hours report/);
 });
 
 function punch(userId, userName, startedAt, endedAt, status, jtTimeEntryId = null) {

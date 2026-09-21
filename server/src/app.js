@@ -8,6 +8,7 @@ import { adjustmentInPeriod, parsePayPeriod } from './util/periodApproval.js';
 import { sendPeriodApprovalEmails } from './periodApprovalEmails.js';
 import { buildHoursReport } from './hoursReport.js';
 import { buildHoursPdf } from './hoursPdf.js';
+import { PAYROLL_FOLDER_NAME, payrollPdfFilename, uploadPayrollPdf as uploadPayrollPdfToDrive } from './drivePayroll.js';
 import { createStore } from './store/index.js';
 import { hashPin, verifyPin, isValidPin, normalizeEmail, isValidEmail } from './auth.js';
 import { verifyGoogleIdToken, adminAllowlist } from './googleAuth.js';
@@ -22,7 +23,10 @@ import { registerGeofences } from './routes/geofences.js';
 import { onClockInGeofence, onClockOutGeofence, onWakeGeofence } from './geofence.js';
 import { sweepClockOutReminderEmails } from './clockOutEmails.js';
 
-export function createApp(adapter, store = createStore(), { verifyGoogle = verifyGoogleIdToken } = {}) {
+export function createApp(adapter, store = createStore(), {
+  verifyGoogle = verifyGoogleIdToken,
+  uploadPayrollPdf = uploadPayrollPdfToDrive,
+} = {}) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -211,10 +215,10 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       from,
       to,
       periodEnded: period.ended,
-      reviewRequested: Boolean(review),
+      reviewRequested: Boolean(review?.requestedAt),
       requestedAt: review?.requestedAt || null,
       approval: publicPeriodApproval(approval),
-      canApprove: period.ended && Boolean(review) && approval?.status !== 'approved' && pending.length === 0,
+      canApprove: period.ended && Boolean(review?.requestedAt) && approval?.status !== 'approved' && pending.length === 0,
       pendingAdjustments: pending.length,
     };
   }
@@ -225,7 +229,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const day = toDateString(new Date(iso));
     const period = payPeriodContaining(day);
     const review = await store.getPayPeriodReview(period.from);
-    if (!review) return;
+    if (!review?.requestedAt) return;
     await store.upsertPayPeriodApproval({
       periodFrom: period.from,
       periodTo: period.to,
@@ -242,14 +246,19 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       return { isPayPeriod: false, periodEnded: false, requested: false, approvals: [] };
     }
     const review = await store.getPayPeriodReview(from);
-    const approvals = review ? await store.listPayPeriodApprovals(from) : [];
+    const approvals = review?.requestedAt ? await store.listPayPeriodApprovals(from) : [];
     return {
       isPayPeriod: true,
       periodEnded: period.ended,
-      requested: Boolean(review),
+      requested: Boolean(review?.requestedAt),
       requestedAt: review?.requestedAt || null,
       requestedBy: review?.requestedBy || null,
       notifiedAt: review?.notifiedAt || null,
+      finalized: Boolean(review?.finalizedAt),
+      finalizedAt: review?.finalizedAt || null,
+      finalizedBy: review?.finalizedBy || null,
+      finalizedFileUrl: review?.finalizedFileUrl || null,
+      finalizedFileName: review?.finalizedFileName || null,
       approvals: approvals.map((a) => ({
         employeeId: a.employeeId,
         userId: a.userId || '',
@@ -1043,6 +1052,38 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="hours-${from}-to-${to}.pdf"`);
     res.send(pdf);
+  }));
+
+  app.post('/api/admin/hours/finalize', requireAdmin, wrap(async (req, res) => {
+    const from = typeof req.body?.from === 'string' ? req.body.from : '';
+    const to = typeof req.body?.to === 'string' ? req.body.to : '';
+    if (!isValidDateString(from) || !isValidDateString(to)) {
+      throw new HttpError(400, 'from and to must be YYYY-MM-DD');
+    }
+    const period = parsePayPeriod(from, to);
+    if (!period) throw new HttpError(400, 'Finalize a full pay period');
+    if (!period.ended) throw new HttpError(400, 'Wait until the pay period has ended');
+    const { report } = await hoursReportForRange({ query: { from, to } });
+    const pdf = buildHoursPdf(report, { watermark: 'APPROVED AND FINAL' });
+    const filename = payrollPdfFilename(from, to);
+    const existing = await store.getPayPeriodReview(from);
+    const file = await uploadPayrollPdf({
+      filename,
+      bytes: pdf,
+      folderName: PAYROLL_FOLDER_NAME,
+      existingFileId: existing?.finalizedFileId || undefined,
+    });
+    const review = await store.markPayPeriodFinalized(from, to, {
+      by: actorOf(req),
+      fileId: file.id,
+      fileUrl: file.url,
+      fileName: file.name,
+    });
+    res.json({
+      review,
+      file,
+      folderName: file.folderName || PAYROLL_FOLDER_NAME,
+    });
   }));
 
   app.patch('/api/admin/punches/:id', requireAdmin, wrap(async (req, res) => {

@@ -544,8 +544,39 @@ export function createMemoryStore() {
         requestedAt: new Date().toISOString(),
         requestedBy: requestedBy ?? '',
         notifiedAt: null,
+        finalizedAt: null,
+        finalizedBy: '',
+        finalizedFileId: null,
+        finalizedFileUrl: null,
+        finalizedFileName: null,
       };
       payPeriodReviews.push(row);
+      return { ...row };
+    },
+
+    async markPayPeriodFinalized(periodFrom, periodTo, patch = {}) {
+      let row = payPeriodReviews.find((x) => x.periodFrom === periodFrom);
+      if (!row) {
+        row = {
+          periodFrom,
+          periodTo,
+          requestedAt: null,
+          requestedBy: '',
+          notifiedAt: null,
+          finalizedAt: null,
+          finalizedBy: '',
+          finalizedFileId: null,
+          finalizedFileUrl: null,
+          finalizedFileName: null,
+        };
+        payPeriodReviews.push(row);
+      }
+      row.periodTo = periodTo || row.periodTo;
+      row.finalizedAt = new Date().toISOString();
+      row.finalizedBy = patch.by ?? '';
+      row.finalizedFileId = patch.fileId ?? null;
+      row.finalizedFileUrl = patch.fileUrl ?? null;
+      row.finalizedFileName = patch.fileName ?? null;
       return { ...row };
     },
 
