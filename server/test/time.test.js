@@ -420,6 +420,66 @@ test('admin can add a closed punch even while the employee is clocked in', async
   await authed('/api/time/clock-out', { method: 'POST', body: {} });
 });
 
+test('admin can add a daily lump-sum punch without clock times', async () => {
+  const workDate = new Date().toISOString().slice(0, 10);
+  const startedAt = new Date(`${workDate}T08:00:00`).toISOString();
+  const added = await api(srv.base, '/api/admin/punches', {
+    method: 'POST',
+    body: {
+      userId: 'user_david',
+      jobId: 'job_maplewood',
+      activity: 'Finish Carpentry',
+      entryKind: 'daily',
+      workDate,
+      hours: 8.5,
+      startedAt,
+    },
+  });
+  assert.equal(added.status, 200, added.json?.error);
+  assert.equal(added.json.punch.entryKind, 'daily');
+  assert.equal(added.json.punch.breakMinutes, 30);
+  const mins = Math.round((new Date(added.json.punch.endedAt) - new Date(added.json.punch.startedAt)) / 60000);
+  assert.equal(mins, 510);
+  assert.equal(added.json.punch.startedAt, startedAt);
+
+  const stillOut = await authed('/api/time/current');
+  assert.equal(stillOut.json.entry, null);
+
+  const mine = await authed(`/api/time/entries?from=${startedAt}`);
+  const daily = mine.json.entries.find((e) => e.id === added.json.punch.id);
+  assert.equal(daily.entryKind, 'daily');
+  assert.equal(daily.minutes, 480);
+});
+
+test('admin daily hours reject zero, over 24, and a missing date', async () => {
+  const workDate = new Date().toISOString().slice(0, 10);
+  const startedAt = new Date(`${workDate}T08:00:00`).toISOString();
+  const zero = await api(srv.base, '/api/admin/punches', {
+    method: 'POST',
+    body: {
+      userId: 'user_david', jobId: 'job_maplewood', activity: 'Finish Carpentry',
+      entryKind: 'daily', workDate, hours: 0, startedAt,
+    },
+  });
+  assert.equal(zero.status, 400);
+  const over = await api(srv.base, '/api/admin/punches', {
+    method: 'POST',
+    body: {
+      userId: 'user_david', jobId: 'job_maplewood', activity: 'Finish Carpentry',
+      entryKind: 'daily', workDate, hours: 25, startedAt,
+    },
+  });
+  assert.equal(over.status, 400);
+  const noDate = await api(srv.base, '/api/admin/punches', {
+    method: 'POST',
+    body: {
+      userId: 'user_david', jobId: 'job_maplewood', activity: 'Finish Carpentry',
+      entryKind: 'daily', hours: 8,
+    },
+  });
+  assert.equal(noDate.status, 400);
+});
+
 test('admin add time rejects clock-out before clock-in', async () => {
   const startedAt = new Date(Date.now() - 2 * 3600_000).toISOString();
   const endedAt = new Date(Date.now() - 4 * 3600_000).toISOString();

@@ -52,6 +52,7 @@ function pushedLabel(p) {
 }
 
 function inOutLabel(p) {
+  if (p.entryKind === 'daily') return 'Daily total';
   const times = `${fmtWhen(p.startedAt)} → ${p.endedAt ? fmtWhen(p.endedAt) : 'open'}`;
   return p.breakMinutes ? `${times} · ${p.breakMinutes}m break` : times;
 }
@@ -83,7 +84,7 @@ export function reportToCsv(report) {
           pushedLabel(p),
         ]));
       }
-      lines.push(csvRow([`Day total · ${fmtDay(day.date)}`, '', '', '', fmtHours(day.hours), '']));
+      lines.push(csvRow([`Day total · ${fmtDay(day.date)}${day.lunchMinutes > 0 ? ' · 30 min lunch out' : ''}`, '', '', '', fmtHours(day.hours), '']));
     }
     lines.push('');
     lines.push(csvRow(['Weekly overtime (Sun–Sat)']));
@@ -334,7 +335,7 @@ export default function AdminHours({ adminFetch }) {
                           </tr>
                         ))}
                         <tr className="adm-hours-daytotal">
-                          <td colSpan={4}>Day total · {fmtDay(day.date)}</td>
+                          <td colSpan={4}>Day total · {fmtDay(day.date)}{day.lunchMinutes > 0 ? ' · 30 min lunch out' : ''}</td>
                           <td className="adm-num">{fmtHours(day.hours)}</td>
                           <td />
                         </tr>

@@ -10,6 +10,7 @@ import ErrorBanner from '../components/ErrorBanner.jsx';
 import ClockOutSheet from './ClockOutSheet.jsx';
 import { todayRange, fmtTime, localToday, fmtMins, fmtElapsed, getGps, completedTaskNames, remainingTaskNames } from '../lib/clockHelpers.js';
 import { askClockOutNotifyPermission, latestReminderHours, reminderCopy } from '../lib/clockOutReminder.js';
+import { dayLunchMinutes, dayPaidMinutes } from '../lib/dailyLunch.js';
 import { emptyLogCapture, captureToCompose, validateLogCapture, photosHaveTag } from '../lib/logCapture.js';
 import '../components/screens.css';
 
@@ -330,8 +331,11 @@ export default function Clock({ boot, onRefreshJobs }) {
 
   const completed = entries.filter((e) => e.endedAt);
   const runningMins = current ? Math.max(0, (now - new Date(current.startedAt).getTime()) / 60000) : 0;
-  const totalMins = completed.reduce((sum, e) => sum + (e.minutes || 0), 0) + runningMins;
-  const remindHours = current ? latestReminderHours(totalMins / 60) : null;
+  const rawDayMins = completed.reduce((sum, e) => sum + (e.minutes || 0), 0) + runningMins;
+  const dayPunches = current ? [...completed, current] : completed;
+  const lunchMins = dayLunchMinutes(dayPunches, now);
+  const totalMins = dayPaidMinutes(dayPunches, now);
+  const remindHours = current ? latestReminderHours(rawDayMins / 60) : null;
 
   // Picker: this job's budget labor items first (auto-approve), then the
   // standard Employee Labor catalog (manager maps those later).
@@ -403,7 +407,7 @@ export default function Clock({ boot, onRefreshJobs }) {
                 <div className="clk-entry-main">
                   <p className="clk-entry-job">{e.jobName}</p>
                   <p className="clk-entry-meta">
-                    {e.costItemName} · {fmtTime(e.startedAt)} – {fmtTime(e.endedAt)}
+                    {e.costItemName} · {e.entryKind === 'daily' ? 'Daily total' : `${fmtTime(e.startedAt)} – ${fmtTime(e.endedAt)}`}
                     {e._queued && <span className="c-pill c-pill-orange" style={{ marginLeft: 6 }}>offline</span>}
                   </p>
                 </div>
@@ -420,7 +424,7 @@ export default function Clock({ boot, onRefreshJobs }) {
               </div>
             )}
             <div className="clk-total">
-              <span>Total today</span>
+              <span>Total today{lunchMins > 0 ? ' · 30 min lunch out' : ''}</span>
               <span>{fmtMins(totalMins)}</span>
             </div>
           </>

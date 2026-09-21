@@ -503,7 +503,7 @@ export default function Admin() {
                     <td className="adm-job" title={p.jobName}>{p.jobName}</td>
                     <td>{p.activity}</td>
                     <td>{fmtDate(p.startedAt)}</td>
-                    <td className="adm-times">{fmtTime(p.startedAt)} → {p.endedAt ? fmtTime(p.endedAt) : 'now'}</td>
+                    <td className="adm-times">{p.entryKind === 'daily' ? 'Daily total' : `${fmtTime(p.startedAt)} → ${p.endedAt ? fmtTime(p.endedAt) : 'now'}`}</td>
                     <td className="adm-num">{hours === null ? '—' : hours.toFixed(2)}</td>
                     <td className="adm-num">{p.breakMinutes ? `${p.breakMinutes}m` : ''}</td>
                     <td>

@@ -97,7 +97,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
 
   app.post('/api/auth/register', wrap(async (req, res) => {
     const email = normalizeEmail(req.body?.email);
-    const { pin, name } = req.body ?? {};
+    const { pin } = req.body ?? {};
     if (!isValidEmail(email)) throw new HttpError(400, 'A valid email is required');
     if (!isValidPin(pin)) throw new HttpError(400, 'PIN must be 4-8 digits');
     const existing = await store.getEmployeeByEmail(email);
@@ -124,7 +124,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     }
     const employee = await store.createEmployee({
       email,
-      name: (typeof name === 'string' && name.trim()) || membership.name,
+      name: membership.name,
       pinHash: hashPin(pin),
       jtUserId: membership.userId,
       jtUserName: membership.name,
@@ -146,7 +146,9 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       throw new HttpError(401, 'Wrong email or PIN');
     }
     const token = await store.createSession(employee.id);
-    res.json({ token, employee: publicEmployee(employee) });
+    const membership = await adapter.findMembershipByEmail(employee.email).catch(() => null);
+    const named = await applyJobTreadName(employee, membership);
+    res.json({ token, employee: publicEmployee(named) });
   }));
 
   app.get('/api/auth/me', wrap(async (req, res) => {
@@ -183,11 +185,39 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ employee: publicEmployee(updated) });
   }));
 
+  function crewName(e) {
+    return String(e?.jtUserName || e?.name || e?.email || '').trim();
+  }
+
+  async function applyJobTreadName(employee, membership) {
+    const jtName = typeof membership?.name === 'string' ? membership.name.trim() : '';
+    if (!employee || !jtName) return employee;
+    if (employee.jtUserName === jtName && employee.name === jtName) return employee;
+    if (typeof store.setEmployeeNames !== 'function') {
+      return { ...employee, name: jtName, jtUserName: jtName };
+    }
+    return store.setEmployeeNames(employee.id, { name: jtName, jtUserName: jtName });
+  }
+
+  async function refreshEmployeeNamesFromJobTread() {
+    if (typeof adapter.listInternalMemberships !== 'function') return;
+    const members = await adapter.listInternalMemberships().catch(() => []);
+    if (!members.length) return;
+    const byId = new Map(members.map((m) => [m.userId, m]));
+    const byEmail = new Map(members.filter((m) => m.email).map((m) => [String(m.email).toLowerCase(), m]));
+    const employees = await store.listEmployees();
+    for (const e of employees) {
+      const m = (e.jtUserId && byId.get(e.jtUserId))
+        || byEmail.get(String(e.email || '').toLowerCase());
+      await applyJobTreadName(e, m);
+    }
+  }
+
   function publicEmployee(e) {
     return {
       id: e.id,
       email: e.email,
-      name: e.name,
+      name: crewName(e),
       role: e.role,
       jtUserId: e.jtUserId,
       jtLinked: Boolean(e.jtUserId),
@@ -296,7 +326,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     }
     const punch = await store.createPunch({
       userId: req.employee.jtUserId,
-      userName: req.employee.name,
+      userName: crewName(req.employee),
       jobId: job.id,
       jobName: job.name,
       activity: activity.trim(),
@@ -389,7 +419,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const adjustment = await store.createTimeAdjustment({
       punchId: punch.id,
       employeeId: req.employee.id,
-      employeeName: req.employee.name || req.employee.email,
+      employeeName: crewName(req.employee),
       employeeEmail: req.employee.email,
       jobName: punch.jobName,
       startedAt: punch.startedAt,
@@ -456,7 +486,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     const adjustment = await store.createTimeAdjustment({
       punchId: punch?.id ?? null,
       employeeId: req.employee.id,
-      employeeName: req.employee.name || req.employee.email,
+      employeeName: crewName(req.employee),
       employeeEmail: req.employee.email,
       jobName: punch?.jobName || job.name,
       startedAt: punch?.startedAt ?? asked.startedAt,
@@ -559,6 +589,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   const actorOf = (req) => req.admin?.email || (req.get('x-admin-key') ? 'admin-key' : 'local-dev');
 
   app.get('/api/admin/employees', requireAdmin, wrap(async (req, res) => {
+    await refreshEmployeeNamesFromJobTread();
     const employees = await store.listEmployees();
     res.json({ employees: employees.map(publicEmployee) });
   }));
@@ -586,21 +617,60 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ jobs });
   }));
 
+  function parseDailyHours(hours) {
+    const n = typeof hours === 'number' ? hours : Number(hours);
+    if (!Number.isFinite(n) || n < 0.25 || n > 24) {
+      throw new HttpError(400, 'Hours must be between 0.25 and 24');
+    }
+    return Math.round(n * 60);
+  }
+
+  function dailyPunchTimes(body) {
+    const workDate = typeof body?.workDate === 'string' ? body.workDate.trim() : '';
+    if (!isValidDateString(workDate)) throw new HttpError(400, 'Pick a work date');
+    const minutes = parseDailyHours(body?.hours);
+    const start = isValidISO(body?.startedAt) ? new Date(body.startedAt) : new Date(`${workDate}T08:00:00`);
+    if (Number.isNaN(start.getTime())) throw new HttpError(400, 'Pick a work date');
+    if (start.getTime() > Date.now() + 2 * 60_000) throw new HttpError(400, 'Work date cannot be in the future');
+    const lunch = minutes > 6 * 60 ? 30 : 0;
+    return {
+      startedAt: start.toISOString(),
+      endedAt: new Date(start.getTime() + minutes * 60_000).toISOString(),
+      breakMinutes: lunch,
+      entryKind: 'daily',
+      minutes: minutes - lunch,
+    };
+  }
+
   app.post('/api/admin/punches', requireAdmin, wrap(async (req, res) => {
     const { userId, jobId, jobName, activity, costItemId, startedAt, endedAt, breakMinutes, notes } = req.body ?? {};
     if (typeof userId !== 'string' || !userId) throw new HttpError(400, 'Pick a crew member');
     if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'Pick a job');
     if (typeof activity !== 'string' || !activity.trim()) throw new HttpError(400, 'Pick an activity');
-    if (!isValidISO(startedAt)) throw new HttpError(400, 'Clock-in time is required');
-    if (!isValidISO(endedAt)) throw new HttpError(400, 'Clock-out time is required');
-    const start = new Date(startedAt);
-    const end = new Date(endedAt);
-    if (end <= start) throw new HttpError(400, 'Clock-out must be after clock-in');
-    if (start.getTime() > Date.now() + 2 * 60_000) throw new HttpError(400, 'Clock-in cannot be in the future');
-    const brk = breakMinutes === undefined || breakMinutes === '' ? 0 : Number(breakMinutes);
-    if (!Number.isFinite(brk) || brk < 0) throw new HttpError(400, 'Break minutes must be zero or more');
-    if ((end - start) / 60_000 <= brk) throw new HttpError(400, 'Break exceeds punch duration');
     if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
+
+    const daily = req.body?.entryKind === 'daily';
+    let start;
+    let end;
+    let brk = 0;
+    let entryKind = 'clock';
+    if (daily) {
+      const window = dailyPunchTimes(req.body);
+      start = new Date(window.startedAt);
+      end = new Date(window.endedAt);
+      brk = window.breakMinutes;
+      entryKind = 'daily';
+    } else {
+      if (!isValidISO(startedAt)) throw new HttpError(400, 'Clock-in time is required');
+      if (!isValidISO(endedAt)) throw new HttpError(400, 'Clock-out time is required');
+      start = new Date(startedAt);
+      end = new Date(endedAt);
+      if (end <= start) throw new HttpError(400, 'Clock-out must be after clock-in');
+      if (start.getTime() > Date.now() + 2 * 60_000) throw new HttpError(400, 'Clock-in cannot be in the future');
+      brk = breakMinutes === undefined || breakMinutes === '' ? 0 : Number(breakMinutes);
+      if (!Number.isFinite(brk) || brk < 0) throw new HttpError(400, 'Break minutes must be zero or more');
+      if ((end - start) / 60_000 <= brk) throw new HttpError(400, 'Break exceeds punch duration');
+    }
 
     const employees = await store.listEmployees();
     const employee = employees.find((e) => e.jtUserId === userId);
@@ -617,7 +687,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
 
     const punch = await store.createManualPunch({
       userId: employee.jtUserId,
-      userName: employee.name || employee.email,
+      userName: crewName(employee),
       jobId: job.id,
       jobName: job.name,
       activity: activity.trim(),
@@ -627,8 +697,12 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       endedAt: end.toISOString(),
       breakMinutes: brk,
       notes: typeof notes === 'string' ? notes.trim() : '',
+      entryKind,
     });
-    await store.logAudit(punch.id, 'created-manual', { by: actorOf(req) });
+    await store.logAudit(punch.id, 'created-manual', {
+      by: actorOf(req),
+      ...(daily ? { entryKind: 'daily', hours: Math.round((end - start) / 36_000) / 100 } : {}),
+    });
     res.json({ punch });
   }));
 
@@ -733,7 +807,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       if (!employee) throw new HttpError(404, 'Crew member not found');
       updated = await store.createManualPunch({
         userId: employee.jtUserId,
-        userName: employee.name || employee.email,
+        userName: crewName(employee),
         jobId: job.id,
         jobName: job.name,
         activity,

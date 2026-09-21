@@ -373,7 +373,8 @@
   display: flex; justify-content: space-between; align-items: center;
   padding: 10px 0 6px; border-bottom: 1px solid var(--bg);
 }
-.hrs-dayhead h2 { margin: 0; font-size: 15px; color: var(--navy); }
+.hrs-dayhead h2 { margin: 0; font-size: 15px; color: var(--navy); display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.hrs-lunch { font-size: 12px; font-weight: 600; color: var(--muted); }
 .hrs-dayhead strong { font-variant-numeric: tabular-nums; color: var(--navy); }
 .hrs-day.is-today .hrs-dayhead h2 { color: var(--orange); }
 .hrs-row {

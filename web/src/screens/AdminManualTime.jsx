@@ -3,6 +3,7 @@ import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import { getActivities, getJobCostItems } from '../api.js';
+import { todayISO } from '../lib/dates.js';
 
 function toLocalInput(d) {
   const pad = (n) => String(n).padStart(2, '0');
@@ -29,9 +30,12 @@ export default function AdminManualTime({ adminFetch, onReview }) {
   const [jobId, setJobId] = useState('');
   const [activity, setActivity] = useState('');
   const [costItemId, setCostItemId] = useState('');
+  const [mode, setMode] = useState('clock');
   const [start, setStart] = useState(defaults.start);
   const [end, setEnd] = useState(defaults.end);
   const [brk, setBrk] = useState('0');
+  const [workDate, setWorkDate] = useState(todayISO());
+  const [hours, setHours] = useState('8');
   const [notes, setNotes] = useState('');
 
   const load = useCallback(async () => {
@@ -70,22 +74,35 @@ export default function AdminManualTime({ adminFetch, onReview }) {
     setOk(null);
     const job = jobs.find((j) => j.id === jobId);
     const breakMinutes = parseInt(brk, 10);
+    const daily = mode === 'daily';
+    const hrs = Number(hours);
     try {
+      const body = {
+        userId,
+        jobId,
+        jobName: job?.name,
+        activity,
+        costItemId: costItemId || undefined,
+        notes: notes.trim() || undefined,
+      };
+      if (daily) {
+        body.entryKind = 'daily';
+        body.workDate = workDate;
+        body.hours = hrs;
+        body.startedAt = new Date(`${workDate}T08:00:00`).toISOString();
+      } else {
+        body.startedAt = new Date(start).toISOString();
+        body.endedAt = new Date(end).toISOString();
+        body.breakMinutes = Number.isFinite(breakMinutes) && breakMinutes > 0 ? breakMinutes : 0;
+      }
       const r = await adminFetch('/api/admin/punches', {
         method: 'POST',
-        body: {
-          userId,
-          jobId,
-          jobName: job?.name,
-          activity,
-          costItemId: costItemId || undefined,
-          startedAt: new Date(start).toISOString(),
-          endedAt: new Date(end).toISOString(),
-          breakMinutes: Number.isFinite(breakMinutes) && breakMinutes > 0 ? breakMinutes : 0,
-          notes: notes.trim() || undefined,
-        },
+        body,
       });
-      setOk(`Saved ${r.punch.userName} · ${r.punch.jobName} (${r.punch.status}). Push it from Time review when ready.`);
+      const saved = daily
+        ? `Saved ${hrs} hrs on ${workDate} for ${r.punch.userName} · ${r.punch.jobName} (${r.punch.status}). Push it from Time review when ready.`
+        : `Saved ${r.punch.userName} · ${r.punch.jobName} (${r.punch.status}). Push it from Time review when ready.`;
+      setOk(saved);
       setNotes('');
     } catch (ex) {
       setErr(ex.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : ex.message);
@@ -103,8 +120,18 @@ export default function AdminManualTime({ adminFetch, onReview }) {
       <Card title="Add time">
         <p className="adm-crew-note">
           Use this when a clock was missed or needs to be entered for someone. It does not clock them in.
+          Daily hours skip clock-in and clock-out and store a lump sum for one job on that day.
+          A 30-minute lunch comes out of any day over 6 hours if a lunch was not already entered.
           The entry lands in Time review so you can push it to JobTread.
         </p>
+        <div className="adm-tabs" style={{ marginBottom: 12 }} role="tablist" aria-label="Add time type">
+          <button type="button" className={mode === 'clock' ? 'adm-tab active' : 'adm-tab'} onClick={() => setMode('clock')}>
+            Clock in / out
+          </button>
+          <button type="button" className={mode === 'daily' ? 'adm-tab active' : 'adm-tab'} onClick={() => setMode('daily')}>
+            Daily hours
+          </button>
+        </div>
         <form className="adm-addform" onSubmit={submit}>
           <label>
             Crew member
@@ -161,18 +188,33 @@ export default function AdminManualTime({ adminFetch, onReview }) {
               ))}
             </select>
           </label>
-          <label>
-            Clock in
-            <input type="datetime-local" required value={start} onChange={(e) => setStart(e.target.value)} />
-          </label>
-          <label>
-            Clock out
-            <input type="datetime-local" required value={end} onChange={(e) => setEnd(e.target.value)} />
-          </label>
-          <label>
-            Break minutes
-            <input type="number" min="0" step="5" value={brk} onChange={(e) => setBrk(e.target.value)} />
-          </label>
+          {mode === 'daily' ? (
+            <>
+              <label>
+                Work date
+                <input type="date" required value={workDate} onChange={(e) => setWorkDate(e.target.value)} />
+              </label>
+              <label>
+                Hours
+                <input type="number" required min="0.25" max="24" step="0.25" value={hours} onChange={(e) => setHours(e.target.value)} />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                Clock in
+                <input type="datetime-local" required value={start} onChange={(e) => setStart(e.target.value)} />
+              </label>
+              <label>
+                Clock out
+                <input type="datetime-local" required value={end} onChange={(e) => setEnd(e.target.value)} />
+              </label>
+              <label>
+                Break minutes
+                <input type="number" min="0" step="5" value={brk} onChange={(e) => setBrk(e.target.value)} />
+              </label>
+            </>
+          )}
           <label className="adm-addform-wide">
             Note (optional)
             <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Why this was added" />

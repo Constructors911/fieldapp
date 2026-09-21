@@ -18,7 +18,7 @@ test('register requires a matching JobTread user (404 otherwise)', async () => {
 test('register links the employee to their JT user id and starts a session', async () => {
   const { status, json } = await api(srv.base, '/api/auth/register', {
     method: 'POST',
-    body: { email: 'Crew@Constructors911.com', pin: '4321' }, // case-insensitive email
+    body: { email: 'Crew@Constructors911.com', pin: '4321', name: 'Dave' }, // case-insensitive email; typed name ignored
   });
   assert.equal(status, 200);
   assert.ok(json.token);

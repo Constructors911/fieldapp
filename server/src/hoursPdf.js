@@ -145,7 +145,9 @@ export function buildHoursPdf(report) {
           fmtDay(day.date),
           clip(p.jobName, 28),
           clip(p.activity || '-', 20),
-          `${fmtWhen(p.startedAt)} -> ${p.endedAt ? fmtWhen(p.endedAt) : 'open'}${p.breakMinutes ? ` (${p.breakMinutes}m brk)` : ''}`,
+          p.entryKind === 'daily'
+            ? 'Daily total'
+            : `${fmtWhen(p.startedAt)} -> ${p.endedAt ? fmtWhen(p.endedAt) : 'open'}${p.breakMinutes ? ` (${p.breakMinutes}m brk)` : ''}`,
           p.endedAt ? fmtHours(p.hours) : '-',
           p.jtTimeEntryId ? `${pushed} ${p.jtTimeEntryId}` : pushed,
         ];
@@ -155,7 +157,7 @@ export function buildHoursPdf(report) {
         y -= LINE;
       }
       need(LINE);
-      ops += text(punchCols[0].x, y, `Day total  ${fmtDay(day.date)}`, { size: 8, bold: true });
+      ops += text(punchCols[0].x, y, `Day total  ${fmtDay(day.date)}${day.lunchMinutes > 0 ? '  (30 min lunch out)' : ''}`, { size: 8, bold: true });
       ops += text(punchCols[4].x, y, fmtHours(day.hours), { size: 8, bold: true });
       y -= LINE + 2;
     }

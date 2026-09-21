@@ -25,6 +25,7 @@ function rowToPunch(r) {
     status: r.status,
     jtTimeEntryId: r.jt_time_entry_id,
     syncError: r.sync_error,
+    entryKind: r.entry_kind === 'daily' ? 'daily' : 'clock',
   };
 }
 
@@ -58,6 +59,7 @@ export function createNeonStore(databaseUrl) {
           updated_at timestamptz not null default now()
         )`;
         await sql`create index if not exists punches_status_idx on punches(status)`;
+        await sql`alter table punches add column if not exists entry_kind text not null default 'clock'`;
         await sql`create table if not exists activities (
           id serial primary key,
           name text not null unique,
@@ -243,11 +245,11 @@ export function createNeonStore(databaseUrl) {
       const status = p.costItemId ? 'approved' : 'pending';
       const rows = await sql`insert into punches
         (user_id, user_name, job_id, job_name, activity, cost_item_id, cost_item_name, entry_type,
-         started_at, ended_at, break_minutes, notes, status)
+         started_at, ended_at, break_minutes, notes, status, entry_kind)
         values (${p.userId}, ${p.userName ?? ''}, ${p.jobId}, ${p.jobName ?? ''}, ${p.activity},
                 ${p.costItemId ?? null}, ${p.costItemName ?? null},
                 ${p.entryType ?? 'Standard'}, ${p.startedAt}, ${p.endedAt}, ${p.breakMinutes ?? 0},
-                ${p.notes ?? ''}, ${status})
+                ${p.notes ?? ''}, ${status}, ${p.entryKind === 'daily' ? 'daily' : 'clock'})
         returning *`;
       return rowToPunch(rows[0]);
     },
@@ -388,6 +390,16 @@ export function createNeonStore(databaseUrl) {
         composed: r.composed,
         at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
       }));
+    },
+
+    async setEmployeeNames(employeeId, { name, jtUserName } = {}) {
+      await migrate();
+      const rows = await sql`update employees set
+          name = coalesce(${name ?? null}, name),
+          jt_user_name = coalesce(${jtUserName ?? null}, jt_user_name)
+        where id = ${employeeId} returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Employee not found');
+      return employeeRow(rows[0]);
     },
 
     async setEmployeeGrantKey(employeeId, grantKey) {

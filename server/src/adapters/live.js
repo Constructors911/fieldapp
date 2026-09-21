@@ -345,6 +345,14 @@ export function createLiveAdapter({
   const typeCache = new Map(); // jtUserId -> string[]
   let rosterTypesLoaded = false;
   let memberCache = { at: 0, list: null };
+  let membershipUserFields = { id: {}, name: {}, firstName: {}, lastName: {}, emailAddress: {} };
+
+  function jtUserDisplayName(user) {
+    const first = String(user?.firstName || '').trim();
+    const last = String(user?.lastName || '').trim();
+    const combined = [first, last].filter(Boolean).join(' ');
+    return combined || String(user?.name || '').trim();
+  }
 
   async function timeEntryTypeNames(forUserId = userId) {
     const key = forUserId || userId;
@@ -599,20 +607,28 @@ export function createLiveAdapter({
      */
     async listInternalMemberships() {
       if (memberCache.list && Date.now() - memberCache.at < 5 * 60_000) return memberCache.list;
-      const data = await pave({
+      const query = () => pave({
         organization: {
           $: { id: organizationId },
           id: {},
           memberships: {
             $: { size: 100, where: { and: [['isInternal', '=', true]] } },
-            nodes: { id: {}, user: { id: {}, name: {}, emailAddress: {} } },
+            nodes: { id: {}, user: membershipUserFields },
           },
         },
       });
+      let data;
+      try {
+        data = await query();
+      } catch (e) {
+        if (!membershipUserFields.firstName) throw e;
+        membershipUserFields = { id: {}, name: {}, emailAddress: {} };
+        data = await query();
+      }
       const list = (data?.organization?.memberships?.nodes ?? [])
         .map((n) => ({
           userId: n.user?.id,
-          name: n.user?.name || '',
+          name: jtUserDisplayName(n.user),
           email: String(n.user?.emailAddress || '').trim().toLowerCase(),
         }))
         .filter((m) => m.userId);
@@ -789,6 +805,7 @@ export function createLiveAdapter({
       if (netEnded <= started) throw new HttpError(400, 'Break exceeds punch duration');
       const notes = [
         p.notes,
+        p.entryKind === 'daily' ? 'Daily total (no clock times)' : '',
         p.breakMinutes ? `(${p.breakMinutes} min break deducted)` : '',
         p.activity ? `Activity: ${p.activity}` : '',
       ].filter(Boolean).join(' · ');

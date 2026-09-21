@@ -73,6 +73,7 @@ export function createMemoryStore() {
         status: 'open',
         jtTimeEntryId: null,
         syncError: null,
+        entryKind: 'clock',
       };
       punches.push(punch);
       return { ...punch };
@@ -98,6 +99,7 @@ export function createMemoryStore() {
         status: p.costItemId ? 'approved' : 'pending',
         jtTimeEntryId: null,
         syncError: null,
+        entryKind: p.entryKind === 'daily' ? 'daily' : 'clock',
       };
       punches.push(punch);
       return { ...punch };
@@ -394,6 +396,14 @@ export function createMemoryStore() {
       for (const [token, s] of sessions) {
         if (s.employeeId === employeeId) sessions.delete(token);
       }
+    },
+
+    async setEmployeeNames(employeeId, { name, jtUserName } = {}) {
+      const e = employees.find((x) => x.id === employeeId);
+      if (!e) throw new HttpError(404, 'Employee not found');
+      if (name != null) e.name = name;
+      if (jtUserName != null) e.jtUserName = jtUserName;
+      return { ...e };
     },
 
     async setEmployeeGrantKey(employeeId, grantKey) {

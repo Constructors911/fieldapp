@@ -4,6 +4,7 @@ import { createApp } from '../src/app.js';
 import { createMockAdapter } from '../src/adapters/mock.js';
 import { createMemoryStore } from '../src/store/memory.js';
 import { buildHoursReport, punchNetMinutes } from '../src/hoursReport.js';
+import { dayLunchMinutes, dayPaidMinutes } from '../src/util/dailyLunch.js';
 import { buildHoursPdf } from '../src/hoursPdf.js';
 import { sundayOf, sundayOfDateString, payPeriodContaining, payPeriodOffset } from '../src/util/dates.js';
 import { api } from './helpers.js';
@@ -45,6 +46,18 @@ test('punchNetMinutes deducts break and ignores void/open', () => {
   }), 0);
 });
 
+test('a day over 6 hours deducts 30 minutes unless a lunch was already entered', () => {
+  const long = punch('user_a', 'Alex', '2026-09-14T07:00:00', '2026-09-14T15:00:00', 'pending'); // 8h
+  assert.equal(dayLunchMinutes([long]), 30);
+  assert.equal(dayPaidMinutes([long]), 450);
+  const withBreak = { ...long, breakMinutes: 30 };
+  assert.equal(dayLunchMinutes([withBreak]), 0);
+  assert.equal(dayPaidMinutes([withBreak]), 450);
+  const short = punch('user_a', 'Alex', '2026-09-14T07:00:00', '2026-09-14T13:00:00', 'pending'); // 6h
+  assert.equal(dayLunchMinutes([short]), 0);
+  assert.equal(dayPaidMinutes([short]), 360);
+});
+
 test('buildHoursReport groups by user/day and computes Sun–Sat OT over 40', () => {
   const punches = [
     punch('user_a', 'Alex', '2026-09-14T07:00:00', '2026-09-14T17:00:00', 'pushed', 'jt_1'), // Mon 10h
@@ -62,24 +75,25 @@ test('buildHoursReport groups by user/day and computes Sun–Sat OT over 40', ()
 
   const alex = report.users.find((u) => u.userName === 'Alex');
   assert.equal(alex.days.length, 5);
-  assert.equal(alex.days[0].hours, 10);
+  assert.equal(alex.days[0].hours, 9.5);
+  assert.equal(alex.days[0].lunchMinutes, 30);
   assert.equal(alex.days[0].punches[0].pushed, true);
   assert.equal(alex.days[1].punches[0].pushed, false);
-  assert.equal(alex.totalHours, 42);
+  assert.equal(alex.totalHours, 40);
   assert.equal(alex.regularHours, 40);
-  assert.equal(alex.overtimeHours, 2);
+  assert.equal(alex.overtimeHours, 0);
   assert.equal(alex.weeks.length, 1);
   assert.equal(alex.weeks[0].weekStart, '2026-09-13');
   assert.equal(alex.weeks[0].weekEnd, '2026-09-19');
   assert.equal(alex.weeks[0].partial, false);
 
   const blake = report.users.find((u) => u.userName === 'Blake');
-  assert.equal(blake.totalHours, 8);
+  assert.equal(blake.totalHours, 7.5);
   assert.equal(blake.overtimeHours, 0);
   assert.equal(blake.days[1].punches.some((p) => p.status === 'open'), true);
 
-  assert.equal(report.totals.totalHours, 50);
-  assert.equal(report.totals.overtimeHours, 2);
+  assert.equal(report.totals.totalHours, 47.5);
+  assert.equal(report.totals.overtimeHours, 0);
 
   const pdf = buildHoursPdf(report).toString('utf8');
   assert.ok(pdf.startsWith('%PDF-1.4'));
@@ -153,7 +167,7 @@ test('GET /api/admin/hours returns grouped hours and JT push flags', async () =>
   assert.equal(json.from, '2026-09-13');
   const casey = json.users.find((u) => u.userName === 'Casey Crew');
   assert.ok(casey);
-  assert.equal(casey.totalHours, 20);
+  assert.equal(casey.totalHours, 19);
   assert.equal(casey.overtimeHours, 0);
   assert.equal(casey.days[0].punches[0].pushed, true);
   assert.equal(casey.days[1].punches[0].pushed, false);

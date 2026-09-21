@@ -9,6 +9,7 @@ import {
   addDays, payPeriodContaining, payPeriodOffset, periodToIsoRange, sundayOfDate,
   parseISODate, toISODate, todayISO,
 } from '../lib/dates.js';
+import { dayLunchMinutes } from '../lib/dailyLunch.js';
 import '../components/screens.css';
 
 function fmtHours(mins) {
@@ -72,8 +73,10 @@ function groupMyHours(entries, from, to) {
   const dayRows = [...days.entries()]
     .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([date, list]) => {
-      const minutes = list.reduce((sum, e) => sum + (e.endedAt ? (e.minutes || 0) : 0), 0);
-      return { date, minutes, entries: list.sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt))) };
+      const entries = list.sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
+      const punchMinutes = entries.reduce((sum, e) => sum + (e.endedAt ? (e.minutes || 0) : 0), 0);
+      const lunchMinutes = dayLunchMinutes(entries.filter((e) => e.endedAt));
+      return { date, minutes: Math.max(0, punchMinutes - lunchMinutes), lunchMinutes, entries };
     });
   const weekMap = new Map();
   for (const day of dayRows) {
@@ -284,6 +287,7 @@ export default function Hours({ boot }) {
           </div>
           {report.weeks.length > 0 && (
             <p className="hrs-weeknote">
+              Days over 6 hours include a 30 min unpaid lunch if one was not already entered.
               OT is time over 40 hours Sunday–Saturday
               {report.weeks.map((w) => (
                 <span key={w.weekStart}>
@@ -298,7 +302,10 @@ export default function Hours({ boot }) {
           {report.days.map((day) => (
             <section className={`hrs-day${day.date === today ? ' is-today' : ''}`} key={day.date}>
               <header className="hrs-dayhead">
-                <h2>{fmtDay(day.date)}</h2>
+                <h2>
+                  {fmtDay(day.date)}
+                  {day.lunchMinutes > 0 ? <span className="hrs-lunch">30 min lunch out</span> : null}
+                </h2>
                 <strong>{fmtHours(day.minutes)}</strong>
               </header>
               {day.entries.map((e) => {
@@ -311,7 +318,7 @@ export default function Hours({ boot }) {
                       <p className="hrs-meta">
                         {e.activity || e.costItemName || 'Labor'}
                         {' · '}
-                        {fmtWhen(e.startedAt)} → {e.endedAt ? fmtWhen(e.endedAt) : 'open'}
+                        {e.entryKind === 'daily' ? 'Daily total' : `${fmtWhen(e.startedAt)} → ${e.endedAt ? fmtWhen(e.endedAt) : 'open'}`}
                       </p>
                       {pending && <p className="hrs-flag">Change requested — office will review</p>}
                       {!pending && resolved?.status === 'applied' && <p className="hrs-flag">Office updated this clock</p>}
@@ -319,7 +326,7 @@ export default function Hours({ boot }) {
                     </div>
                     <div className="hrs-row-side">
                       <span className="hrs-mins">{e.endedAt ? fmtHours(e.minutes) : '—'}</span>
-                      {e.endedAt && e.status !== 'void' && !pending && (
+                      {e.endedAt && e.status !== 'void' && !pending && e.entryKind !== 'daily' && (
                         <button type="button" className="hrs-ask" onClick={() => openChange(e)}>
                           Wrong?
                         </button>

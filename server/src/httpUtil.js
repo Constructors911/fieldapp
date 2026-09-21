@@ -43,5 +43,6 @@ export function punchToEntry(p) {
     notes: p.notes,
     coordinates: p.coordinates,
     status: p.status,
+    entryKind: p.entryKind === 'daily' ? 'daily' : 'clock',
   };
 }

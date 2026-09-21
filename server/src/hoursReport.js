@@ -2,6 +2,7 @@
 // OT is any time over 40 hours in a Sunday–Saturday week, using hours
 // whose clock-in day falls in the selected range.
 import { addDays, sundayOfDateString, toDateString } from './util/dates.js';
+import { dayLunchMinutes } from './util/dailyLunch.js';
 
 const WEEK_OT_MINUTES = 40 * 60;
 
@@ -30,6 +31,7 @@ function punchRow(p) {
     status: p.status,
     pushed: p.status === 'pushed',
     jtTimeEntryId: p.jtTimeEntryId || null,
+    entryKind: p.entryKind === 'daily' ? 'daily' : 'clock',
   };
 }
 
@@ -84,8 +86,12 @@ function buildUserReport({ userId, userName, punches }, from, to) {
   }
 
   const days = [...byDay.entries()].map(([date, rows]) => {
-    const minutes = rows.reduce((sum, r) => sum + r.minutes, 0);
-    return { date, minutes, hours: hoursFromMinutes(minutes), punches: rows };
+    const punchMinutes = rows.reduce((sum, r) => sum + r.minutes, 0);
+    const lunchMinutes = dayLunchMinutes(sorted.filter((p) => (
+      p.endedAt && toDateString(new Date(p.startedAt)) === date
+    )));
+    const minutes = Math.max(0, punchMinutes - lunchMinutes);
+    return { date, minutes, hours: hoursFromMinutes(minutes), lunchMinutes, punches: rows };
   });
 
   const weekMap = new Map();
