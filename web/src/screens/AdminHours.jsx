@@ -173,7 +173,7 @@ export default function AdminHours({ adminFetch }) {
   const [mailNote, setMailNote] = useState(null);
   const [catalog, setCatalog] = useState([]);
   const [editingId, setEditingId] = useState(null);
-  const [editVals, setEditVals] = useState({ start: '', end: '', brk: '0', hours: '', activity: '' });
+  const [editVals, setEditVals] = useState({ start: '', end: '', brk: '0', hours: '', activity: '', note: '' });
   useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
 
   const load = useCallback(async (fromDay = from, toDay = to) => {
@@ -235,6 +235,7 @@ export default function AdminHours({ adminFetch }) {
       brk: String(p.breakMinutes ?? 0),
       hours: p.endedAt ? String(p.hours) : '',
       activity: p.activity || '',
+      note: '',
     });
   }
 
@@ -271,6 +272,11 @@ export default function AdminHours({ adminFetch }) {
     }
     const activity = editVals.activity.trim();
     if (activity && activity !== (p.activity || '')) body.activity = activity;
+    const note = editVals.note.trim();
+    if (note.length < 8 || note.length > 400) {
+      setErr('Add a change note (8–400 characters)');
+      return;
+    }
     if (Object.keys(body).length === 0) {
       setEditingId(null);
       return;
@@ -278,7 +284,7 @@ export default function AdminHours({ adminFetch }) {
     setBusy(true);
     setErr(null);
     try {
-      await adminFetch(`/api/admin/punches/${p.id}`, { method: 'PATCH', body });
+      await adminFetch(`/api/admin/punches/${p.id}/adjust`, { method: 'POST', body: { ...body, note } });
       setEditingId(null);
       await load(from, to);
     } catch (e) {
@@ -601,7 +607,23 @@ export default function AdminHours({ adminFetch }) {
                                         ))}
                                       </select>
                                     </label>
-                                    <button type="button" className="c-btn" disabled={busy} onClick={() => saveAdjust(p)}>Save</button>
+                                    <label className="adm-editform-note">Office change note
+                                      <textarea
+                                        rows={3}
+                                        maxLength={400}
+                                        value={editVals.note}
+                                        onChange={(e) => setEditVals((v) => ({ ...v, note: e.target.value }))}
+                                        placeholder="Why these times, break, or activity changed"
+                                      />
+                                    </label>
+                                    <button
+                                      type="button"
+                                      className="c-btn"
+                                      disabled={busy || editVals.note.trim().length < 8}
+                                      onClick={() => saveAdjust(p)}
+                                    >
+                                      Save
+                                    </button>
                                     <button type="button" className="c-btn c-btn-ghost" disabled={busy} onClick={() => setEditingId(null)}>Cancel</button>
                                   </div>
                                 </td>

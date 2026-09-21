@@ -1080,6 +1080,88 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     res.json({ punch });
   }));
 
+  async function recordHoursAdjustment({ before, updated, note, by, changes }) {
+    const employees = await store.listEmployees();
+    const employee = employees.find((e) => e.jtUserId === before.userId);
+    if (!employee) throw new HttpError(404, 'Crew member not found');
+    let current = await store.getPendingTimeAdjustment(before.id);
+    if (!current) {
+      const gross = Math.round((new Date(before.endedAt) - new Date(before.startedAt)) / 60_000);
+      current = await store.createTimeAdjustment({
+        punchId: before.id,
+        employeeId: employee.id,
+        employeeName: crewName(employee),
+        employeeEmail: employee.email,
+        jobName: before.jobName,
+        startedAt: before.startedAt,
+        endedAt: before.endedAt,
+        minutes: Math.max(0, gross - (before.breakMinutes || 0)),
+        reason: 'Office adjustment from Hours',
+        kind: 'change',
+        requestedJobId: updated.jobId,
+        requestedJobName: updated.jobName,
+        requestedActivity: updated.activity,
+        requestedStartedAt: updated.startedAt,
+        requestedEndedAt: updated.endedAt,
+        requestedBreakMinutes: updated.breakMinutes || 0,
+      });
+    }
+    const adjustment = await store.resolveTimeAdjustment(current.id, {
+      status: 'applied',
+      adminNote: note,
+      punchId: updated.id,
+      appliedStartedAt: updated.startedAt,
+      appliedEndedAt: updated.endedAt,
+      appliedBreakMinutes: updated.breakMinutes || 0,
+      appliedMinutes: netPunchMinutes(updated.startedAt, updated.endedAt, updated.breakMinutes),
+      by,
+    });
+    await store.logAudit(updated.id, 'edited', { by, adjustmentId: adjustment.id, adminNote: note, changes });
+    return adjustment;
+  }
+
+  app.post('/api/admin/punches/:id/adjust', requireAdmin, wrap(async (req, res) => {
+    const note = adminNoteOf(req.body ?? {});
+    const allowed = ['activity', 'startedAt', 'endedAt', 'breakMinutes'];
+    const patch = {};
+    for (const k of allowed) if (req.body?.[k] !== undefined) patch[k] = req.body[k];
+    if (Object.keys(patch).length === 0) throw new HttpError(400, 'Nothing to update');
+    if (patch.startedAt !== undefined && !isValidISO(patch.startedAt)) throw new HttpError(400, 'startedAt must be an ISO timestamp');
+    if (patch.endedAt !== undefined && !isValidISO(patch.endedAt)) throw new HttpError(400, 'endedAt must be an ISO timestamp');
+    if (patch.breakMinutes !== undefined && (typeof patch.breakMinutes !== 'number' || patch.breakMinutes < 0)) {
+      throw new HttpError(400, 'breakMinutes must be a non-negative number');
+    }
+    const before = await store.getPunch(req.params.id);
+    if (!before) throw new HttpError(404, 'Punch not found');
+    if (!before.endedAt || before.status === 'void') {
+      throw new HttpError(400, 'Only a finished clock can be adjusted');
+    }
+    if (before.status === 'pushed') throw new HttpError(400, 'This clock was already pushed to JobTread');
+    if (patch.startedAt !== undefined || patch.endedAt !== undefined || patch.breakMinutes !== undefined) {
+      const start = new Date(patch.startedAt ?? before.startedAt);
+      const end = new Date(patch.endedAt ?? before.endedAt);
+      const brk = patch.breakMinutes ?? before.breakMinutes ?? 0;
+      if (end <= start) throw new HttpError(400, 'Clock-out must be after clock-in');
+      if ((end - start) / 60_000 <= brk) throw new HttpError(400, 'Break exceeds punch duration');
+    }
+    const updated = await store.updatePunch(before.id, patch);
+    const changes = {};
+    for (const k of Object.keys(patch)) {
+      if (JSON.stringify(before[k] ?? null) !== JSON.stringify(updated[k] ?? null)) {
+        changes[k] = { from: before[k] ?? null, to: updated[k] ?? null };
+      }
+    }
+    if (Object.keys(changes).length === 0) throw new HttpError(400, 'Nothing changed — add a different time or dismiss');
+    const adjustment = await recordHoursAdjustment({
+      before,
+      updated,
+      note,
+      by: actorOf(req),
+      changes,
+    });
+    res.json({ punch: updated, adjustment: await withPunch(adjustment) });
+  }));
+
   // Void junk/test/accidental punches (also releases a stuck open punch so
   // the employee can clock in again). Pushed punches are immutable.
   app.post('/api/admin/punches/:id/void', requireAdmin, wrap(async (req, res) => {

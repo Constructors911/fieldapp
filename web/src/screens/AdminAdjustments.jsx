@@ -53,6 +53,7 @@ function draftFrom(a) {
 }
 
 function kindLabel(a) {
+  if (a.reason === 'Office adjustment from Hours') return 'Office adjustment';
   return a.kind === 'add' ? 'Add missing time' : 'Change clock';
 }
 
@@ -196,7 +197,7 @@ export default function AdminAdjustments({ adminFetch }) {
       <p className="adm-crew-note">
         {tab === 'pending'
           ? 'Apply the requested times and job, or dismiss with a note. Add-time requests create a new clock. Wrong-job requests can move the existing one.'
-          : 'Every office decision on a crew change request — times changed or not — with the reason note.'}
+          : 'Every office decision — crew change requests and Hours-row adjustments — with the reason note.'}
       </p>
       {tab === 'log' && Array.isArray(items) && items.length > 0 && (
         <div className="adm-adj-logbar">

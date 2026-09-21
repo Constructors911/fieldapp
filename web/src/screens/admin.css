@@ -43,6 +43,11 @@
 .adm-editform label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .adm-editform input, .adm-editform select { min-height: 36px; padding: 4px 8px; border: 1px solid #cfd6dd; border-radius: 6px; font-size: 13px; }
 .adm-editform .c-btn { min-height: 36px; padding: 0 16px; font-size: 14px; }
+.adm-editform-note { flex: 1 1 100%; }
+.adm-editform-note textarea {
+  width: 100%; min-height: 72px; padding: 8px; border: 1px solid #cfd6dd; border-radius: 6px;
+  font: inherit; font-size: 13px; resize: vertical;
+}
 .adm-audit { margin: 4px 0; padding-left: 18px; font-size: 13px; color: var(--text); }
 .adm-audit li { margin: 2px 0; }
 .adm-google { display: flex; justify-content: center; margin: 8px 0; }

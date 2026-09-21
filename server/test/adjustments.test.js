@@ -216,3 +216,74 @@ test('crew can request a wrong-job change on an existing clock', async () => {
   assert.equal(applied.json.punch.jobId, 'job_sunset');
   assert.equal(applied.json.punch.jobName, 'Sunset Plaza Office TI Buildout');
 });
+
+async function longClosedPunch() {
+  const startedAt = new Date(Date.now() - 8 * 3600_000).toISOString();
+  const endedAt = new Date(Date.now() - 5 * 60_000).toISOString();
+  const cin = await api(srv.base, '/api/time/clock-in', {
+    method: 'POST',
+    headers,
+    body: { jobId: 'job_maplewood', activity: 'Mason', at: startedAt },
+  });
+  assert.equal(cin.status, 200, cin.json?.error);
+  const cout = await api(srv.base, '/api/time/clock-out', {
+    method: 'POST',
+    headers,
+    body: { breakMinutes: 0, at: endedAt },
+  });
+  assert.equal(cout.status, 200, cout.json?.error);
+  return cout.json.entry;
+}
+
+test('admin Hours adjust requires a note and writes the adjustment log', async () => {
+  const entry = await longClosedPunch();
+  const noNote = await api(srv.base, `/api/admin/punches/${entry.id}/adjust`, {
+    method: 'POST',
+    body: { breakMinutes: 30 },
+  });
+  assert.equal(noNote.status, 400);
+
+  const ok = await api(srv.base, `/api/admin/punches/${entry.id}/adjust`, {
+    method: 'POST',
+    body: { breakMinutes: 30, note: 'Supervisor confirmed a 30 minute lunch.' },
+  });
+  assert.equal(ok.status, 200, ok.json?.error);
+  assert.equal(ok.json.punch.breakMinutes, 30);
+  assert.equal(ok.json.adjustment.status, 'applied');
+  assert.match(ok.json.adjustment.reason, /Office adjustment from Hours/);
+  assert.match(ok.json.adjustment.adminNote, /30 minute lunch/);
+
+  const log = await api(srv.base, '/api/admin/adjustments?status=log');
+  assert.ok(log.json.adjustments.some((a) => a.id === ok.json.adjustment.id));
+
+  const again = await api(srv.base, `/api/admin/punches/${entry.id}/adjust`, {
+    method: 'POST',
+    body: { breakMinutes: 15, note: 'Corrected lunch to 15 minutes after a second look.' },
+  });
+  assert.equal(again.status, 200, again.json?.error);
+  assert.notEqual(again.json.adjustment.id, ok.json.adjustment.id);
+  const log2 = await api(srv.base, '/api/admin/adjustments?status=log');
+  assert.equal(log2.json.adjustments.filter((a) => a.punchId === entry.id).length, 2);
+});
+
+test('admin Hours adjust applies a pending crew request instead of leaving it open', async () => {
+  const entry = await longClosedPunch();
+  const created = await api(srv.base, `/api/time/entries/${entry.id}/adjust`, {
+    method: 'POST',
+    headers,
+    body: { reason: 'I took a 30 minute lunch and forgot to enter it.' },
+  });
+  assert.equal(created.status, 200);
+  const pendingId = created.json.adjustment.id;
+
+  const ok = await api(srv.base, `/api/admin/punches/${entry.id}/adjust`, {
+    method: 'POST',
+    body: { breakMinutes: 30, note: 'Applied the lunch they asked for from Hours.' },
+  });
+  assert.equal(ok.status, 200, ok.json?.error);
+  assert.equal(ok.json.adjustment.id, pendingId);
+  assert.equal(ok.json.adjustment.status, 'applied');
+
+  const pending = await api(srv.base, '/api/admin/adjustments?status=pending');
+  assert.ok(!pending.json.adjustments.some((a) => a.id === pendingId));
+});
