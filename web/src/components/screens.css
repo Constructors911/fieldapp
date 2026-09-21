@@ -407,6 +407,20 @@
 .hrs-kind-btn + .hrs-kind-btn { border-left: 1px solid #cfd6dd; }
 .hrs-kind-btn.active { background: var(--navy); color: #fff; }
 .hrs-kind-btn:disabled { opacity: 0.45; cursor: default; }
+.hrs-joblist {
+  max-height: 180px; overflow-y: auto; margin: 6px 0 12px;
+  border: 1px solid #cfd6dd; border-radius: 10px; background: #fff;
+}
+.hrs-jobopt {
+  display: block; width: 100%; text-align: left; min-height: var(--tap);
+  padding: 10px 12px; border: 0; border-bottom: 1px solid var(--bg);
+  background: transparent; color: var(--navy); font-size: 14px; font-weight: 700;
+  cursor: pointer;
+}
+.hrs-jobopt:last-child { border-bottom: 0; }
+.hrs-jobopt span { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.hrs-jobopt.is-on { background: #e8eef4; }
+.hrs-jobempty { margin: 0; padding: 14px 12px; font-size: 13px; color: var(--muted); }
 
 /* --- week --- */
 .c-week-nav {

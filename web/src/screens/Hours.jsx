@@ -49,6 +49,17 @@ function defaultAddRange() {
   return { start: toLocalInput(start), end: toLocalInput(end) };
 }
 
+function jobLabel(job) {
+  if (!job) return '';
+  return job.number ? `${job.number} · ${job.name}` : (job.name || '');
+}
+
+function jobMatches(job, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return `${job.number || ''} ${job.name || ''} ${job.location || ''} ${jobLabel(job)}`.toLowerCase().includes(q);
+}
+
 function groupMyHours(entries, from, to) {
   const days = new Map();
   for (const e of entries || []) {
@@ -96,6 +107,7 @@ export default function Hours({ boot }) {
   const [err, setErr] = useState(null);
   const [ask, setAsk] = useState(null);
   const [jobId, setJobId] = useState('');
+  const [jobQuery, setJobQuery] = useState('');
   const [activity, setActivity] = useState('');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
@@ -145,11 +157,16 @@ export default function Hours({ boot }) {
     () => adjustments.filter((a) => a.status === 'pending' && (a.kind === 'add' || !a.punchId)),
     [adjustments]
   );
+  const jobChoices = useMemo(
+    () => jobs.filter((j) => jobMatches(j, jobQuery)),
+    [jobs, jobQuery]
+  );
 
   function openAdd() {
     const range = defaultAddRange();
     setAsk({ mode: 'add' });
-    setJobId(jobs[0]?.id || '');
+    setJobId('');
+    setJobQuery('');
     setActivity('');
     setStart(range.start);
     setEnd(range.end);
@@ -159,8 +176,10 @@ export default function Hours({ boot }) {
   }
 
   function openChange(entry) {
+    const current = jobs.find((j) => j.id === entry.jobId);
     setAsk({ mode: 'change', entry });
     setJobId(entry.jobId || '');
+    setJobQuery(jobLabel(current) || entry.jobName || '');
     setActivity(entry.activity || entry.costItemName || '');
     setStart(isoToLocalInput(entry.startedAt));
     setEnd(isoToLocalInput(entry.endedAt));
@@ -342,12 +361,42 @@ export default function Hours({ boot }) {
               </p>
             )}
             <label className="c-label" htmlFor="hrs-job">Job</label>
-            <select id="hrs-job" className="c-input" value={jobId} onChange={(e) => setJobId(e.target.value)}>
-              <option value="">Select…</option>
-              {jobs.map((j) => (
-                <option key={j.id} value={j.id}>{j.name}</option>
-              ))}
-            </select>
+            <input
+              id="hrs-job"
+              className="c-input"
+              type="search"
+              placeholder="Search jobs…"
+              autoComplete="off"
+              value={jobQuery}
+              onChange={(e) => {
+                setJobQuery(e.target.value);
+                setJobId('');
+              }}
+            />
+            <div className="hrs-joblist" role="listbox" aria-label="Matching jobs">
+              {jobs.length === 0 ? (
+                <p className="hrs-jobempty">No jobs available</p>
+              ) : jobChoices.length === 0 ? (
+                <p className="hrs-jobempty">No matches for “{jobQuery.trim()}”</p>
+              ) : (
+                jobChoices.map((j) => (
+                  <button
+                    key={j.id}
+                    type="button"
+                    role="option"
+                    aria-selected={j.id === jobId}
+                    className={j.id === jobId ? 'hrs-jobopt is-on' : 'hrs-jobopt'}
+                    onClick={() => {
+                      setJobId(j.id);
+                      setJobQuery(jobLabel(j));
+                    }}
+                  >
+                    {jobLabel(j)}
+                    {j.location && <span>{j.location}</span>}
+                  </button>
+                ))
+              )}
+            </div>
             <label className="c-label" htmlFor="hrs-act">Activity</label>
             <select id="hrs-act" className="c-input" value={activity} onChange={(e) => setActivity(e.target.value)}>
               <option value="">Select…</option>
