@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getMyLogs, createLog, getFileTags, getCompanyCamStatus, getTasks, updateTask, clockIn, clockOut } from '../api.js';
+import { getCurrentEntry, getTimeEntries, getActivities, getJobCostItems, getMyLogs, createLog, getFileTags, getCompanyCamStatus, getTasks, updateTask, clockIn, clockOut, getPeriodApproval } from '../api.js';
+import PeriodApprovalBanner, { needsPeriodApproval } from '../components/PeriodApprovalBanner.jsx';
+import { payPeriodOffset } from '../lib/dates.js';
 import { preparePhotos } from '../components/PhotoAttach.jsx';
 import Card from '../components/Card.jsx';
 import Sheet from '../components/Sheet.jsx';
@@ -14,8 +16,13 @@ import { dayLunchMinutes, dayPaidMinutes } from '../lib/dailyLunch.js';
 import { emptyLogCapture, captureToCompose, validateLogCapture, photosHaveTag } from '../lib/logCapture.js';
 import '../components/screens.css';
 
-export default function Clock({ boot, onRefreshJobs }) {
+export default function Clock({ boot, onRefreshJobs, onReviewHours }) {
   const jobs = boot?.jobs || [];
+  const lastPay = payPeriodOffset(-1);
+  const [lastApproval, setLastApproval] = useState(null);
+  useEffect(() => {
+    getPeriodApproval(lastPay.from, lastPay.to).then(setLastApproval).catch(() => setLastApproval(null));
+  }, [lastPay.from, lastPay.to]);
 
   const [current, setCurrent] = useState(undefined); // undefined = loading, null = clocked out
   const [entries, setEntries] = useState([]);
@@ -355,6 +362,9 @@ export default function Clock({ boot, onRefreshJobs }) {
       <ErrorBanner message={loadErr} onRetry={load} />
       <ErrorBanner message={actionErr} onDismiss={() => setActionErr(null)} />
       {notice && <p className="clk-notice">{notice}</p>}
+      {needsPeriodApproval(lastApproval) && (
+        <PeriodApprovalBanner onReview={onReviewHours} />
+      )}
 
       <Card>
         <div className="clk-status">

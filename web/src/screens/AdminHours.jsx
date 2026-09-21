@@ -102,6 +102,33 @@ export function reportToCsv(report) {
   return lines.join('\n');
 }
 
+function approvalForUser(review, user) {
+  const list = review?.approvals || [];
+  return list.find((a) => a.userId && a.userId === user.userId)
+    || list.find((a) => a.employeeName && a.employeeName === user.userName)
+    || null;
+}
+
+function reviewCountsFor(report) {
+  const review = report?.review;
+  if (!review?.requested) return { approved: 0, changes: 0, waiting: 0 };
+  const users = report.users || [];
+  let approved = 0;
+  let changes = 0;
+  for (const user of users) {
+    const status = approvalForUser(review, user)?.status;
+    if (status === 'approved') approved += 1;
+    else if (status === 'changes_requested') changes += 1;
+  }
+  return { approved, changes, waiting: Math.max(0, users.length - approved - changes) };
+}
+
+function crewReviewLabel(status) {
+  if (status === 'approved') return 'Approved';
+  if (status === 'changes_requested') return 'Asked for a change';
+  return 'Waiting';
+}
+
 function Stat({ label, value, warn }) {
   return (
     <div className={`adm-hours-stat${warn ? ' is-ot' : ''}`}>
@@ -118,6 +145,8 @@ export default function AdminHours({ adminFetch }) {
   const [report, setReport] = useState(undefined);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [askBusy, setAskBusy] = useState(false);
+  const [mailNote, setMailNote] = useState(null);
 
   const load = useCallback(async (fromDay = from, toDay = to) => {
     setBusy(true);
@@ -208,6 +237,26 @@ export default function AdminHours({ adminFetch }) {
   const lastPay = payPeriodOffset(-1);
   const onThisPay = from === thisPay.from && to === thisPay.to;
   const onLastPay = from === lastPay.from && to === lastPay.to;
+  const review = report?.review;
+  const reviewCounts = reviewCountsFor(report);
+
+  async function requestCrewApproval() {
+    if (!report || askBusy) return;
+    setAskBusy(true);
+    setErr(null);
+    try {
+      const r = await adminFetch('/api/admin/hours/request-approval', {
+        method: 'POST',
+        body: { from: report.from, to: report.to },
+      });
+      setMailNote(r.emails || null);
+      await load(report.from, report.to);
+    } catch (e) {
+      setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
+    } finally {
+      setAskBusy(false);
+    }
+  }
 
   return (
     <>
@@ -264,6 +313,47 @@ export default function AdminHours({ adminFetch }) {
         </p>
       </div>
 
+      {review?.isPayPeriod && (
+        <div className="adm-hours-review no-print">
+          {!review.periodEnded && (
+            <p>Crew can approve after this pay period ends. Review the clocks first, then ask them to sign off.</p>
+          )}
+          {review.periodEnded && !review.requested && (
+            <>
+              <p>After you finish reviewing time and change requests, ask each crew member to approve this period.</p>
+              <button
+                type="button"
+                className="c-btn c-btn-small c-btn-green"
+                disabled={askBusy}
+                onClick={requestCrewApproval}
+              >
+                {askBusy ? 'Asking…' : 'Ask crew to approve'}
+              </button>
+            </>
+          )}
+          {review.requested && (
+            <>
+              <p>
+                Crew review is open
+                {report.users?.length
+                  ? ` · ${reviewCounts.approved} approved · ${reviewCounts.changes} asked for a change · ${reviewCounts.waiting} waiting`
+                  : ''}
+                .
+              </p>
+              {mailNote?.sent > 0 && (
+                <p>Emailed {mailNote.sent} crew member{mailNote.sent === 1 ? '' : 's'}.</p>
+              )}
+              {mailNote?.skipped === 'mail-not-configured' && (
+                <p>They will see a banner in the app. Email is not configured on this server.</p>
+              )}
+              {mailNote?.skipped === 'already-notified' && (
+                <p>Crew were already emailed for this period.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {report === undefined && <Spinner label="Loading hours…" />}
       {report && report.users.length === 0 && (
         <Card><EmptyState icon="⏱" title="No punches in this range" /></Card>
@@ -286,7 +376,22 @@ export default function AdminHours({ adminFetch }) {
           {report.users.map((user) => (
             <section className="adm-hours-user" key={user.userId || user.userName}>
               <header className="adm-hours-userhead">
-                <h3>{user.userName}</h3>
+                <h3>
+                  {user.userName}
+                  {review?.requested && (
+                    <span
+                      className={`adm-badge ${
+                        approvalForUser(review, user)?.status === 'approved'
+                          ? 'adm-badge-pushed'
+                          : approvalForUser(review, user)?.status === 'changes_requested'
+                            ? 'adm-badge-pending'
+                            : 'adm-badge-void'
+                      }`}
+                    >
+                      {crewReviewLabel(approvalForUser(review, user)?.status)}
+                    </span>
+                  )}
+                </h3>
                 <div className="adm-hours-stats">
                   <Stat label="Total hours" value={fmtHours(user.totalHours)} />
                   <Stat label="Regular" value={fmtHours(user.regularHours)} />

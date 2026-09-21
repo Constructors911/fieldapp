@@ -193,6 +193,27 @@ export function createNeonStore(databaseUrl) {
           created_at timestamptz not null default now(),
           last_seen_at timestamptz not null default now()
         )`;
+        await sql`create table if not exists pay_period_reviews (
+          period_from text primary key,
+          period_to text not null,
+          requested_at timestamptz not null default now(),
+          requested_by text not null default ''
+        )`;
+        await sql`alter table pay_period_reviews add column if not exists notified_at timestamptz`;
+        await sql`create table if not exists pay_period_approvals (
+          id uuid primary key default gen_random_uuid(),
+          period_from text not null,
+          period_to text not null,
+          employee_id uuid not null,
+          user_id text not null default '',
+          employee_name text not null default '',
+          status text not null,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now(),
+          unique (period_from, employee_id)
+        )`;
+        await sql`create index if not exists pay_period_approvals_period_idx
+          on pay_period_approvals(period_from, status)`;
         const [{ count }] = await sql`select count(*)::int as count from activities`;
         if (count === 0) {
           for (let i = 0; i < DEFAULT_ACTIVITIES.length; i++) {
@@ -718,6 +739,88 @@ export function createNeonStore(databaseUrl) {
       if (!rows[0]) throw new HttpError(404, 'Adjustment request not found or already resolved');
       return adjustmentRow(rows[0]);
     },
+
+    async getPayPeriodReview(periodFrom) {
+      await migrate();
+      const rows = await sql`select * from pay_period_reviews
+        where period_from = ${periodFrom} limit 1`;
+      return reviewRow(rows[0]);
+    },
+
+    async requestPayPeriodReview({ periodFrom, periodTo, requestedBy }) {
+      await migrate();
+      const rows = await sql`insert into pay_period_reviews (period_from, period_to, requested_by)
+        values (${periodFrom}, ${periodTo}, ${requestedBy ?? ''})
+        on conflict (period_from) do update set period_to = excluded.period_to
+        returning *`;
+      return reviewRow(rows[0]);
+    },
+
+    async markPayPeriodReviewNotified(periodFrom) {
+      await migrate();
+      const rows = await sql`update pay_period_reviews set
+          notified_at = coalesce(notified_at, now())
+        where period_from = ${periodFrom}
+        returning *`;
+      return reviewRow(rows[0]);
+    },
+
+    async listPayPeriodApprovals(periodFrom) {
+      await migrate();
+      const rows = await sql`select * from pay_period_approvals
+        where period_from = ${periodFrom}
+        order by employee_name, created_at`;
+      return rows.map(approvalRow);
+    },
+
+    async getPayPeriodApproval(periodFrom, employeeId) {
+      await migrate();
+      const rows = await sql`select * from pay_period_approvals
+        where period_from = ${periodFrom} and employee_id = ${employeeId} limit 1`;
+      return approvalRow(rows[0]);
+    },
+
+    async upsertPayPeriodApproval(r) {
+      await migrate();
+      const rows = await sql`insert into pay_period_approvals
+        (period_from, period_to, employee_id, user_id, employee_name, status)
+        values (${r.periodFrom}, ${r.periodTo}, ${r.employeeId}, ${r.userId ?? ''},
+                ${r.employeeName ?? ''}, ${r.status})
+        on conflict (period_from, employee_id) do update set
+          status = excluded.status,
+          period_to = excluded.period_to,
+          employee_name = excluded.employee_name,
+          user_id = coalesce(nullif(excluded.user_id, ''), pay_period_approvals.user_id),
+          updated_at = now()
+        returning *`;
+      return approvalRow(rows[0]);
+    },
+  };
+}
+
+function reviewRow(r) {
+  if (!r) return null;
+  return {
+    periodFrom: r.period_from,
+    periodTo: r.period_to,
+    requestedAt: r.requested_at instanceof Date ? r.requested_at.toISOString() : r.requested_at,
+    requestedBy: r.requested_by || '',
+    notifiedAt: r.notified_at instanceof Date ? r.notified_at.toISOString() : r.notified_at || null,
+  };
+}
+
+function approvalRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    periodFrom: r.period_from,
+    periodTo: r.period_to,
+    employeeId: r.employee_id,
+    userId: r.user_id || '',
+    employeeName: r.employee_name || '',
+    status: r.status,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+    updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : r.updated_at,
   };
 }
 

@@ -3,7 +3,9 @@
 import express from 'express';
 import multer from 'multer';
 import { HttpError } from './util/httpError.js';
-import { isValidDateString, isValidISO } from './util/dates.js';
+import { isValidDateString, isValidISO, payPeriodContaining, toDateString } from './util/dates.js';
+import { adjustmentInPeriod, parsePayPeriod } from './util/periodApproval.js';
+import { sendPeriodApprovalEmails } from './periodApprovalEmails.js';
 import { buildHoursReport } from './hoursReport.js';
 import { buildHoursPdf } from './hoursPdf.js';
 import { createStore } from './store/index.js';
@@ -187,6 +189,76 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
 
   function crewName(e) {
     return String(e?.jtUserName || e?.name || e?.email || '').trim();
+  }
+
+  function publicPeriodApproval(row) {
+    if (!row) return null;
+    return { status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt || row.createdAt };
+  }
+
+  async function pendingAdjustmentsInPeriod(employeeId, from, to) {
+    const list = await store.listTimeAdjustments({ employeeId, status: 'pending' });
+    return list.filter((a) => adjustmentInPeriod(a, from, to));
+  }
+
+  async function crewPeriodApprovalState(employee, from, to) {
+    const period = parsePayPeriod(from, to);
+    if (!period) throw new HttpError(400, 'That is not a pay period');
+    const review = await store.getPayPeriodReview(from);
+    const approval = await store.getPayPeriodApproval(from, employee.id);
+    const pending = await pendingAdjustmentsInPeriod(employee.id, from, to);
+    return {
+      from,
+      to,
+      periodEnded: period.ended,
+      reviewRequested: Boolean(review),
+      requestedAt: review?.requestedAt || null,
+      approval: publicPeriodApproval(approval),
+      canApprove: period.ended && Boolean(review) && approval?.status !== 'approved' && pending.length === 0,
+      pendingAdjustments: pending.length,
+    };
+  }
+
+  async function noteCrewChangeOnPeriod(employee, adjustment) {
+    const iso = adjustment?.requestedStartedAt || adjustment?.startedAt;
+    if (!iso) return;
+    const day = toDateString(new Date(iso));
+    const period = payPeriodContaining(day);
+    const review = await store.getPayPeriodReview(period.from);
+    if (!review) return;
+    await store.upsertPayPeriodApproval({
+      periodFrom: period.from,
+      periodTo: period.to,
+      employeeId: employee.id,
+      userId: employee.jtUserId || '',
+      employeeName: crewName(employee),
+      status: 'changes_requested',
+    });
+  }
+
+  async function hoursReviewForRange(from, to) {
+    const period = parsePayPeriod(from, to);
+    if (!period) {
+      return { isPayPeriod: false, periodEnded: false, requested: false, approvals: [] };
+    }
+    const review = await store.getPayPeriodReview(from);
+    const approvals = review ? await store.listPayPeriodApprovals(from) : [];
+    return {
+      isPayPeriod: true,
+      periodEnded: period.ended,
+      requested: Boolean(review),
+      requestedAt: review?.requestedAt || null,
+      requestedBy: review?.requestedBy || null,
+      notifiedAt: review?.notifiedAt || null,
+      approvals: approvals.map((a) => ({
+        employeeId: a.employeeId,
+        userId: a.userId || '',
+        employeeName: a.employeeName,
+        status: a.status,
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt || a.createdAt,
+      })),
+    };
   }
 
   async function applyJobTreadName(employee, membership) {
@@ -445,6 +517,7 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       reason,
       kind: 'change',
     });
+    await noteCrewChangeOnPeriod(req.employee, adjustment);
     res.json({ adjustment });
   }));
 
@@ -520,7 +593,43 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
       requestedEndedAt: asked.endedAt,
       requestedBreakMinutes: asked.breakMinutes,
     });
+    await noteCrewChangeOnPeriod(req.employee, adjustment);
     res.json({ adjustment });
+  }));
+
+  app.get('/api/time/period-approval', requireSession, wrap(async (req, res) => {
+    const from = qp(req.query.from);
+    const to = qp(req.query.to);
+    if (!isValidDateString(from) || !isValidDateString(to)) {
+      throw new HttpError(400, 'from and to must be YYYY-MM-DD');
+    }
+    res.json(await crewPeriodApprovalState(req.employee, from, to));
+  }));
+
+  app.post('/api/time/period-approval', requireSession, wrap(async (req, res) => {
+    const from = typeof req.body?.from === 'string' ? req.body.from : '';
+    const to = typeof req.body?.to === 'string' ? req.body.to : '';
+    if (!isValidDateString(from) || !isValidDateString(to)) {
+      throw new HttpError(400, 'from and to must be YYYY-MM-DD');
+    }
+    const period = parsePayPeriod(from, to);
+    if (!period) throw new HttpError(400, 'That is not a pay period');
+    if (!period.ended) throw new HttpError(400, 'You can approve after the pay period ends');
+    const review = await store.getPayPeriodReview(from);
+    if (!review) throw new HttpError(400, 'The office has not asked for approval yet');
+    const pending = await pendingAdjustmentsInPeriod(req.employee.id, from, to);
+    if (pending.length > 0) {
+      throw new HttpError(409, 'A change request is still waiting on the office');
+    }
+    const approval = await store.upsertPayPeriodApproval({
+      periodFrom: from,
+      periodTo: to,
+      employeeId: req.employee.id,
+      userId: req.employee.jtUserId || '',
+      employeeName: crewName(req.employee),
+      status: 'approved',
+    });
+    res.json({ approval: publicPeriodApproval(approval) });
   }));
 
   // App-wake breadcrumb while clocked in (not continuous tracking).
@@ -736,7 +845,9 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     if (from > to) throw new HttpError(400, 'from must be on or before to');
     const punches = await store.listPunchesByDateRange(from, to);
     const namesByUserId = await jobTreadNamesByUserId();
-    return { from, to, report: buildHoursReport(punches, from, to, { namesByUserId }) };
+    const report = buildHoursReport(punches, from, to, { namesByUserId });
+    report.review = await hoursReviewForRange(from, to);
+    return { from, to, report };
   }
 
   function adminNoteOf(body) {
@@ -892,6 +1003,38 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
   app.get('/api/admin/hours', requireAdmin, wrap(async (req, res) => {
     const { report } = await hoursReportForRange(req);
     res.json(report);
+  }));
+
+  app.post('/api/admin/hours/request-approval', requireAdmin, wrap(async (req, res) => {
+    const from = typeof req.body?.from === 'string' ? req.body.from : '';
+    const to = typeof req.body?.to === 'string' ? req.body.to : '';
+    if (!isValidDateString(from) || !isValidDateString(to)) {
+      throw new HttpError(400, 'from and to must be YYYY-MM-DD');
+    }
+    const period = parsePayPeriod(from, to);
+    if (!period) throw new HttpError(400, 'Ask crew to approve a full pay period');
+    if (!period.ended) throw new HttpError(400, 'Wait until the pay period has ended');
+    const existing = await store.getPayPeriodReview(from);
+    const review = await store.requestPayPeriodReview({
+      periodFrom: from,
+      periodTo: to,
+      requestedBy: actorOf(req),
+    });
+    const emails = await sendPeriodApprovalEmails(store, {
+      from,
+      to,
+      adapter,
+      alreadyNotified: Boolean(existing?.notifiedAt),
+    });
+    if (!existing?.notifiedAt && emails.skipped !== 'mail-not-configured') {
+      await store.markPayPeriodReviewNotified(from);
+    }
+    const approvals = await store.listPayPeriodApprovals(from);
+    res.json({
+      review: await store.getPayPeriodReview(from) || review,
+      approvals,
+      emails,
+    });
   }));
 
   app.get('/api/admin/hours.pdf', requireAdmin, wrap(async (req, res) => {

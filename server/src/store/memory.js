@@ -17,6 +17,8 @@ export function createMemoryStore() {
   const geofenceEvents = []; // events
   const timeAdjustments = [];
   const clockOutReminders = new Set(); // `${scopeId}:${hours}` (scope = day:user:date)
+  const payPeriodReviews = [];
+  const payPeriodApprovals = [];
 
   function fenceRow(f) {
     if (!f) return null;
@@ -525,6 +527,70 @@ export function createMemoryStore() {
       if (patch.punchId) row.punchId = patch.punchId;
       row.reviewedAt = new Date().toISOString();
       row.reviewedBy = patch.by ?? null;
+      return { ...row };
+    },
+
+    async getPayPeriodReview(periodFrom) {
+      const row = payPeriodReviews.find((x) => x.periodFrom === periodFrom);
+      return row ? { ...row } : null;
+    },
+
+    async requestPayPeriodReview({ periodFrom, periodTo, requestedBy }) {
+      const existing = payPeriodReviews.find((x) => x.periodFrom === periodFrom);
+      if (existing) return { ...existing };
+      const row = {
+        periodFrom,
+        periodTo,
+        requestedAt: new Date().toISOString(),
+        requestedBy: requestedBy ?? '',
+        notifiedAt: null,
+      };
+      payPeriodReviews.push(row);
+      return { ...row };
+    },
+
+    async markPayPeriodReviewNotified(periodFrom) {
+      const row = payPeriodReviews.find((x) => x.periodFrom === periodFrom);
+      if (!row) return null;
+      if (!row.notifiedAt) row.notifiedAt = new Date().toISOString();
+      return { ...row };
+    },
+
+    async listPayPeriodApprovals(periodFrom) {
+      return payPeriodApprovals
+        .filter((x) => x.periodFrom === periodFrom)
+        .sort((a, b) => String(a.employeeName).localeCompare(String(b.employeeName)))
+        .map((x) => ({ ...x }));
+    },
+
+    async getPayPeriodApproval(periodFrom, employeeId) {
+      const row = payPeriodApprovals.find((x) => x.periodFrom === periodFrom && x.employeeId === employeeId);
+      return row ? { ...row } : null;
+    },
+
+    async upsertPayPeriodApproval(r) {
+      const existing = payPeriodApprovals.find((x) => x.periodFrom === r.periodFrom && x.employeeId === r.employeeId);
+      const now = new Date().toISOString();
+      if (existing) {
+        existing.status = r.status;
+        existing.periodTo = r.periodTo;
+        existing.employeeName = r.employeeName ?? existing.employeeName;
+        existing.userId = r.userId || existing.userId;
+        existing.updatedAt = now;
+        return { ...existing };
+      }
+      const row = {
+        id: randomUUID(),
+        periodFrom: r.periodFrom,
+        periodTo: r.periodTo,
+        employeeId: r.employeeId,
+        userId: r.userId ?? '',
+        employeeName: r.employeeName ?? '',
+        status: r.status,
+        createdAt: now,
+        updatedAt: now,
+      };
+      payPeriodApprovals.push(row);
       return { ...row };
     },
   };

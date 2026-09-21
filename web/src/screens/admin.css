@@ -153,6 +153,12 @@
   display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted);
 }
 .adm-hours-note { font-size: 13px; color: var(--muted); margin: 8px 0 0; max-width: 760px; }
+.adm-hours-review {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 14px 16px; margin: 0 0 18px; max-width: 760px;
+}
+.adm-hours-review p { margin: 0 0 10px; font-size: 14px; color: var(--navy); line-height: 1.4; }
+.adm-hours-review p:last-child { margin-bottom: 0; }
 .adm-hours-banner {
   display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
   background: var(--navy); color: #fff; border-radius: var(--radius); padding: 18px 20px; margin-bottom: 18px;
@@ -180,7 +186,7 @@
   display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
   margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #e8eef5;
 }
-.adm-hours-userhead h3 { margin: 0; font-size: 20px; color: var(--navy); }
+.adm-hours-userhead h3 { margin: 0; font-size: 20px; color: var(--navy); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .adm-hours-clocks { min-width: 760px; table-layout: fixed; }
 .adm-hours-c-day { width: 16%; }
 .adm-hours-c-job { width: 22%; }

@@ -4,7 +4,8 @@ import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import Sheet from '../components/Sheet.jsx';
-import { getTimeEntries, getMyAdjustments, getActivities, requestTimeChange } from '../api.js';
+import { getTimeEntries, getMyAdjustments, getActivities, requestTimeChange, getPeriodApproval, approvePeriodHours } from '../api.js';
+import PeriodApprovalBanner, { needsPeriodApproval } from '../components/PeriodApprovalBanner.jsx';
 import {
   addDays, payPeriodContaining, payPeriodOffset, periodToIsoRange, sundayOfDate,
   parseISODate, toISODate, todayISO,
@@ -98,11 +99,12 @@ function groupMyHours(entries, from, to) {
   return { days: dayRows, weeks, total, regular: total - overtime, overtime };
 }
 
-export default function Hours({ boot }) {
+export default function Hours({ boot, initialWhich = 'this' }) {
   const jobs = boot?.jobs || [];
   const thisPay = useMemo(() => payPeriodContaining(), []);
   const lastPay = useMemo(() => payPeriodOffset(-1), []);
-  const [which, setWhich] = useState('this');
+  const [which, setWhich] = useState(initialWhich);
+  useEffect(() => { setWhich(initialWhich); }, [initialWhich]);
   const period = which === 'last' ? lastPay : thisPay;
   const [entries, setEntries] = useState(undefined);
   const [adjustments, setAdjustments] = useState([]);
@@ -117,6 +119,7 @@ export default function Hours({ boot }) {
   const [brk, setBrk] = useState('0');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [periodApproval, setPeriodApproval] = useState(null);
   useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
@@ -124,17 +127,19 @@ export default function Hours({ boot }) {
     setEntries(undefined);
     const range = periodToIsoRange(period.from, period.to);
     try {
-      const [er, ar] = await Promise.all([
+      const [er, ar, pr] = await Promise.all([
         getTimeEntries(range.from, range.to),
         getMyAdjustments().catch(() => ({ adjustments: [] })),
+        getPeriodApproval(lastPay.from, lastPay.to).catch(() => null),
       ]);
       setEntries(er.entries || []);
       setAdjustments(ar.adjustments || []);
+      setPeriodApproval(pr);
     } catch (e) {
       setErr(e.message);
       setEntries([]);
     }
-  }, [period.from, period.to]);
+  }, [period.from, period.to, lastPay.from, lastPay.to]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -217,6 +222,7 @@ export default function Hours({ boot }) {
       setAdjustments((list) => [adjustment, ...list]);
       setAsk(null);
       setReason('');
+      setPeriodApproval(await getPeriodApproval(lastPay.from, lastPay.to).catch(() => null));
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -225,6 +231,31 @@ export default function Hours({ boot }) {
   }
 
   const today = todayISO();
+
+  async function approveHours() {
+    if (busy || which !== 'last' || !periodApproval?.canApprove) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const { approval } = await approvePeriodHours(lastPay.from, lastPay.to);
+      setPeriodApproval((cur) => ({
+        ...(cur || {}),
+        approval,
+        canApprove: false,
+        reviewRequested: true,
+      }));
+    } catch (e) {
+      setErr(e.message);
+      setPeriodApproval(await getPeriodApproval(lastPay.from, lastPay.to).catch(() => periodApproval));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function fmtApprovedOn(iso) {
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
 
   return (
     <>
@@ -249,6 +280,49 @@ export default function Hours({ boot }) {
         </button>
       </div>
       <p className="hrs-range">{fmtRange(period.from, period.to)}</p>
+
+      {which === 'this' && needsPeriodApproval(periodApproval) && (
+        <PeriodApprovalBanner onReview={() => setWhich('last')} />
+      )}
+
+      {which === 'last' && periodApproval && (
+        <div className="hrs-approve">
+          {!periodApproval.reviewRequested && (
+            <p>The office is still reviewing last period. You can approve after they ask.</p>
+          )}
+          {periodApproval.reviewRequested && periodApproval.approval?.status === 'approved' && (
+            <p className="hrs-approve-done">
+              You approved these hours
+              {periodApproval.approval.updatedAt || periodApproval.approval.createdAt
+                ? ` on ${fmtApprovedOn(periodApproval.approval.updatedAt || periodApproval.approval.createdAt)}`
+                : ''}
+              .
+            </p>
+          )}
+          {periodApproval.reviewRequested && periodApproval.approval?.status === 'changes_requested' && (
+            <p className="hrs-flag">
+              You asked the office to look at a change.
+              {periodApproval.canApprove ? ' Approve when the times look right.' : ''}
+            </p>
+          )}
+          {periodApproval.reviewRequested && periodApproval.pendingAdjustments > 0 && !periodApproval.canApprove && (
+            <p className="hrs-flag">A change request is still waiting on the office. Approve after they finish.</p>
+          )}
+          {periodApproval.canApprove && (
+            <>
+              <p>The office finished reviewing last period. Check your hours, then approve if they look right. If a clock is wrong, request a change below instead.</p>
+              <button
+                type="button"
+                className="c-btn c-btn-big c-btn-block c-btn-green"
+                disabled={busy}
+                onClick={approveHours}
+              >
+                {busy ? 'Saving…' : 'Hours are approved'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       <button type="button" className="hrs-add" onClick={openAdd}>Request missing time</button>
       {pendingAdds.length > 0 && (

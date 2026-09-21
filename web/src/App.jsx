@@ -22,6 +22,7 @@ const TABS = [
 
 export default function App() {
   const [tab, setTab] = useState('clock');
+  const [hoursWhich, setHoursWhich] = useState('this');
   const [boot, setBoot] = useState(null);
   const [err, setErr] = useState(null);
   const [pending, setPending] = useState(0);
@@ -160,11 +161,17 @@ export default function App() {
       </header>
       <main className="screen">
         <ErrorBanner message={dropErr} onDismiss={() => setDropErr(null)} />
-        {tab === 'clock' && <Clock boot={boot} onRefreshJobs={() => getBootstrap().then(setBoot)} />}
+        {tab === 'clock' && (
+          <Clock
+            boot={boot}
+            onRefreshJobs={() => getBootstrap().then(setBoot)}
+            onReviewHours={() => { setHoursWhich('last'); setTab('hours'); }}
+          />
+        )}
         {tab === 'today' && <Today boot={boot} />}
         {tab === 'log' && <Log boot={boot} me={me} onMeUpdate={setMe} onRefreshJobs={() => getBootstrap().then(setBoot)} />}
         {tab === 'week' && <Week boot={boot} />}
-        {tab === 'hours' && <Hours boot={boot} />}
+        {tab === 'hours' && <Hours boot={boot} initialWhich={hoursWhich} />}
       </main>
       <nav className="tabbar" role="tablist" aria-label="Main">
         {TABS.map(t => (
@@ -175,7 +182,10 @@ export default function App() {
             aria-selected={tab === t.id}
             aria-current={tab === t.id ? 'page' : undefined}
             className={tab === t.id ? 'tab active' : 'tab'}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              if (t.id === 'hours') setHoursWhich('this');
+              setTab(t.id);
+            }}
           >
             <span className="tab-icon" aria-hidden="true">{t.icon}</span>
             <span className="tab-label">{t.label}</span>
