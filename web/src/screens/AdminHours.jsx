@@ -3,6 +3,7 @@ import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
+import { getActivities } from '../api.js';
 import { addDays, parseISODate, payPeriodContaining, payPeriodOffset, toISODate } from '../lib/dates.js';
 
 function sundayOf(d = new Date()) {
@@ -55,6 +56,29 @@ function inOutLabel(p) {
   if (p.entryKind === 'daily') return 'Daily total';
   const times = `${fmtWhen(p.startedAt)} → ${p.endedAt ? fmtWhen(p.endedAt) : 'open'}`;
   return p.breakMinutes ? `${times} · ${p.breakMinutes}m break` : times;
+}
+
+function isoToLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function canAdjust(p) {
+  return Boolean(p?.endedAt) && !p.pushed && p.status !== 'void' && p.status !== 'open';
+}
+
+function dailyWindow(workDate, hours, breakMinutes) {
+  const [y, m, d] = String(workDate).split('-').map(Number);
+  const start = new Date(y, m - 1, d, 8, 0, 0, 0);
+  const netMins = Math.round(Number(hours) * 60);
+  const brk = Number(breakMinutes) || 0;
+  return {
+    startedAt: start.toISOString(),
+    endedAt: new Date(start.getTime() + (netMins + brk) * 60_000).toISOString(),
+  };
 }
 
 /** CSV follows the Hours screen: period totals, then each person, clocks, day totals, weekly OT. */
@@ -147,6 +171,10 @@ export default function AdminHours({ adminFetch }) {
   const [busy, setBusy] = useState(false);
   const [askBusy, setAskBusy] = useState(false);
   const [mailNote, setMailNote] = useState(null);
+  const [catalog, setCatalog] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editVals, setEditVals] = useState({ start: '', end: '', brk: '0', hours: '', activity: '' });
+  useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
 
   const load = useCallback(async (fromDay = from, toDay = to) => {
     setBusy(true);
@@ -196,6 +224,68 @@ export default function AdminHours({ adminFetch }) {
       toISODate(new Date(today.getFullYear(), today.getMonth(), 1)),
       toISODate(new Date(today.getFullYear(), today.getMonth() + 1, 0))
     );
+  }
+
+  function startAdjust(p) {
+    if (!canAdjust(p)) return;
+    setEditingId(p.id);
+    setEditVals({
+      start: isoToLocalInput(p.startedAt),
+      end: isoToLocalInput(p.endedAt),
+      brk: String(p.breakMinutes ?? 0),
+      hours: p.endedAt ? String(p.hours) : '',
+      activity: p.activity || '',
+    });
+  }
+
+  async function saveAdjust(p) {
+    if (busy || !canAdjust(p)) return;
+    const body = {};
+    if (p.entryKind === 'daily') {
+      const hrs = Number(editVals.hours);
+      const brk = parseInt(editVals.brk, 10);
+      if (!Number.isFinite(hrs) || hrs < 0.25 || hrs > 24) {
+        setErr('Daily hours must be between 0.25 and 24');
+        return;
+      }
+      if (!Number.isFinite(brk) || brk < 0) {
+        setErr('Break minutes must be zero or more');
+        return;
+      }
+      const workDate = toISODate(new Date(p.startedAt));
+      const next = dailyWindow(workDate, hrs, brk);
+      if (next.startedAt !== p.startedAt) body.startedAt = next.startedAt;
+      if (next.endedAt !== p.endedAt) body.endedAt = next.endedAt;
+      if (brk !== (p.breakMinutes ?? 0)) body.breakMinutes = brk;
+    } else {
+      if (editVals.start && editVals.start !== isoToLocalInput(p.startedAt)) {
+        body.startedAt = new Date(editVals.start).toISOString();
+      }
+      if (editVals.end && editVals.end !== isoToLocalInput(p.endedAt)) {
+        body.endedAt = new Date(editVals.end).toISOString();
+      }
+      const brk = parseInt(editVals.brk, 10);
+      if (Number.isFinite(brk) && brk >= 0 && brk !== (p.breakMinutes ?? 0)) {
+        body.breakMinutes = brk;
+      }
+    }
+    const activity = editVals.activity.trim();
+    if (activity && activity !== (p.activity || '')) body.activity = activity;
+    if (Object.keys(body).length === 0) {
+      setEditingId(null);
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await adminFetch(`/api/admin/punches/${p.id}`, { method: 'PATCH', body });
+      setEditingId(null);
+      await load(from, to);
+    } catch (e) {
+      setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function downloadFile(blob, filename) {
@@ -407,6 +497,7 @@ export default function AdminHours({ adminFetch }) {
                     <col className="adm-hours-c-act" />
                     <col className="adm-hours-c-time" />
                     <col className="adm-hours-c-hrs" />
+                    <col className="adm-hours-c-adj" />
                     <col className="adm-hours-c-push" />
                   </colgroup>
                   <thead>
@@ -416,6 +507,7 @@ export default function AdminHours({ adminFetch }) {
                       <th>Activity</th>
                       <th>In → Out</th>
                       <th className="adm-num">Hours</th>
+                      <th className="adm-hours-adjust no-print">Adjust</th>
                       <th>Pushed to JT</th>
                     </tr>
                   </thead>
@@ -423,25 +515,104 @@ export default function AdminHours({ adminFetch }) {
                     {user.days.map((day) => (
                       <React.Fragment key={day.date}>
                         {day.punches.map((p) => (
-                          <tr key={p.id}>
-                            <td>{fmtDay(day.date)}</td>
-                            <td className="adm-job">{p.jobName}</td>
-                            <td>{p.activity || '—'}</td>
-                            <td className="adm-times">{inOutLabel(p)}</td>
-                            <td className="adm-num">{p.endedAt ? fmtHours(p.hours) : '—'}</td>
-                            <td>
-                              <span
-                                className={`adm-badge ${p.pushed ? 'adm-badge-pushed' : `adm-badge-${p.status}`}`}
-                                title={p.jtTimeEntryId ? `JT ${p.jtTimeEntryId}` : p.status}
-                              >
-                                {pushedLabel(p)}
-                              </span>
-                            </td>
-                          </tr>
+                          <React.Fragment key={p.id}>
+                            <tr>
+                              <td>{fmtDay(day.date)}</td>
+                              <td className="adm-job">{p.jobName}</td>
+                              <td>{p.activity || '—'}</td>
+                              <td className="adm-times">{inOutLabel(p)}</td>
+                              <td className="adm-num">{p.endedAt ? fmtHours(p.hours) : '—'}</td>
+                              <td className="adm-hours-adjust no-print">
+                                <button
+                                  type="button"
+                                  className="c-btn c-btn-small"
+                                  disabled={busy || !canAdjust(p)}
+                                  title={
+                                    p.pushed ? 'Already pushed to JobTread'
+                                      : !p.endedAt ? 'Clock is still open'
+                                        : 'Adjust times, break, or activity'
+                                  }
+                                  onClick={() => startAdjust(p)}
+                                >
+                                  Adjust
+                                </button>
+                              </td>
+                              <td>
+                                <span
+                                  className={`adm-badge ${p.pushed ? 'adm-badge-pushed' : `adm-badge-${p.status}`}`}
+                                  title={p.jtTimeEntryId ? `JT ${p.jtTimeEntryId}` : p.status}
+                                >
+                                  {pushedLabel(p)}
+                                </span>
+                              </td>
+                            </tr>
+                            {editingId === p.id && (
+                              <tr className="adm-editrow no-print">
+                                <td colSpan={7}>
+                                  <div className="adm-editform">
+                                    {p.entryKind === 'daily' ? (
+                                      <label>Hours
+                                        <input
+                                          type="number"
+                                          min="0.25"
+                                          max="24"
+                                          step="0.25"
+                                          value={editVals.hours}
+                                          onChange={(e) => setEditVals((v) => ({ ...v, hours: e.target.value }))}
+                                        />
+                                      </label>
+                                    ) : (
+                                      <>
+                                        <label>In
+                                          <input
+                                            type="datetime-local"
+                                            value={editVals.start}
+                                            onChange={(e) => setEditVals((v) => ({ ...v, start: e.target.value }))}
+                                          />
+                                        </label>
+                                        <label>Out
+                                          <input
+                                            type="datetime-local"
+                                            value={editVals.end}
+                                            onChange={(e) => setEditVals((v) => ({ ...v, end: e.target.value }))}
+                                          />
+                                        </label>
+                                      </>
+                                    )}
+                                    <label>Break (min)
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="5"
+                                        value={editVals.brk}
+                                        onChange={(e) => setEditVals((v) => ({ ...v, brk: e.target.value }))}
+                                      />
+                                    </label>
+                                    <label>Activity
+                                      <select
+                                        value={editVals.activity}
+                                        onChange={(e) => setEditVals((v) => ({ ...v, activity: e.target.value }))}
+                                      >
+                                        {p.activity && !catalog.includes(p.activity) && (
+                                          <option value={p.activity}>{p.activity}</option>
+                                        )}
+                                        {catalog.map((name) => (
+                                          <option key={name} value={name}>{name}</option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    <button type="button" className="c-btn" disabled={busy} onClick={() => saveAdjust(p)}>Save</button>
+                                    <button type="button" className="c-btn c-btn-ghost" disabled={busy} onClick={() => setEditingId(null)}>Cancel</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                         <tr className="adm-hours-daytotal">
                           <td colSpan={4}>Day total · {fmtDay(day.date)}{day.lunchMinutes > 0 ? ' · 30 min lunch out' : ''}</td>
                           <td className="adm-num">{fmtHours(day.hours)}</td>
+                          <td className="adm-hours-adjust no-print" />
                           <td />
                         </tr>
                       </React.Fragment>

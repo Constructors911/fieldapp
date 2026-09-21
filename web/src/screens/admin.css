@@ -41,7 +41,7 @@
 .adm-editrow td, .adm-auditrow td { background: #f8fafb; white-space: normal; }
 .adm-editform { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; padding: 4px 0; }
 .adm-editform label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
-.adm-editform input { min-height: 36px; padding: 4px 8px; border: 1px solid #cfd6dd; border-radius: 6px; font-size: 13px; }
+.adm-editform input, .adm-editform select { min-height: 36px; padding: 4px 8px; border: 1px solid #cfd6dd; border-radius: 6px; font-size: 13px; }
 .adm-editform .c-btn { min-height: 36px; padding: 0 16px; font-size: 14px; }
 .adm-audit { margin: 4px 0; padding-left: 18px; font-size: 13px; color: var(--text); }
 .adm-audit li { margin: 2px 0; }
@@ -187,13 +187,15 @@
   margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #e8eef5;
 }
 .adm-hours-userhead h3 { margin: 0; font-size: 20px; color: var(--navy); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.adm-hours-clocks { min-width: 760px; table-layout: fixed; }
-.adm-hours-c-day { width: 16%; }
-.adm-hours-c-job { width: 22%; }
-.adm-hours-c-act { width: 16%; }
-.adm-hours-c-time { width: 22%; }
-.adm-hours-c-hrs { width: 10%; }
-.adm-hours-c-push { width: 14%; }
+.adm-hours-clocks { min-width: 860px; table-layout: fixed; }
+.adm-hours-c-day { width: 14%; }
+.adm-hours-c-job { width: 20%; }
+.adm-hours-c-act { width: 14%; }
+.adm-hours-c-time { width: 18%; }
+.adm-hours-c-hrs { width: 9%; }
+.adm-hours-c-adj { width: 12%; }
+.adm-hours-c-push { width: 13%; }
+.adm-hours-adjust .c-btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
 .adm-hours-daytotal td { background: #eef4f8; font-weight: 700; color: var(--navy); }
 .adm-hours-weeks { margin-top: 18px; max-width: 560px; }
 .adm-hours-weeks h4 { margin: 0 0 8px; font-size: 13px; font-weight: 800; color: var(--navy); }
@@ -219,6 +221,7 @@
   .no-print, .adm-toolbar, .topbar, .adm-linklike { display: none !important; }
   .adm-wrap { max-width: none; padding: 0; }
   .adm-hours-user { break-inside: avoid; box-shadow: none; }
+  .adm-hours-c-adj, .adm-hours-adjust { display: none !important; }
 }
 
 .adm-adj-list { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
