@@ -58,6 +58,16 @@ test('a day over 6 hours deducts 30 minutes unless a lunch was already entered',
   assert.equal(dayPaidMinutes([short]), 360);
 });
 
+test('hours report prefers the JobTread name over a punch nickname', () => {
+  const punches = [
+    punch('user_a', 'Alex', '2026-09-14T07:00:00', '2026-09-14T15:00:00', 'pending'),
+  ];
+  const report = buildHoursReport(punches, '2026-09-13', '2026-09-19', {
+    namesByUserId: { user_a: 'Alexander Rivera' },
+  });
+  assert.equal(report.users[0].userName, 'Alexander Rivera');
+});
+
 test('buildHoursReport groups by user/day and computes Sun–Sat OT over 40', () => {
   const punches = [
     punch('user_a', 'Alex', '2026-09-14T07:00:00', '2026-09-14T17:00:00', 'pushed', 'jt_1'), // Mon 10h
@@ -171,6 +181,20 @@ test('GET /api/admin/hours returns grouped hours and JT push flags', async () =>
   assert.equal(casey.overtimeHours, 0);
   assert.equal(casey.days[0].punches[0].pushed, true);
   assert.equal(casey.days[1].punches[0].pushed, false);
+
+  await store.createPunch({
+    userId: 'user_crew',
+    userName: 'Casey',
+    jobId: 'job_maplewood',
+    jobName: 'Maplewood',
+    activity: 'Mason',
+    startedAt: '2026-09-16T07:00:00',
+  });
+  await store.closePunch('user_crew', { endedAt: '2026-09-16T15:00:00', breakMinutes: 0 });
+  const named = await api(base, '/api/admin/hours?from=2026-09-13&to=2026-09-19');
+  const crew = named.json.users.find((u) => u.userId === 'user_crew');
+  assert.ok(crew);
+  assert.equal(crew.userName, 'Casey Crew');
 });
 
 test('GET /api/admin/hours.pdf returns a PDF with the same hours', async () => {

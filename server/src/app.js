@@ -213,6 +213,23 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     }
   }
 
+  async function jobTreadNamesByUserId() {
+    await refreshEmployeeNamesFromJobTread();
+    const map = {};
+    const employees = await store.listEmployees();
+    for (const e of employees) {
+      const n = crewName(e);
+      if (e.jtUserId && n) map[e.jtUserId] = n;
+    }
+    if (typeof adapter.listInternalMemberships === 'function') {
+      const members = await adapter.listInternalMemberships().catch(() => []);
+      for (const m of members) {
+        if (m.userId && m.name) map[m.userId] = m.name;
+      }
+    }
+    return map;
+  }
+
   function publicEmployee(e) {
     return {
       id: e.id,
@@ -609,7 +626,11 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
 
   app.get('/api/admin/punches', requireAdmin, wrap(async (req, res) => {
     const status = qp(req.query.status);
-    res.json({ punches: await store.adminListPunches({ status }) });
+    const namesByUserId = await jobTreadNamesByUserId();
+    const punches = (await store.adminListPunches({ status })).map((p) => (
+      namesByUserId[p.userId] ? { ...p, userName: namesByUserId[p.userId] } : p
+    ));
+    res.json({ punches });
   }));
 
   app.get('/api/admin/jobs', requireAdmin, wrap(async (_req, res) => {
@@ -714,7 +735,8 @@ export function createApp(adapter, store = createStore(), { verifyGoogle = verif
     }
     if (from > to) throw new HttpError(400, 'from must be on or before to');
     const punches = await store.listPunchesByDateRange(from, to);
-    return { from, to, report: buildHoursReport(punches, from, to) };
+    const namesByUserId = await jobTreadNamesByUserId();
+    return { from, to, report: buildHoursReport(punches, from, to, { namesByUserId }) };
   }
 
   function adminNoteOf(body) {

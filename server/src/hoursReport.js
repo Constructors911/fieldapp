@@ -35,7 +35,7 @@ function punchRow(p) {
   };
 }
 
-export function buildHoursReport(punches, from, to) {
+export function buildHoursReport(punches, from, to, { namesByUserId } = {}) {
   const included = (punches || []).filter((p) => {
     if (!p?.startedAt || p.status === 'void') return false;
     const day = toDateString(new Date(p.startedAt));
@@ -45,11 +45,14 @@ export function buildHoursReport(punches, from, to) {
   const byUser = new Map();
   for (const p of included) {
     const key = p.userId || p.userName || 'unknown';
+    const lookup = (p.userId && namesByUserId?.[p.userId]) || '';
+    const displayName = lookup || p.userName || 'Unknown';
     if (!byUser.has(key)) {
-      byUser.set(key, { userId: p.userId || '', userName: p.userName || 'Unknown', punches: [] });
+      byUser.set(key, { userId: p.userId || '', userName: displayName, punches: [] });
     }
     const bucket = byUser.get(key);
-    if (p.userName && !bucket.userName) bucket.userName = p.userName;
+    if (lookup) bucket.userName = lookup;
+    else if (p.userName && bucket.userName === 'Unknown') bucket.userName = p.userName;
     bucket.punches.push(p);
   }
 
