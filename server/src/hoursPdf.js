@@ -6,7 +6,7 @@ const LINE = 12;
 
 function pdfEscape(s) {
   return String(s ?? '')
-    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2013\u2014\u00B7\u2022]/g, '-')
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[^\x20-\x7E]/g, '?')

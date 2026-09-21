@@ -75,7 +75,7 @@ test('buildHoursReport groups by user/day and computes Sun–Sat OT over 40', ()
     punch('user_a', 'Alex', '2026-09-16T07:00:00', '2026-09-16T17:00:00', 'approved'), // Wed 10h
     punch('user_a', 'Alex', '2026-09-17T07:00:00', '2026-09-17T17:00:00', 'error'), // Thu 10h
     punch('user_a', 'Alex', '2026-09-18T07:00:00', '2026-09-18T09:00:00', 'pending'), // Fri 2h → 42h
-    punch('user_b', 'Blake', '2026-09-14T08:00:00', '2026-09-14T16:00:00', 'pushed', 'jt_2'), // 8h
+    { ...punch('user_b', 'Blake', '2026-09-14T08:00:00', '2026-09-14T16:00:00', 'pushed', 'jt_2'), jobName: '12056 · Maplewood' }, // 8h
     punch('user_a', 'Alex', '2026-09-14T12:00:00', '2026-09-14T13:00:00', 'void'), // ignored
     { id: 'open1', userId: 'user_b', userName: 'Blake', jobName: 'Site', activity: 'Labor',
       startedAt: '2026-09-15T07:00:00', endedAt: null, breakMinutes: 0, status: 'open', jtTimeEntryId: null },
@@ -112,6 +112,8 @@ test('buildHoursReport groups by user/day and computes Sun–Sat OT over 40', ()
   assert.match(pdf, /Weekly overtime/);
   assert.match(pdf, /Pushed/);
   assert.match(pdf, /0\.059 0\.153 0\.251 RG/);
+  assert.match(pdf, /12056 - Maplewood/);
+  assert.doesNotMatch(pdf, /12056 \? Maplewood/);
 });
 
 function punch(userId, userName, startedAt, endedAt, status, jtTimeEntryId = null) {
