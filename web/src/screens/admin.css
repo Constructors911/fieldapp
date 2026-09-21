@@ -70,6 +70,20 @@
 .adm-addform input, .adm-addform select { min-height: 40px; }
 .adm-addform-wide { grid-column: 1 / -1; }
 .adm-addform-actions { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.adm-joblist {
+  max-height: 220px; overflow-y: auto; margin-top: 2px;
+  border: 1px solid #cfd6dd; border-radius: 8px; background: #fff;
+}
+.adm-jobopt {
+  display: block; width: 100%; text-align: left; min-height: 40px;
+  padding: 8px 12px; border: 0; border-bottom: 1px solid #eef1f4;
+  background: transparent; color: var(--navy); font-size: 14px; font-weight: 700;
+  cursor: pointer;
+}
+.adm-jobopt:last-child { border-bottom: 0; }
+.adm-jobopt span { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.adm-jobopt.is-on { background: #e8eef4; }
+.adm-jobempty { margin: 0; padding: 12px; font-size: 13px; font-weight: 500; color: var(--muted); }
 .adm-tabs { display: flex; gap: 4px; }
 .adm-tab {
   min-height: 36px; padding: 0 14px; border: 1px solid #cfd6dd; background: var(--card);

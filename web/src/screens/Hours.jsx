@@ -11,6 +11,7 @@ import {
   parseISODate, toISODate, todayISO,
 } from '../lib/dates.js';
 import { dayLunchMinutes } from '../lib/dailyLunch.js';
+import { jobLabel, jobMatches } from '../lib/jobs.js';
 import '../components/screens.css';
 
 function fmtHours(mins) {
@@ -49,17 +50,6 @@ function defaultAddRange() {
   end.setMinutes(0, 0, 0);
   const start = new Date(end.getTime() - 8 * 3600_000);
   return { start: toLocalInput(start), end: toLocalInput(end) };
-}
-
-function jobLabel(job) {
-  if (!job) return '';
-  return job.number ? `${job.number} · ${job.name}` : (job.name || '');
-}
-
-function jobMatches(job, query) {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  return `${job.number || ''} ${job.name || ''} ${job.location || ''} ${jobLabel(job)}`.toLowerCase().includes(q);
 }
 
 function groupMyHours(entries, from, to) {

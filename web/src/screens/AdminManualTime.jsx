@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import { getActivities, getJobCostItems } from '../api.js';
 import { todayISO } from '../lib/dates.js';
+import { jobLabel, jobMatches } from '../lib/jobs.js';
 
 function toLocalInput(d) {
   const pad = (n) => String(n).padStart(2, '0');
@@ -28,6 +29,7 @@ export default function AdminManualTime({ adminFetch, onReview }) {
   const [busy, setBusy] = useState(false);
   const [userId, setUserId] = useState('');
   const [jobId, setJobId] = useState('');
+  const [jobQuery, setJobQuery] = useState('');
   const [activity, setActivity] = useState('');
   const [costItemId, setCostItemId] = useState('');
   const [mode, setMode] = useState('clock');
@@ -57,6 +59,11 @@ export default function AdminManualTime({ adminFetch, onReview }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const jobChoices = useMemo(
+    () => jobs.filter((j) => jobMatches(j, jobQuery)),
+    [jobs, jobQuery]
+  );
+
   useEffect(() => {
     if (!jobId) { setBudget([]); return undefined; }
     let cancelled = false;
@@ -66,13 +73,23 @@ export default function AdminManualTime({ adminFetch, onReview }) {
     return () => { cancelled = true; };
   }, [jobId]);
 
+  function pickJob(job) {
+    setJobId(job.id);
+    setJobQuery(jobLabel(job));
+    setCostItemId('');
+  }
+
   async function submit(e) {
     e.preventDefault();
     if (busy) return;
+    const job = jobs.find((j) => j.id === jobId);
+    if (!jobId || !job) {
+      setErr('Pick a job');
+      return;
+    }
     setBusy(true);
     setErr(null);
     setOk(null);
-    const job = jobs.find((j) => j.id === jobId);
     const breakMinutes = parseInt(brk, 10);
     const daily = mode === 'daily';
     const hrs = Number(hours);
@@ -142,14 +159,41 @@ export default function AdminManualTime({ adminFetch, onReview }) {
               ))}
             </select>
           </label>
-          <label>
+          <label className="adm-addform-wide">
             Job
-            <select className="adm-select" required value={jobId} onChange={(e) => { setJobId(e.target.value); setCostItemId(''); }}>
-              <option value="">Select…</option>
-              {jobs.map((j) => (
-                <option key={j.id} value={j.id}>{j.name}</option>
-              ))}
-            </select>
+            <input
+              className="adm-select"
+              type="search"
+              placeholder="Search jobs…"
+              autoComplete="off"
+              value={jobQuery}
+              onChange={(e) => {
+                setJobQuery(e.target.value);
+                setJobId('');
+                setCostItemId('');
+              }}
+            />
+            <div className="adm-joblist" role="listbox" aria-label="Matching jobs">
+              {jobs.length === 0 ? (
+                <p className="adm-jobempty">No jobs available</p>
+              ) : jobChoices.length === 0 ? (
+                <p className="adm-jobempty">No matches for “{jobQuery.trim()}”</p>
+              ) : (
+                jobChoices.map((j) => (
+                  <button
+                    key={j.id}
+                    type="button"
+                    role="option"
+                    aria-selected={j.id === jobId}
+                    className={j.id === jobId ? 'adm-jobopt is-on' : 'adm-jobopt'}
+                    onClick={() => pickJob(j)}
+                  >
+                    {jobLabel(j)}
+                    {j.location && <span>{j.location}</span>}
+                  </button>
+                ))
+              )}
+            </div>
           </label>
           <label>
             Activity
