@@ -108,8 +108,10 @@ test('buildHoursReport groups by user/day and computes Sun–Sat OT over 40', ()
   const pdf = buildHoursPdf(report).toString('utf8');
   assert.ok(pdf.startsWith('%PDF-1.4'));
   assert.match(pdf, /Alex/);
+  assert.match(pdf, /Blake/);
   assert.match(pdf, /Weekly overtime/);
   assert.match(pdf, /Pushed/);
+  assert.match(pdf, /0\.059 0\.153 0\.251 RG/);
 });
 
 function punch(userId, userName, startedAt, endedAt, status, jtTimeEntryId = null) {

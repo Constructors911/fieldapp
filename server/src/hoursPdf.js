@@ -44,6 +44,18 @@ function text(x, y, s, { size = 9, bold = false } = {}) {
   return `BT /${font} ${size} Tf 1 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)} Tm (${pdfEscape(s)}) Tj ET\n`;
 }
 
+const NAVY = [0.059, 0.153, 0.251];
+const BAND = [0.906, 0.929, 0.957];
+const RULE = [0.78, 0.82, 0.86];
+
+function fillRect(x, y, w, h, rgb = BAND) {
+  return `${rgb[0]} ${rgb[1]} ${rgb[2]} rg ${x.toFixed(1)} ${y.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)} re f 0 0 0 rg\n`;
+}
+
+function hline(x1, x2, y, { width = 0.7, rgb = RULE } = {}) {
+  return `${rgb[0]} ${rgb[1]} ${rgb[2]} RG ${width} w ${x1.toFixed(1)} ${y.toFixed(1)} m ${x2.toFixed(1)} ${y.toFixed(1)} l S 0 0 0 RG 0 0 0 rg\n`;
+}
+
 function assemblePdf(pageStreams) {
   const objs = [null];
   const add = (body) => {
@@ -95,7 +107,9 @@ export function buildHoursPdf(report) {
     ops += text(MARGIN, y, `${fmtDay(report.from)} - ${fmtDay(report.to)}   Total ${fmtHours(report.totals.totalHours)} hrs   Regular ${fmtHours(report.totals.regularHours)}   OT ${fmtHours(report.totals.overtimeHours)}`, { size: 9 });
     y -= 10;
     ops += text(PAGE_W - MARGIN - 80, PAGE_H - MARGIN, `Page ${pageNo}`, { size: 8 });
-    y -= 14;
+    y -= 6;
+    ops += hline(MARGIN, PAGE_W - MARGIN, y, { width: 1, rgb: NAVY });
+    y -= 16;
   };
 
   const flush = () => {
@@ -123,18 +137,32 @@ export function buildHoursPdf(report) {
 
   header();
 
-  for (const user of report.users || []) {
-    need(28);
-    ops += text(MARGIN, y, user.userName || 'Unknown', { size: 12, bold: true });
+  const users = report.users || [];
+  users.forEach((user, index) => {
+    const minBlock = 56;
+    if (index > 0) {
+      y -= 8;
+      need(minBlock + 18);
+      ops += hline(MARGIN, PAGE_W - MARGIN, y, { width: 1.6, rgb: NAVY });
+      y -= 18;
+    } else {
+      need(minBlock);
+    }
+
+    const bandH = 30;
+    ops += fillRect(MARGIN - 2, y - 18, PAGE_W - 2 * MARGIN + 4, bandH);
+    ops += text(MARGIN + 4, y, user.userName || 'Unknown', { size: 13, bold: true });
     y -= 14;
-    ops += text(MARGIN, y, `${fmtHours(user.totalHours)} hrs    Regular ${fmtHours(user.regularHours)}    OT ${fmtHours(user.overtimeHours)}`, { size: 9 });
-    y -= 16;
+    ops += text(MARGIN + 4, y, `${fmtHours(user.totalHours)} hrs    Regular ${fmtHours(user.regularHours)}    OT ${fmtHours(user.overtimeHours)}`, { size: 9 });
+    y -= 20;
 
     need(LINE);
     const heads = ['Day', 'Job', 'Activity', 'In -> Out', 'Hours', 'Pushed to JT'];
     punchCols.forEach((c, i) => {
       ops += text(c.x, y, heads[i], { size: 8, bold: true });
     });
+    y -= 4;
+    ops += hline(MARGIN, PAGE_W - MARGIN, y, { width: 0.6 });
     y -= LINE;
 
     for (const day of user.days) {
@@ -178,8 +206,8 @@ export function buildHoursPdf(report) {
       ops += text(weekXs[3], y, fmtHours(w.overtimeHours), { size: 8, bold: w.overtimeHours > 0 });
       y -= LINE;
     }
-    y -= 16;
-  }
+    y -= 10;
+  });
 
   if (!report.users?.length) {
     ops += text(MARGIN, y, 'No punches in this range.', { size: 10 });
