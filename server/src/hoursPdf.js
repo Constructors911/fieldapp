@@ -39,6 +39,54 @@ function fmtDay(dateStr) {
   });
 }
 
+function fmtStamp(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function approvalForUser(review, user) {
+  const list = review?.approvals || [];
+  return list.find((a) => a.userId && a.userId === user.userId)
+    || list.find((a) => a.employeeName && a.employeeName === user.userName)
+    || null;
+}
+
+function approvedStamp(approval, name) {
+  if (approval?.status !== 'approved') return '';
+  const who = name || approval.employeeName || 'Crew';
+  const when = fmtStamp(approval.updatedAt || approval.createdAt);
+  return when ? `Approved by ${who} on ${when}` : `Approved by ${who}`;
+}
+
+function crewApprovalRows(report) {
+  const review = report.review;
+  if (!review?.requested && !(review?.approvals || []).length) return [];
+  const seen = new Set();
+  const rows = [];
+  const add = (name, approval) => {
+    const key = `${approval?.userId || ''}|${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({ name, approval });
+  };
+  for (const user of report.users || []) {
+    add(user.userName || 'Unknown', approvalForUser(review, user));
+  }
+  for (const approval of review.approvals || []) {
+    add(approval.employeeName || 'Crew', approval);
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+}
+
 function text(x, y, s, { size = 9, bold = false } = {}) {
   const font = bold ? 'F2' : 'F1';
   return `BT /${font} ${size} Tf 1 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)} Tm (${pdfEscape(s)}) Tj ET\n`;
@@ -146,7 +194,8 @@ export function buildHoursPdf(report, { watermark } = {}) {
 
   const users = report.users || [];
   users.forEach((user, index) => {
-    const minBlock = 56;
+    const stamp = approvedStamp(approvalForUser(report.review, user), user.userName);
+    const minBlock = stamp ? 70 : 56;
     if (index > 0) {
       y -= 8;
       need(minBlock + 18);
@@ -156,10 +205,14 @@ export function buildHoursPdf(report, { watermark } = {}) {
       need(minBlock);
     }
 
-    const bandH = 30;
-    ops += fillRect(MARGIN - 2, y - 18, PAGE_W - 2 * MARGIN + 4, bandH);
+    const bandH = stamp ? 42 : 30;
+    ops += fillRect(MARGIN - 2, y - (stamp ? 30 : 18), PAGE_W - 2 * MARGIN + 4, bandH);
     ops += text(MARGIN + 4, y, user.userName || 'Unknown', { size: 13, bold: true });
     y -= 14;
+    if (stamp) {
+      ops += text(MARGIN + 4, y, stamp, { size: 9, bold: true });
+      y -= 12;
+    }
     ops += text(MARGIN + 4, y, `${fmtHours(user.totalHours)} hrs    Regular ${fmtHours(user.regularHours)}    OT ${fmtHours(user.overtimeHours)}`, { size: 9 });
     y -= 20;
 
@@ -215,6 +268,28 @@ export function buildHoursPdf(report, { watermark } = {}) {
     }
     y -= 10;
   });
+
+  const signoffs = crewApprovalRows(report);
+  if (signoffs.length) {
+    y -= 4;
+    need(36);
+    ops += hline(MARGIN, PAGE_W - MARGIN, y, { width: 1.6, rgb: NAVY });
+    y -= 18;
+    ops += text(MARGIN, y, 'Crew approvals', { size: 12, bold: true });
+    y -= 16;
+    ops += text(MARGIN, y, 'Name', { size: 8, bold: true });
+    ops += text(MARGIN + 220, y, 'Signed', { size: 8, bold: true });
+    y -= 4;
+    ops += hline(MARGIN, PAGE_W - MARGIN, y, { width: 0.6 });
+    y -= LINE;
+    for (const row of signoffs) {
+      need(LINE);
+      const stamp = approvedStamp(row.approval, row.name);
+      ops += text(MARGIN, y, clip(row.name, 36), { size: 9, bold: true });
+      ops += text(MARGIN + 220, y, stamp || (row.approval?.status === 'changes_requested' ? 'Asked for a change' : 'Waiting'), { size: 9 });
+      y -= LINE;
+    }
+  }
 
   if (!report.users?.length) {
     ops += text(MARGIN, y, 'No punches in this range.', { size: 10 });

@@ -126,6 +126,13 @@ test('after the office asks, crew can approve last period once', async () => {
 
   const hours = await api(srv.base, `/api/admin/hours?from=${last.from}&to=${last.to}`);
   assert.equal(hours.json.review.approvals[0].status, 'approved');
+  assert.ok(hours.json.review.approvals[0].updatedAt || hours.json.review.approvals[0].createdAt);
+  assert.ok(hours.json.review.approvals[0].employeeName);
+
+  const pdf = await api(srv.base, `/api/admin/hours.pdf?from=${last.from}&to=${last.to}`);
+  assert.equal(pdf.status, 200);
+  assert.match(pdf.text, /Approved by /);
+  assert.match(pdf.text, /Crew approvals/);
 });
 
 test('a change request after release marks the period as needing a look', async () => {

@@ -208,6 +208,7 @@
   margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #e8eef5;
 }
 .adm-hours-userhead h3 { margin: 0; font-size: 20px; color: var(--navy); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.adm-hours-signed { margin: 6px 0 0; font-size: 13px; font-weight: 700; color: var(--green); }
 .adm-hours-clocks { min-width: 860px; table-layout: fixed; }
 .adm-hours-c-day { width: 14%; }
 .adm-hours-c-job { width: 20%; }

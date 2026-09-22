@@ -153,6 +153,20 @@ function crewReviewLabel(status) {
   return 'Waiting';
 }
 
+function fmtApprovedAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 function Stat({ label, value, warn }) {
   return (
     <div className={`adm-hours-stat${warn ? ' is-ot' : ''}`}>
@@ -527,25 +541,35 @@ export default function AdminHours({ adminFetch }) {
             </div>
           </div>
 
-          {report.users.map((user) => (
+          {report.users.map((user) => {
+            const approval = approvalForUser(review, user);
+            const signedAt = fmtApprovedAt(approval?.updatedAt || approval?.createdAt);
+            return (
             <section className="adm-hours-user" key={user.userId || user.userName}>
               <header className="adm-hours-userhead">
-                <h3>
-                  {user.userName}
-                  {review?.requested && (
-                    <span
-                      className={`adm-badge ${
-                        approvalForUser(review, user)?.status === 'approved'
-                          ? 'adm-badge-pushed'
-                          : approvalForUser(review, user)?.status === 'changes_requested'
-                            ? 'adm-badge-pending'
-                            : 'adm-badge-void'
-                      }`}
-                    >
-                      {crewReviewLabel(approvalForUser(review, user)?.status)}
-                    </span>
+                <div>
+                  <h3>
+                    {user.userName}
+                    {review?.requested && (
+                      <span
+                        className={`adm-badge ${
+                          approval?.status === 'approved'
+                            ? 'adm-badge-pushed'
+                            : approval?.status === 'changes_requested'
+                              ? 'adm-badge-pending'
+                              : 'adm-badge-void'
+                        }`}
+                      >
+                        {crewReviewLabel(approval?.status)}
+                      </span>
+                    )}
+                  </h3>
+                  {approval?.status === 'approved' && (
+                    <p className="adm-hours-signed">
+                      {user.userName} approved{signedAt ? ` ${signedAt}` : ''}
+                    </p>
                   )}
-                </h3>
+                </div>
                 <div className="adm-hours-stats">
                   <Stat label="Total hours" value={fmtHours(user.totalHours)} />
                   <Stat label="Regular" value={fmtHours(user.regularHours)} />
@@ -734,7 +758,8 @@ export default function AdminHours({ adminFetch }) {
                 </table>
               </div>
             </section>
-          ))}
+            );
+          })}
         </div>
       )}
     </>

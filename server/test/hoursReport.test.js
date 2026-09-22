@@ -119,6 +119,21 @@ test('buildHoursReport groups by user/day and computes Sun–Sat OT over 40', ()
   const stamped = buildHoursPdf(report, { watermark: 'APPROVED AND FINAL' }).toString('utf8');
   assert.match(stamped, /APPROVED AND FINAL/);
   assert.match(stamped, /Hours report/);
+
+  report.review = {
+    requested: true,
+    approvals: [{
+      userId: 'user_a',
+      employeeName: 'Alex',
+      status: 'approved',
+      createdAt: '2026-09-22T14:15:00.000Z',
+      updatedAt: '2026-09-22T14:15:00.000Z',
+    }],
+  };
+  const signed = buildHoursPdf(report).toString('utf8');
+  assert.match(signed, /Approved by Alex on /);
+  assert.match(signed, /Crew approvals/);
+  assert.match(signed, /Waiting/);
 });
 
 function punch(userId, userName, startedAt, endedAt, status, jtTimeEntryId = null) {
