@@ -1,4 +1,5 @@
 // Minimal PDF writer for the hours report. Helvetica only — no extra deps.
+import { compareByLastName } from './hoursReport.js';
 const PAGE_W = 792; // landscape letter
 const PAGE_H = 612;
 const MARGIN = 36;
@@ -84,7 +85,7 @@ function crewApprovalRows(report) {
   for (const approval of review.approvals || []) {
     add(approval.employeeName || 'Crew', approval);
   }
-  return rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  return rows.sort((a, b) => compareByLastName(a.name, b.name));
 }
 
 function text(x, y, s, { size = 9, bold = false } = {}) {

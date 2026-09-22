@@ -16,6 +16,25 @@ function hoursFromMinutes(mins) {
   return Math.round((mins / 60) * 100) / 100;
 }
 
+const NAME_SUFFIX = /^(jr|sr|ii|iii|iv)\.?$/i;
+
+/** Last-name key so Hours lists sort "David Carroll" before "Casey Crew". */
+export function lastNameSortKey(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  let last = parts[parts.length - 1];
+  let rest = parts.slice(0, -1);
+  if (rest.length && NAME_SUFFIX.test(last)) {
+    last = rest[rest.length - 1];
+    rest = rest.slice(0, -1);
+  }
+  return `${last}\u0000${rest.join(' ')}`;
+}
+
+export function compareByLastName(a, b) {
+  return lastNameSortKey(a).localeCompare(lastNameSortKey(b), undefined, { sensitivity: 'base' });
+}
+
 function punchRow(p) {
   const minutes = punchNetMinutes(p);
   return {
@@ -59,7 +78,7 @@ export function buildHoursReport(punches, from, to, { namesByUserId } = {}) {
 
   const users = [...byUser.values()]
     .map((u) => buildUserReport(u, from, to))
-    .sort((a, b) => a.userName.localeCompare(b.userName, undefined, { sensitivity: 'base' }));
+    .sort((a, b) => compareByLastName(a.userName, b.userName));
 
   const totalMinutes = users.reduce((sum, u) => sum + u.totalMinutes, 0);
   const regularMinutes = users.reduce((sum, u) => sum + u.regularMinutes, 0);

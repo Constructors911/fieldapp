@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createApp } from '../src/app.js';
 import { createMockAdapter } from '../src/adapters/mock.js';
 import { createMemoryStore } from '../src/store/memory.js';
-import { buildHoursReport, punchNetMinutes } from '../src/hoursReport.js';
+import { buildHoursReport, compareByLastName, lastNameSortKey, punchNetMinutes } from '../src/hoursReport.js';
 import { dayLunchMinutes, dayPaidMinutes } from '../src/util/dailyLunch.js';
 import { buildHoursPdf } from '../src/hoursPdf.js';
 import { sundayOf, sundayOfDateString, payPeriodContaining, payPeriodOffset } from '../src/util/dates.js';
@@ -56,6 +56,23 @@ test('a day over 6 hours deducts 30 minutes unless a lunch was already entered',
   const short = punch('user_a', 'Alex', '2026-09-14T07:00:00', '2026-09-14T13:00:00', 'pending'); // 6h
   assert.equal(dayLunchMinutes([short]), 0);
   assert.equal(dayPaidMinutes([short]), 360);
+});
+
+test('hours report sorts crew by last name', () => {
+  assert.equal(lastNameSortKey('David Carroll'), `Carroll\u0000David`);
+  assert.equal(lastNameSortKey('Ed Vehige Jr.'), `Vehige\u0000Ed`);
+  assert.ok(compareByLastName('David Carroll', 'Casey Crew') < 0);
+  const punches = [
+    punch('user_c', 'Casey Crew', '2026-09-14T07:00:00', '2026-09-14T15:00:00', 'pending'),
+    punch('user_a', 'Alexander Rivera', '2026-09-14T07:00:00', '2026-09-14T15:00:00', 'pending'),
+    punch('user_b', 'David Carroll', '2026-09-14T07:00:00', '2026-09-14T15:00:00', 'pending'),
+  ];
+  const report = buildHoursReport(punches, '2026-09-13', '2026-09-19');
+  assert.deepEqual(report.users.map((u) => u.userName), [
+    'David Carroll',
+    'Casey Crew',
+    'Alexander Rivera',
+  ]);
 });
 
 test('hours report prefers the JobTread name over a punch nickname', () => {

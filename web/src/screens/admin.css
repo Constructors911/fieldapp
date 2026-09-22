@@ -199,15 +199,27 @@
 .adm-hours-stat strong { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
 .adm-hours-stat.is-ot { background: #fdf0e5; color: #a35315; }
 .adm-hours-banner .adm-hours-stat.is-ot { background: var(--orange); color: #fff; }
+.adm-hours-foldbar { display: flex; gap: 8px; justify-content: flex-end; margin: -4px 0 12px; }
 .adm-hours-user {
   background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
   padding: 16px 16px 20px; margin-bottom: 18px;
 }
+.adm-hours-user:not(.is-open) { padding-bottom: 16px; }
 .adm-hours-userhead {
   display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
   margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #e8eef5;
 }
-.adm-hours-userhead h3 { margin: 0; font-size: 20px; color: var(--navy); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.adm-hours-user:not(.is-open) .adm-hours-userhead {
+  margin-bottom: 0; padding-bottom: 0; border-bottom: 0;
+}
+.adm-hours-fold {
+  display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0;
+  margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit;
+}
+.adm-hours-fold:focus-visible { outline: 2px solid var(--navy); outline-offset: 3px; border-radius: 6px; }
+.adm-hours-chevron { flex: none; width: 16px; margin-top: 4px; font-size: 16px; color: var(--muted); }
+.adm-hours-userhead h3,
+.adm-hours-username { margin: 0; font-size: 20px; font-weight: 800; color: var(--navy); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .adm-hours-signed { margin: 6px 0 0; font-size: 13px; font-weight: 700; color: var(--green); }
 .adm-hours-clocks { min-width: 860px; table-layout: fixed; }
 .adm-hours-c-day { width: 14%; }
@@ -243,6 +255,11 @@
   .no-print, .adm-toolbar, .topbar, .adm-linklike { display: none !important; }
   .adm-wrap { max-width: none; padding: 0; }
   .adm-hours-user { break-inside: avoid; box-shadow: none; }
+  .adm-hours-userbody[hidden] { display: block !important; }
+  .adm-hours-user:not(.is-open) .adm-hours-userhead {
+    margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #e8eef5;
+  }
+  .adm-hours-chevron { display: none; }
   .adm-hours-c-adj, .adm-hours-adjust { display: none !important; }
 }
 

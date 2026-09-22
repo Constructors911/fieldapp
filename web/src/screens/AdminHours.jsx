@@ -190,6 +190,7 @@ export default function AdminHours({ adminFetch }) {
   const [catalog, setCatalog] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editVals, setEditVals] = useState({ start: '', end: '', brk: '0', hours: '', activity: '', note: '' });
+  const [openUsers, setOpenUsers] = useState(() => new Set());
   useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
 
   const load = useCallback(async (fromDay = from, toDay = to) => {
@@ -211,6 +212,8 @@ export default function AdminHours({ adminFetch }) {
   function applyRange(nextFrom, nextTo) {
     setFrom(nextFrom);
     setTo(nextTo);
+    setOpenUsers(new Set());
+    setEditingId(null);
     load(nextFrom, nextTo);
   }
 
@@ -242,8 +245,34 @@ export default function AdminHours({ adminFetch }) {
     );
   }
 
-  function startAdjust(p) {
+  function userKey(user) {
+    return user.userId || user.userName;
+  }
+
+  function toggleUser(user) {
+    const key = userKey(user);
+    setOpenUsers((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function expandAllUsers() {
+    setOpenUsers(new Set((report?.users || []).map(userKey)));
+  }
+
+  function collapseAllUsers() {
+    setOpenUsers(new Set());
+    setEditingId(null);
+  }
+
+  function startAdjust(p, user) {
     if (!canAdjust(p)) return;
+    if (user) {
+      setOpenUsers((prev) => new Set(prev).add(userKey(user)));
+    }
     setEditingId(p.id);
     setEditVals({
       start: isoToLocalInput(p.startedAt),
@@ -543,36 +572,55 @@ export default function AdminHours({ adminFetch }) {
               <Stat label="Overtime" value={fmtHours(report.totals.overtimeHours)} warn={report.totals.overtimeHours > 0} />
             </div>
           </div>
+          <div className="adm-hours-foldbar no-print">
+            <button type="button" className="c-btn c-btn-small c-btn-ghost" onClick={expandAllUsers}>
+              Expand all
+            </button>
+            <button type="button" className="c-btn c-btn-small c-btn-ghost" onClick={collapseAllUsers}>
+              Collapse all
+            </button>
+          </div>
 
           {report.users.map((user) => {
             const approval = approvalForUser(review, user);
             const signedAt = fmtApprovedAt(approval?.updatedAt || approval?.createdAt);
+            const key = userKey(user);
+            const open = openUsers.has(key)
+              || Boolean(editingId && user.days.some((day) => day.punches.some((p) => p.id === editingId)));
             return (
-            <section className="adm-hours-user" key={user.userId || user.userName}>
+            <section className={`adm-hours-user${open ? ' is-open' : ''}`} key={key}>
               <header className="adm-hours-userhead">
-                <div>
-                  <h3>
-                    {user.userName}
-                    {review?.requested && (
-                      <span
-                        className={`adm-badge ${
-                          approval?.status === 'approved'
-                            ? 'adm-badge-pushed'
-                            : approval?.status === 'changes_requested'
-                              ? 'adm-badge-pending'
-                              : 'adm-badge-void'
-                        }`}
-                      >
-                        {crewReviewLabel(approval?.status)}
-                      </span>
+                <button
+                  type="button"
+                  className="adm-hours-fold"
+                  aria-expanded={open}
+                  onClick={() => toggleUser(user)}
+                >
+                  <span className="adm-hours-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
+                  <span>
+                    <span className="adm-hours-username">
+                      {user.userName}
+                      {review?.requested && (
+                        <span
+                          className={`adm-badge ${
+                            approval?.status === 'approved'
+                              ? 'adm-badge-pushed'
+                              : approval?.status === 'changes_requested'
+                                ? 'adm-badge-pending'
+                                : 'adm-badge-void'
+                          }`}
+                        >
+                          {crewReviewLabel(approval?.status)}
+                        </span>
+                      )}
+                    </span>
+                    {approval?.status === 'approved' && (
+                      <p className="adm-hours-signed">
+                        {user.userName} approved{signedAt ? ` ${signedAt}` : ''}
+                      </p>
                     )}
-                  </h3>
-                  {approval?.status === 'approved' && (
-                    <p className="adm-hours-signed">
-                      {user.userName} approved{signedAt ? ` ${signedAt}` : ''}
-                    </p>
-                  )}
-                </div>
+                  </span>
+                </button>
                 <div className="adm-hours-stats">
                   <Stat label="Total hours" value={fmtHours(user.totalHours)} />
                   <Stat label="Regular" value={fmtHours(user.regularHours)} />
@@ -580,6 +628,7 @@ export default function AdminHours({ adminFetch }) {
                 </div>
               </header>
 
+              <div className="adm-hours-userbody" hidden={!open}>
               <div className="adm-tablewrap">
                 <table className="adm-table adm-hours-clocks">
                   <colgroup>
@@ -623,7 +672,7 @@ export default function AdminHours({ adminFetch }) {
                                       : p.pushed ? 'Adjust times — JobTread will be updated'
                                         : 'Adjust times, break, or activity'
                                   }
-                                  onClick={() => startAdjust(p)}
+                                  onClick={() => startAdjust(p, user)}
                                 >
                                   Adjust
                                 </button>
@@ -759,6 +808,7 @@ export default function AdminHours({ adminFetch }) {
                     ))}
                   </tbody>
                 </table>
+              </div>
               </div>
             </section>
             );
