@@ -871,11 +871,32 @@ export function createApp(adapter, store = createStore(), {
     if (!punch) return null;
     return {
       id: punch.id,
+      jobId: punch.jobId,
       startedAt: punch.startedAt,
       endedAt: punch.endedAt,
       breakMinutes: punch.breakMinutes || 0,
       status: punch.status,
+      jtTimeEntryId: punch.jtTimeEntryId || null,
+      syncError: punch.syncError || null,
     };
+  }
+
+  async function syncJobTreadPunch(punch) {
+    if (!punch?.jtTimeEntryId || typeof adapter.updateTimeEntry !== 'function') {
+      return { ok: true, skipped: true };
+    }
+    try {
+      await adapter.updateTimeEntry(punch);
+      await store.markPushed(punch.id, punch.jtTimeEntryId);
+      const fresh = await store.getPunch(punch.id);
+      return { ok: true, jtTimeEntryId: punch.jtTimeEntryId, punch: fresh };
+    } catch (e) {
+      const message = e?.message || 'JobTread update failed';
+      if (typeof store.setPunchSyncError === 'function') {
+        await store.setPunchSyncError(punch.id, message);
+      }
+      return { ok: false, error: message, jtTimeEntryId: punch.jtTimeEntryId };
+    }
   }
 
   function netPunchMinutes(startedAt, endedAt, breakMinutes) {
@@ -916,7 +937,6 @@ export function createApp(adapter, store = createStore(), {
     const existing = current.punchId ? await store.getPunch(current.punchId) : null;
     if (current.punchId && !existing) throw new HttpError(404, 'Time entry not found');
     if (existing?.status === 'void') throw new HttpError(400, 'That clock was voided');
-    if (existing?.status === 'pushed') throw new HttpError(400, 'This clock was already pushed to JobTread');
 
     const startedAt = req.body?.startedAt ?? current.requestedStartedAt ?? existing?.startedAt;
     const endedAt = req.body?.endedAt ?? current.requestedEndedAt ?? existing?.endedAt;
@@ -1006,7 +1026,14 @@ export function createApp(adapter, store = createStore(), {
       appliedMinutes: netPunchMinutes(updated.startedAt, updated.endedAt, updated.breakMinutes),
       by: actorOf(req),
     });
-    res.json({ adjustment: await withPunch(adjustment), punch: updated });
+    const jtSync = await syncJobTreadPunch(updated);
+    const punch = jtSync.punch || await store.getPunch(updated.id);
+    if (jtSync.ok === false) {
+      await store.logAudit(updated.id, 'jt-update-failed', { by: actorOf(req), error: jtSync.error });
+    } else if (!jtSync.skipped) {
+      await store.logAudit(updated.id, 'jt-updated', { by: actorOf(req), jtTimeEntryId: jtSync.jtTimeEntryId });
+    }
+    res.json({ adjustment: await withPunch(adjustment), punch, jtSync });
   }));
 
   app.get('/api/admin/hours', requireAdmin, wrap(async (req, res) => {
@@ -1098,6 +1125,9 @@ export function createApp(adapter, store = createStore(), {
     }
     const before = await store.getPunch(req.params.id);
     if (!before) throw new HttpError(404, 'Punch not found');
+    if (before.status === 'pushed') {
+      throw new HttpError(400, 'Adjust a pushed clock from Hours so the change is logged and JobTread is updated');
+    }
     // Validate the RESULTING times, mixing edited and existing values.
     if (patch.startedAt !== undefined || patch.endedAt !== undefined || patch.breakMinutes !== undefined) {
       const start = new Date(patch.startedAt ?? before.startedAt);
@@ -1177,7 +1207,6 @@ export function createApp(adapter, store = createStore(), {
     if (!before.endedAt || before.status === 'void') {
       throw new HttpError(400, 'Only a finished clock can be adjusted');
     }
-    if (before.status === 'pushed') throw new HttpError(400, 'This clock was already pushed to JobTread');
     if (patch.startedAt !== undefined || patch.endedAt !== undefined || patch.breakMinutes !== undefined) {
       const start = new Date(patch.startedAt ?? before.startedAt);
       const end = new Date(patch.endedAt ?? before.endedAt);
@@ -1200,11 +1229,18 @@ export function createApp(adapter, store = createStore(), {
       by: actorOf(req),
       changes,
     });
-    res.json({ punch: updated, adjustment: await withPunch(adjustment) });
+    const jtSync = await syncJobTreadPunch(updated);
+    const punch = jtSync.punch || await store.getPunch(updated.id);
+    if (jtSync.ok === false) {
+      await store.logAudit(updated.id, 'jt-update-failed', { by: actorOf(req), error: jtSync.error });
+    } else if (!jtSync.skipped) {
+      await store.logAudit(updated.id, 'jt-updated', { by: actorOf(req), jtTimeEntryId: jtSync.jtTimeEntryId });
+    }
+    res.json({ punch, adjustment: await withPunch(adjustment), jtSync });
   }));
 
   // Void junk/test/accidental punches (also releases a stuck open punch so
-  // the employee can clock in again). Pushed punches are immutable.
+  // the employee can clock in again). Pushed punches stay in JobTread.
   app.post('/api/admin/punches/:id/void', requireAdmin, wrap(async (req, res) => {
     const punch = await store.voidPunch(req.params.id);
     await store.logAudit(punch.id, 'voided', { by: actorOf(req) });

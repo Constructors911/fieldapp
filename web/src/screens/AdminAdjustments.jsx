@@ -104,7 +104,7 @@ export default function AdminAdjustments({ adminFetch }) {
     setErr(null);
     try {
       const job = jobs.find((j) => j.id === draft.jobId);
-      await adminFetch(`/api/admin/adjustments/${a.id}/apply`, {
+      const result = await adminFetch(`/api/admin/adjustments/${a.id}/apply`, {
         method: 'POST',
         body: {
           startedAt: new Date(draft.start).toISOString(),
@@ -117,6 +117,9 @@ export default function AdminAdjustments({ adminFetch }) {
         },
       });
       setItems((list) => (list || []).filter((x) => x.id !== a.id));
+      if (result.jtSync?.ok === false) {
+        setErr(result.jtSync.error || 'Saved here, but JobTread was not updated');
+      }
     } catch (e) {
       setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
     } finally {
@@ -218,7 +221,7 @@ export default function AdminAdjustments({ adminFetch }) {
         <div className="adm-adj-list">
           {items.map((a) => {
             const draft = drafts[a.id] || draftFrom(a);
-            const locked = a.punch && (a.punch.status === 'pushed' || a.punch.status === 'void');
+            const locked = a.punch && a.punch.status === 'void';
             const askedJob = a.requestedJobName || a.jobName;
             return (
               <article className="adm-adj-card" key={a.id}>
@@ -250,11 +253,10 @@ export default function AdminAdjustments({ adminFetch }) {
                 {tab === 'pending' && (
                   <>
                     {locked && (
-                      <p className="adm-adj-warn">
-                        {a.punch.status === 'pushed'
-                          ? 'This clock was already pushed to JobTread, so the times cannot be changed. Dismiss it with a note.'
-                          : 'This clock was voided. Dismiss it with a note.'}
-                      </p>
+                      <p className="adm-adj-warn">This clock was voided. Dismiss it with a note.</p>
+                    )}
+                    {!locked && a.punch?.status === 'pushed' && (
+                      <p className="adm-adj-warn">This clock is already in JobTread. Applying will update that time entry.</p>
                     )}
                     {!locked && (
                       <div className="adm-adj-form">

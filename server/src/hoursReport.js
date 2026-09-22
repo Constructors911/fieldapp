@@ -31,6 +31,7 @@ function punchRow(p) {
     status: p.status,
     pushed: p.status === 'pushed',
     jtTimeEntryId: p.jtTimeEntryId || null,
+    syncError: p.syncError || null,
     entryKind: p.entryKind === 'daily' ? 'daily' : 'clock',
   };
 }

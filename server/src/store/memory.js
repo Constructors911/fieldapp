@@ -164,8 +164,8 @@ export function createMemoryStore() {
     },
 
     async updatePunch(id, patch) {
-      const punch = punches.find((p) => p.id === id && ['open', 'pending', 'approved', 'error'].includes(p.status));
-      if (!punch) throw new HttpError(404, 'Punch not found or already pushed');
+      const punch = punches.find((p) => p.id === id && ['open', 'pending', 'approved', 'error', 'pushed'].includes(p.status));
+      if (!punch) throw new HttpError(404, 'Punch not found');
       const oldJob = punch.jobId;
       for (const k of ['jobId', 'jobName', 'activity', 'costItemId', 'costItemName', 'entryType', 'startedAt', 'endedAt', 'breakMinutes', 'notes']) {
         if (patch[k] !== undefined && patch[k] !== null) punch[k] = patch[k];
@@ -192,6 +192,12 @@ export function createMemoryStore() {
     async markError(id, message) {
       const punch = punches.find((p) => p.id === id);
       if (punch) Object.assign(punch, { status: 'error', syncError: String(message) });
+    },
+
+    async setPunchSyncError(id, message) {
+      const punch = punches.find((p) => p.id === id);
+      if (punch) punch.syncError = message ? String(message) : null;
+      return punch ? { ...punch } : null;
     },
 
     // ---- original (pre-Haiku) log text ------------------------------------

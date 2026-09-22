@@ -67,7 +67,7 @@ function isoToLocalInput(iso) {
 }
 
 function canAdjust(p) {
-  return Boolean(p?.endedAt) && !p.pushed && p.status !== 'void' && p.status !== 'open';
+  return Boolean(p?.endedAt) && p.status !== 'void' && p.status !== 'open';
 }
 
 function dailyWindow(workDate, hours, breakMinutes) {
@@ -300,9 +300,12 @@ export default function AdminHours({ adminFetch }) {
     setBusy(true);
     setErr(null);
     try {
-      await adminFetch(`/api/admin/punches/${p.id}/adjust`, { method: 'POST', body: { ...body, note } });
+      const result = await adminFetch(`/api/admin/punches/${p.id}/adjust`, { method: 'POST', body: { ...body, note } });
       setEditingId(null);
       await load(from, to);
+      if (result.jtSync?.ok === false) {
+        setErr(result.jtSync.error || 'Saved here, but JobTread was not updated');
+      }
     } catch (e) {
       setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
     } finally {
@@ -616,8 +619,8 @@ export default function AdminHours({ adminFetch }) {
                                   className="c-btn c-btn-small"
                                   disabled={busy || !canAdjust(p)}
                                   title={
-                                    p.pushed ? 'Already pushed to JobTread'
-                                      : !p.endedAt ? 'Clock is still open'
+                                    !p.endedAt ? 'Clock is still open'
+                                      : p.pushed ? 'Adjust times — JobTread will be updated'
                                         : 'Adjust times, break, or activity'
                                   }
                                   onClick={() => startAdjust(p)}
@@ -627,10 +630,10 @@ export default function AdminHours({ adminFetch }) {
                               </td>
                               <td>
                                 <span
-                                  className={`adm-badge ${p.pushed ? 'adm-badge-pushed' : `adm-badge-${p.status}`}`}
-                                  title={p.jtTimeEntryId ? `JT ${p.jtTimeEntryId}` : p.status}
+                                  className={`adm-badge ${p.syncError ? 'adm-badge-error' : p.pushed ? 'adm-badge-pushed' : `adm-badge-${p.status}`}`}
+                                  title={p.syncError || (p.jtTimeEntryId ? `JT ${p.jtTimeEntryId}` : p.status)}
                                 >
-                                  {pushedLabel(p)}
+                                  {p.syncError ? 'JT update failed' : pushedLabel(p)}
                                 </span>
                               </td>
                             </tr>

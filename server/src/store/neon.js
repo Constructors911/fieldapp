@@ -363,9 +363,9 @@ export function createNeonStore(databaseUrl) {
           break_minutes = coalesce(${patch.breakMinutes ?? null}, break_minutes),
           notes = coalesce(${patch.notes ?? null}, notes),
           updated_at = now()
-        where id = ${id} and status in ('open', 'pending', 'approved', 'error')
+        where id = ${id} and status in ('open', 'pending', 'approved', 'error', 'pushed')
         returning *`;
-      if (!rows[0]) throw new HttpError(404, 'Punch not found or already pushed');
+      if (!rows[0]) throw new HttpError(404, 'Punch not found');
       return rowToPunch(rows[0]);
     },
 
@@ -386,6 +386,16 @@ export function createNeonStore(databaseUrl) {
     async markError(id, message) {
       await migrate();
       await sql`update punches set status = 'error', sync_error = ${String(message).slice(0, 1000)}, updated_at = now() where id = ${id}`;
+    },
+
+    async setPunchSyncError(id, message) {
+      await migrate();
+      const rows = await sql`update punches set
+          sync_error = ${message ? String(message).slice(0, 1000) : null},
+          updated_at = now()
+        where id = ${id}
+        returning *`;
+      return rows[0] ? rowToPunch(rows[0]) : null;
     },
 
     // ---- original (pre-Haiku) log text ------------------------------------

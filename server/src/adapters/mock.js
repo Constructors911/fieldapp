@@ -298,6 +298,22 @@ export function createMockAdapter() {
       return uid('te');
     },
 
+    updatedTimeEntries: [],
+
+    async updateTimeEntry(p) {
+      if (!p.jtTimeEntryId) throw new HttpError(400, 'This clock has no JobTread time entry');
+      if (!p.endedAt) throw new HttpError(400, 'Punch is still open');
+      this.updatedTimeEntries.push({
+        id: p.jtTimeEntryId,
+        jobId: p.jobId,
+        startedAt: p.startedAt,
+        endedAt: p.endedAt,
+        breakMinutes: p.breakMinutes || 0,
+        activity: p.activity || '',
+      });
+      return p.jtTimeEntryId;
+    },
+
     async listTimeEntries({ from, to } = {}) {
       let entries = db.timeEntries.slice();
       if (from) entries = entries.filter((e) => new Date(e.startedAt) >= new Date(from));

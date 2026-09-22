@@ -433,7 +433,41 @@ export function createLiveAdapter({
     return item;
   }
 
-  return {
+  let api;
+
+  async function timeEntryPayload(p) {
+    const started = new Date(p.startedAt);
+    const netEnded = new Date(new Date(p.endedAt).getTime() - (p.breakMinutes || 0) * 60_000);
+    if (netEnded <= started) throw new HttpError(400, 'Break exceeds punch duration');
+    const notes = [
+      p.notes,
+      p.entryKind === 'daily' ? 'Daily total (no clock times)' : '',
+      p.breakMinutes ? `(${p.breakMinutes} min break deducted)` : '',
+      p.activity ? `Activity: ${p.activity}` : '',
+    ].filter(Boolean).join(' · ');
+    const targetUserId = p.userId || userId;
+    const type = await resolveEntryType(
+      p.entryType,
+      targetUserId,
+      p.userName || p.employeeName || 'this user'
+    );
+    let costItemId = p.costItemId || null;
+    const owned = costItemId ? await costItemOnJob(costItemId, p.jobId) : null;
+    if (!owned) {
+      const item = await api.ensureBudgetCostItem(p.jobId, p.costItemName || p.activity);
+      costItemId = item.id;
+    }
+    return {
+      startedAt: started.toISOString(),
+      endedAt: netEnded.toISOString(),
+      notes,
+      targetUserId,
+      type,
+      costItemId,
+    };
+  }
+
+  api = {
     name: 'live',
 
     async getBootstrap() {
@@ -801,37 +835,17 @@ export function createLiveAdapter({
      * createTimeEntry has no break field (noted in the entry notes instead).
      */
     async pushTimeEntry(p) {
-      const started = new Date(p.startedAt);
-      const netEnded = new Date(new Date(p.endedAt).getTime() - (p.breakMinutes || 0) * 60_000);
-      if (netEnded <= started) throw new HttpError(400, 'Break exceeds punch duration');
-      const notes = [
-        p.notes,
-        p.entryKind === 'daily' ? 'Daily total (no clock times)' : '',
-        p.breakMinutes ? `(${p.breakMinutes} min break deducted)` : '',
-        p.activity ? `Activity: ${p.activity}` : '',
-      ].filter(Boolean).join(' · ');
-      const targetUserId = p.userId || userId;
-      const type = await resolveEntryType(
-        p.entryType,
-        targetUserId,
-        p.userName || p.employeeName || 'this user'
-      );
-      let costItemId = p.costItemId || null;
-      const owned = costItemId ? await costItemOnJob(costItemId, p.jobId) : null;
-      if (!owned) {
-        const item = await this.ensureBudgetCostItem(p.jobId, p.costItemName || p.activity);
-        costItemId = item.id;
-      }
+      const payload = await timeEntryPayload(p);
       const data = await pave({
         createTimeEntry: {
           $: {
             jobId: p.jobId,
-            costItemId,
-            userId: targetUserId, // attribute to the punching employee's JT user
-            type,
-            startedAt: started.toISOString(),
-            endedAt: netEnded.toISOString(),
-            notes,
+            costItemId: payload.costItemId,
+            userId: payload.targetUserId, // attribute to the punching employee's JT user
+            type: payload.type,
+            startedAt: payload.startedAt,
+            endedAt: payload.endedAt,
+            notes: payload.notes,
             isApproved: true,
             ...(p.coordinates ? { startCoordinates: toPaveCoords(p.coordinates) } : {}),
             ...(p.endCoordinates ? { endCoordinates: toPaveCoords(p.endCoordinates) } : {}),
@@ -848,7 +862,7 @@ export function createLiveAdapter({
       if (created.job?.id && created.job.id !== p.jobId) {
         const fixed = await pave({
           updateTimeEntry: {
-            $: { id: created.id, jobId: p.jobId, costItemId },
+            $: { id: created.id, jobId: p.jobId, costItemId: payload.costItemId },
             timeEntry: { id: {}, job: { id: {}, number: {}, name: {} } },
           },
         });
@@ -861,6 +875,43 @@ export function createLiveAdapter({
         );
       }
       return created.id;
+    },
+
+    /**
+     * Edit an existing JobTread time entry to match the Field App punch
+     * (app is the source of truth after payroll push).
+     */
+    async updateTimeEntry(p) {
+      if (!p.jtTimeEntryId) throw new HttpError(400, 'This clock has no JobTread time entry');
+      const payload = await timeEntryPayload(p);
+      const data = await pave({
+        updateTimeEntry: {
+          $: {
+            id: p.jtTimeEntryId,
+            jobId: p.jobId,
+            costItemId: payload.costItemId,
+            startedAt: payload.startedAt,
+            endedAt: payload.endedAt,
+            notes: payload.notes,
+            isApproved: true,
+          },
+          timeEntry: {
+            id: {},
+            startedAt: {},
+            endedAt: {},
+            job: { id: {}, number: {}, name: {} },
+          },
+        },
+      });
+      const updated = data?.updateTimeEntry?.timeEntry;
+      if (!updated?.id) throw new HttpError(502, 'JobTread did not update the time entry');
+      if (updated.job?.id && updated.job.id !== p.jobId) {
+        throw new HttpError(
+          502,
+          `JobTread saved this time on ${updated.job.name || updated.job.id} instead of the selected job`,
+        );
+      }
+      return updated.id;
     },
 
     async listTimeEntries({ from, to } = {}) {
@@ -1248,4 +1299,5 @@ export function createLiveAdapter({
       console.log('[webhook:jt]', JSON.stringify(event));
     },
   };
+  return api;
 }

@@ -287,3 +287,66 @@ test('admin Hours adjust applies a pending crew request instead of leaving it op
   const pending = await api(srv.base, '/api/admin/adjustments?status=pending');
   assert.ok(!pending.json.adjustments.some((a) => a.id === pendingId));
 });
+
+test('admin Hours adjust after push updates the JobTread time entry', async () => {
+  const entry = await longClosedPunch();
+  const mapped = await api(srv.base, `/api/admin/punches/${entry.id}`, {
+    method: 'PATCH',
+    body: { costItemId: 'ci_mw_demo', costItemName: 'Demolition Labor' },
+  });
+  assert.equal(mapped.status, 200, mapped.json?.error);
+  const push = await api(srv.base, '/api/admin/punches/push', {
+    method: 'POST',
+    body: { ids: [entry.id] },
+  });
+  assert.equal(push.json.results[0].ok, true, push.json.results[0].error);
+  const jtId = push.json.results[0].jtTimeEntryId;
+
+  const ok = await api(srv.base, `/api/admin/punches/${entry.id}/adjust`, {
+    method: 'POST',
+    body: { breakMinutes: 30, note: 'Added lunch after this was already in JobTread.' },
+  });
+  assert.equal(ok.status, 200, ok.json?.error);
+  assert.equal(ok.json.punch.status, 'pushed');
+  assert.equal(ok.json.punch.breakMinutes, 30);
+  assert.equal(ok.json.jtSync.ok, true);
+  assert.equal(ok.json.jtSync.jtTimeEntryId, jtId);
+  const last = srv.adapter.updatedTimeEntries.at(-1);
+  assert.ok(last);
+  assert.equal(last.id, jtId);
+  assert.equal(last.breakMinutes, 30);
+});
+
+test('admin can apply a crew request after the clock was pushed to JobTread', async () => {
+  const entry = await longClosedPunch();
+  await api(srv.base, `/api/admin/punches/${entry.id}`, {
+    method: 'PATCH',
+    body: { costItemId: 'ci_mw_demo', costItemName: 'Demolition Labor' },
+  });
+  const push = await api(srv.base, '/api/admin/punches/push', {
+    method: 'POST',
+    body: { ids: [entry.id] },
+  });
+  assert.equal(push.json.results[0].ok, true, push.json.results[0].error);
+
+  const created = await api(srv.base, `/api/time/entries/${entry.id}/adjust`, {
+    method: 'POST',
+    headers,
+    body: { reason: 'I took a 30 minute lunch and forgot to enter it.' },
+  });
+  assert.equal(created.status, 200);
+
+  const applied = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/apply`, {
+    method: 'POST',
+    body: {
+      startedAt: entry.startedAt,
+      endedAt: entry.endedAt,
+      breakMinutes: 30,
+      note: 'Applied lunch after JobTread already had the original clock.',
+    },
+  });
+  assert.equal(applied.status, 200, applied.json?.error);
+  assert.equal(applied.json.punch.status, 'pushed');
+  assert.equal(applied.json.punch.breakMinutes, 30);
+  assert.equal(applied.json.jtSync.ok, true);
+});

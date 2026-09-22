@@ -265,7 +265,7 @@ test('admin: relabeling a punch to another catalog item drives the budget auto-a
   assert.ok(audit.json.events.some((e) => e.action === 'budget-item' && e.detail.name === '116-01 Hauling'));
 });
 
-test('admin: explicit cost item mapping + push, pushed punches immutable', async () => {
+test('admin: explicit cost item mapping + push, Review PATCH stays off after push', async () => {
   const list = await api(srv.base, '/api/admin/punches?status=pending');
   const punch = list.json.punches.find((p) => p.activity === 'Concrete Labor');
   assert.ok(punch, 'the tap-time test punch is pending review');
@@ -283,14 +283,15 @@ test('admin: explicit cost item mapping + push, pushed punches immutable', async
   });
   assert.equal(push.json.results[0].ok, true);
 
-  // Pushed punches are immutable and cannot be double-pushed
+  // Pushed punches cannot be double-pushed; Review PATCH stays off so Hours Adjust is the logged path.
   const again = await api(srv.base, '/api/admin/punches/push', { method: 'POST', body: { ids: [punch.id] } });
   assert.equal(again.json.results[0].ok, false);
   const editPushed = await api(srv.base, `/api/admin/punches/${punch.id}`, {
     method: 'PATCH',
     body: { notes: 'nope' },
   });
-  assert.equal(editPushed.status, 404);
+  assert.equal(editPushed.status, 400);
+  assert.match(editPushed.json.error, /Hours/);
 });
 
 test('admin: time/break edits validate and land in the audit trail', async () => {
