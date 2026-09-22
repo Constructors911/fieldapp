@@ -1193,19 +1193,29 @@ export function createApp(adapter, store = createStore(), {
 
   app.post('/api/admin/punches/:id/adjust', requireAdmin, wrap(async (req, res) => {
     const note = adminNoteOf(req.body ?? {});
-    const allowed = ['activity', 'startedAt', 'endedAt', 'breakMinutes'];
+    const before = await store.getPunch(req.params.id);
+    if (!before) throw new HttpError(404, 'Punch not found');
+    if (!before.endedAt || before.status === 'void') {
+      throw new HttpError(400, 'Only a finished clock can be adjusted');
+    }
     const patch = {};
-    for (const k of allowed) if (req.body?.[k] !== undefined) patch[k] = req.body[k];
+    for (const k of ['activity', 'startedAt', 'endedAt', 'breakMinutes']) {
+      if (req.body?.[k] !== undefined) patch[k] = req.body[k];
+    }
+    if (req.body?.jobId !== undefined) {
+      if (typeof req.body.jobId !== 'string' || !req.body.jobId) throw new HttpError(400, 'Pick a job');
+      const askedName = typeof req.body.jobName === 'string' ? req.body.jobName : '';
+      const job = await resolveJob(req.body.jobId, askedName);
+      if (!job) throw new HttpError(404, `Unknown job: ${req.body.jobId}`);
+      patch.jobId = job.id;
+      patch.jobName = job.name;
+      if (job.id !== before.jobId) patch.clearCostItem = true;
+    }
     if (Object.keys(patch).length === 0) throw new HttpError(400, 'Nothing to update');
     if (patch.startedAt !== undefined && !isValidISO(patch.startedAt)) throw new HttpError(400, 'startedAt must be an ISO timestamp');
     if (patch.endedAt !== undefined && !isValidISO(patch.endedAt)) throw new HttpError(400, 'endedAt must be an ISO timestamp');
     if (patch.breakMinutes !== undefined && (typeof patch.breakMinutes !== 'number' || patch.breakMinutes < 0)) {
       throw new HttpError(400, 'breakMinutes must be a non-negative number');
-    }
-    const before = await store.getPunch(req.params.id);
-    if (!before) throw new HttpError(404, 'Punch not found');
-    if (!before.endedAt || before.status === 'void') {
-      throw new HttpError(400, 'Only a finished clock can be adjusted');
     }
     if (patch.startedAt !== undefined || patch.endedAt !== undefined || patch.breakMinutes !== undefined) {
       const start = new Date(patch.startedAt ?? before.startedAt);
@@ -1216,7 +1226,8 @@ export function createApp(adapter, store = createStore(), {
     }
     const updated = await store.updatePunch(before.id, patch);
     const changes = {};
-    for (const k of Object.keys(patch)) {
+    for (const k of ['activity', 'startedAt', 'endedAt', 'breakMinutes', 'jobId', 'jobName']) {
+      if (patch[k] === undefined) continue;
       if (JSON.stringify(before[k] ?? null) !== JSON.stringify(updated[k] ?? null)) {
         changes[k] = { from: before[k] ?? null, to: updated[k] ?? null };
       }

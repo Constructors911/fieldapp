@@ -288,6 +288,25 @@ test('admin Hours adjust applies a pending crew request instead of leaving it op
   assert.ok(!pending.json.adjustments.some((a) => a.id === pendingId));
 });
 
+test('admin Hours adjust can change the job', async () => {
+  const entry = await longClosedPunch();
+  assert.equal(entry.jobId, 'job_maplewood');
+  const unknown = await api(srv.base, `/api/admin/punches/${entry.id}/adjust`, {
+    method: 'POST',
+    body: { jobId: 'job_nope', note: 'Tried to move this clock onto a job that is not in JobTread.' },
+  });
+  assert.equal(unknown.status, 404);
+
+  const ok = await api(srv.base, `/api/admin/punches/${entry.id}/adjust`, {
+    method: 'POST',
+    body: { jobId: 'job_riverside', note: 'Clocked on Maplewood by mistake; this was Riverside.' },
+  });
+  assert.equal(ok.status, 200, ok.json?.error);
+  assert.equal(ok.json.punch.jobId, 'job_riverside');
+  assert.match(ok.json.punch.jobName, /Riverside/);
+  assert.equal(ok.json.punch.costItemId, null);
+});
+
 test('admin Hours adjust after push updates the JobTread time entry', async () => {
   const entry = await longClosedPunch();
   const mapped = await api(srv.base, `/api/admin/punches/${entry.id}`, {
@@ -315,6 +334,17 @@ test('admin Hours adjust after push updates the JobTread time entry', async () =
   assert.ok(last);
   assert.equal(last.id, jtId);
   assert.equal(last.breakMinutes, 30);
+
+  const moved = await api(srv.base, `/api/admin/punches/${entry.id}/adjust`, {
+    method: 'POST',
+    body: { jobId: 'job_riverside', note: 'Moved this already-pushed clock onto Riverside.' },
+  });
+  assert.equal(moved.status, 200, moved.json?.error);
+  assert.equal(moved.json.punch.jobId, 'job_riverside');
+  assert.equal(moved.json.punch.costItemId, null);
+  assert.equal(moved.json.jtSync.ok, true);
+  assert.equal(moved.json.jtSync.jtTimeEntryId, jtId);
+  assert.equal(srv.adapter.updatedTimeEntries.at(-1).jobId, 'job_riverside');
 });
 
 test('admin can apply a crew request after the clock was pushed to JobTread', async () => {

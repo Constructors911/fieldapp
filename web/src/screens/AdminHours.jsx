@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Card from '../components/Card.jsx';
 import Spinner from '../components/Spinner.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import ErrorBanner from '../components/ErrorBanner.jsx';
 import { getActivities } from '../api.js';
 import { addDays, parseISODate, payPeriodContaining, payPeriodOffset, toISODate } from '../lib/dates.js';
+import { jobLabel, jobMatches } from '../lib/jobs.js';
 
 function sundayOf(d = new Date()) {
   return toISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()));
@@ -188,10 +189,18 @@ export default function AdminHours({ adminFetch }) {
   const [mailNote, setMailNote] = useState(null);
   const [finalizeNote, setFinalizeNote] = useState(null);
   const [catalog, setCatalog] = useState([]);
+  const [jobs, setJobs] = useState([]);
   const [editingId, setEditingId] = useState(null);
-  const [editVals, setEditVals] = useState({ start: '', end: '', brk: '0', hours: '', activity: '', note: '' });
+  const [editVals, setEditVals] = useState({
+    start: '', end: '', brk: '0', hours: '', activity: '', jobId: '', jobQuery: '', note: '',
+  });
   const [openUsers, setOpenUsers] = useState(() => new Set());
   useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    adminFetch('/api/admin/jobs')
+      .then((r) => setJobs(r.jobs || []))
+      .catch(() => setJobs([]));
+  }, [adminFetch]);
 
   const load = useCallback(async (fromDay = from, toDay = to) => {
     setBusy(true);
@@ -208,6 +217,13 @@ export default function AdminHours({ adminFetch }) {
   }, [adminFetch, from, to]);
 
   useEffect(() => { load(); }, [load]);
+
+  const jobChoices = useMemo(() => {
+    const extra = editVals.jobId && !jobs.some((j) => j.id === editVals.jobId)
+      ? [{ id: editVals.jobId, name: editVals.jobQuery }]
+      : [];
+    return [...extra, ...jobs].filter((j) => jobMatches(j, editVals.jobQuery));
+  }, [jobs, editVals.jobId, editVals.jobQuery]);
 
   function applyRange(nextFrom, nextTo) {
     setFrom(nextFrom);
@@ -273,6 +289,7 @@ export default function AdminHours({ adminFetch }) {
     if (user) {
       setOpenUsers((prev) => new Set(prev).add(userKey(user)));
     }
+    const currentJob = jobs.find((j) => j.id === p.jobId);
     setEditingId(p.id);
     setEditVals({
       start: isoToLocalInput(p.startedAt),
@@ -280,6 +297,8 @@ export default function AdminHours({ adminFetch }) {
       brk: String(p.breakMinutes ?? 0),
       hours: p.endedAt ? String(p.hours) : '',
       activity: p.activity || '',
+      jobId: p.jobId || '',
+      jobQuery: currentJob ? jobLabel(currentJob) : (p.jobName || ''),
       note: '',
     });
   }
@@ -317,6 +336,14 @@ export default function AdminHours({ adminFetch }) {
     }
     const activity = editVals.activity.trim();
     if (activity && activity !== (p.activity || '')) body.activity = activity;
+    if (editVals.jobId && editVals.jobId !== p.jobId) {
+      const job = jobs.find((j) => j.id === editVals.jobId);
+      body.jobId = editVals.jobId;
+      if (job?.name) body.jobName = job.name;
+    } else if (!editVals.jobId) {
+      setErr('Pick a job from the list');
+      return;
+    }
     const note = editVals.note.trim();
     if (note.length < 8 || note.length > 400) {
       setErr('Add a change note (8–400 characters)');
@@ -669,8 +696,8 @@ export default function AdminHours({ adminFetch }) {
                                   disabled={busy || !canAdjust(p)}
                                   title={
                                     !p.endedAt ? 'Clock is still open'
-                                      : p.pushed ? 'Adjust times — JobTread will be updated'
-                                        : 'Adjust times, break, or activity'
+                                      : p.pushed ? 'Adjust times or job — JobTread will be updated'
+                                        : 'Adjust times, break, activity, or job'
                                   }
                                   onClick={() => startAdjust(p, user)}
                                 >
@@ -741,13 +768,51 @@ export default function AdminHours({ adminFetch }) {
                                         ))}
                                       </select>
                                     </label>
+                                    <label className="adm-editform-job">Job
+                                      <input
+                                        type="search"
+                                        placeholder="Search jobs…"
+                                        autoComplete="off"
+                                        value={editVals.jobQuery}
+                                        onChange={(e) => setEditVals((v) => ({
+                                          ...v,
+                                          jobQuery: e.target.value,
+                                          jobId: '',
+                                        }))}
+                                      />
+                                      <div className="adm-joblist" role="listbox" aria-label="Matching jobs">
+                                        {jobs.length === 0 && !editVals.jobId ? (
+                                          <p className="adm-jobempty">No jobs available</p>
+                                        ) : jobChoices.length === 0 ? (
+                                          <p className="adm-jobempty">No matches for “{editVals.jobQuery.trim()}”</p>
+                                        ) : (
+                                          jobChoices.map((j) => (
+                                            <button
+                                              key={j.id}
+                                              type="button"
+                                              role="option"
+                                              aria-selected={j.id === editVals.jobId}
+                                              className={j.id === editVals.jobId ? 'adm-jobopt is-on' : 'adm-jobopt'}
+                                              onClick={() => setEditVals((v) => ({
+                                                ...v,
+                                                jobId: j.id,
+                                                jobQuery: jobLabel(j),
+                                              }))}
+                                            >
+                                              {jobLabel(j)}
+                                              {j.location && <span>{j.location}</span>}
+                                            </button>
+                                          ))
+                                        )}
+                                      </div>
+                                    </label>
                                     <label className="adm-editform-note">Office change note
                                       <textarea
                                         rows={3}
                                         maxLength={400}
                                         value={editVals.note}
                                         onChange={(e) => setEditVals((v) => ({ ...v, note: e.target.value }))}
-                                        placeholder="Why these times, break, or activity changed"
+                                        placeholder="Why these times, break, activity, or job changed"
                                       />
                                     </label>
                                     <button
