@@ -5,8 +5,12 @@
 export const LUNCH_AFTER_MINUTES = 6 * 60;
 export const LUNCH_MINUTES = 30;
 
+function isWorkedPunch(p) {
+  return p?.entryKind !== 'holiday' && p?.entryKind !== 'pto';
+}
+
 export function punchGrossMinutes(p, now = Date.now()) {
-  if (!p?.startedAt || p.status === 'void') return 0;
+  if (!p?.startedAt || p.status === 'void' || !isWorkedPunch(p)) return 0;
   const start = new Date(p.startedAt);
   const end = p.endedAt ? new Date(p.endedAt) : new Date(now);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
@@ -18,7 +22,7 @@ export function dayLunchMinutes(punches, now = Date.now()) {
   let gross = 0;
   let brk = 0;
   for (const p of punches || []) {
-    if (!p?.startedAt || p.status === 'void') continue;
+    if (!p?.startedAt || p.status === 'void' || !isWorkedPunch(p)) continue;
     gross += punchGrossMinutes(p, now);
     brk += Number(p.breakMinutes) || 0;
   }
@@ -30,7 +34,7 @@ export function dayPaidMinutes(punches, now = Date.now()) {
   let gross = 0;
   let brk = 0;
   for (const p of punches || []) {
-    if (!p?.startedAt || p.status === 'void') continue;
+    if (!p?.startedAt || p.status === 'void' || !isWorkedPunch(p)) continue;
     gross += punchGrossMinutes(p, now);
     brk += Number(p.breakMinutes) || 0;
   }

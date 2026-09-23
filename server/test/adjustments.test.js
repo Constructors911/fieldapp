@@ -385,3 +385,43 @@ test('admin can apply a crew request after the clock was pushed to JobTread', as
   assert.equal(applied.json.punch.breakMinutes, 30);
   assert.equal(applied.json.jtSync.ok, true);
 });
+
+test('crew PTO request requires a Rippling acknowledgment and office can add it', async () => {
+  const workDate = new Date().toISOString().slice(0, 10);
+  const missingAck = await api(srv.base, '/api/time/adjustments', {
+    method: 'POST',
+    headers,
+    body: {
+      kind: 'pto',
+      workDate,
+      hours: 8,
+      reason: 'Vacation day already in Rippling.',
+    },
+  });
+  assert.equal(missingAck.status, 400);
+
+  const created = await api(srv.base, '/api/time/adjustments', {
+    method: 'POST',
+    headers,
+    body: {
+      kind: 'pto',
+      workDate,
+      hours: 8,
+      reason: 'Vacation day already in Rippling.',
+      ripplingAcknowledged: true,
+    },
+  });
+  assert.equal(created.status, 200, created.json?.error);
+  assert.equal(created.json.adjustment.kind, 'pto');
+  assert.equal(created.json.adjustment.status, 'pending');
+  assert.equal(created.json.adjustment.minutes, 480);
+
+  const applied = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/apply`, {
+    method: 'POST',
+    body: { note: 'Confirmed this PTO is already approved in Rippling.' },
+  });
+  assert.equal(applied.status, 200, applied.json?.error);
+  assert.equal(applied.json.punch.entryKind, 'pto');
+  assert.equal(applied.json.punch.jobId, 'pto');
+  assert.equal(applied.json.adjustment.status, 'applied');
+});

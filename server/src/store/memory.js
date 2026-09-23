@@ -101,7 +101,9 @@ export function createMemoryStore() {
         status: p.costItemId ? 'approved' : 'pending',
         jtTimeEntryId: null,
         syncError: null,
-        entryKind: p.entryKind === 'daily' ? 'daily' : 'clock',
+        entryKind: p.entryKind === 'daily' || p.entryKind === 'holiday' || p.entryKind === 'pto'
+          ? p.entryKind
+          : 'clock',
       };
       punches.push(punch);
       return { ...punch };

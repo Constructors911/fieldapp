@@ -25,7 +25,9 @@ function rowToPunch(r) {
     status: r.status,
     jtTimeEntryId: r.jt_time_entry_id,
     syncError: r.sync_error,
-    entryKind: r.entry_kind === 'daily' ? 'daily' : 'clock',
+    entryKind: r.entry_kind === 'daily' || r.entry_kind === 'holiday' || r.entry_kind === 'pto'
+      ? r.entry_kind
+      : 'clock',
   };
 }
 
@@ -276,7 +278,11 @@ export function createNeonStore(databaseUrl) {
         values (${p.userId}, ${p.userName ?? ''}, ${p.jobId}, ${p.jobName ?? ''}, ${p.activity},
                 ${p.costItemId ?? null}, ${p.costItemName ?? null},
                 ${p.entryType ?? 'Standard'}, ${p.startedAt}, ${p.endedAt}, ${p.breakMinutes ?? 0},
-                ${p.notes ?? ''}, ${status}, ${p.entryKind === 'daily' ? 'daily' : 'clock'})
+                ${p.notes ?? ''}, ${status}, ${
+                  p.entryKind === 'daily' || p.entryKind === 'holiday' || p.entryKind === 'pto'
+                    ? p.entryKind
+                    : 'clock'
+                })
         returning *`;
       return rowToPunch(rows[0]);
     },

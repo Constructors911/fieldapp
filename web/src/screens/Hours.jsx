@@ -12,6 +12,7 @@ import {
 } from '../lib/dates.js';
 import { dayLunchMinutes } from '../lib/dailyLunch.js';
 import { jobLabel, jobMatches } from '../lib/jobs.js';
+import { entryKindLabel, isLumpSumKind } from '../lib/entryKind.js';
 import '../components/screens.css';
 
 function fmtHours(mins) {
@@ -65,9 +66,20 @@ function groupMyHours(entries, from, to) {
     .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([date, list]) => {
       const entries = list.sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
-      const punchMinutes = entries.reduce((sum, e) => sum + (e.endedAt ? (e.minutes || 0) : 0), 0);
+      const punchMinutes = entries.reduce((sum, e) => (
+        sum + (e.endedAt && e.entryKind !== 'holiday' && e.entryKind !== 'pto' ? (e.minutes || 0) : 0)
+      ), 0);
+      const holidayMinutes = entries.reduce((sum, e) => sum + (e.entryKind === 'holiday' && e.endedAt ? (e.minutes || 0) : 0), 0);
+      const ptoMinutes = entries.reduce((sum, e) => sum + (e.entryKind === 'pto' && e.endedAt ? (e.minutes || 0) : 0), 0);
       const lunchMinutes = dayLunchMinutes(entries.filter((e) => e.endedAt));
-      return { date, minutes: Math.max(0, punchMinutes - lunchMinutes), lunchMinutes, entries };
+      return {
+        date,
+        minutes: Math.max(0, punchMinutes - lunchMinutes),
+        holidayMinutes,
+        ptoMinutes,
+        lunchMinutes,
+        entries,
+      };
     });
   const weekMap = new Map();
   for (const day of dayRows) {
@@ -85,8 +97,10 @@ function groupMyHours(entries, from, to) {
     };
   });
   const total = dayRows.reduce((sum, d) => sum + d.minutes, 0);
+  const holiday = dayRows.reduce((sum, d) => sum + d.holidayMinutes, 0);
+  const pto = dayRows.reduce((sum, d) => sum + d.ptoMinutes, 0);
   const overtime = weeks.reduce((sum, w) => sum + w.overtime, 0);
-  return { days: dayRows, weeks, total, regular: total - overtime, overtime };
+  return { days: dayRows, weeks, total, regular: total - overtime, overtime, holiday, pto };
 }
 
 export default function Hours({ boot, initialWhich = 'this' }) {
@@ -108,6 +122,9 @@ export default function Hours({ boot, initialWhich = 'this' }) {
   const [end, setEnd] = useState('');
   const [brk, setBrk] = useState('0');
   const [reason, setReason] = useState('');
+  const [ptoDate, setPtoDate] = useState('');
+  const [ptoHours, setPtoHours] = useState('8');
+  const [ripplingAck, setRipplingAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [periodApproval, setPeriodApproval] = useState(null);
   useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
@@ -133,10 +150,6 @@ export default function Hours({ boot, initialWhich = 'this' }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const report = useMemo(
-    () => (Array.isArray(entries) ? groupMyHours(entries, period.from, period.to) : null),
-    [entries, period.from, period.to]
-  );
   const pendingByPunch = useMemo(() => {
     const m = new Map();
     for (const a of adjustments) {
@@ -152,13 +165,49 @@ export default function Hours({ boot, initialWhich = 'this' }) {
     return m;
   }, [adjustments]);
   const pendingAdds = useMemo(
-    () => adjustments.filter((a) => a.status === 'pending' && (a.kind === 'add' || !a.punchId)),
+    () => adjustments.filter((a) => a.status === 'pending' && a.kind === 'add'),
     [adjustments]
   );
+  const pendingPto = useMemo(
+    () => adjustments.filter((a) => a.status === 'pending' && a.kind === 'pto'),
+    [adjustments]
+  );
+  const report = useMemo(() => {
+    if (!Array.isArray(entries)) return null;
+    const extra = pendingPto
+      .filter((a) => a.requestedStartedAt)
+      .map((a) => ({
+        id: `pto-req-${a.id}`,
+        jobName: 'PTO',
+        activity: 'PTO requested',
+        entryKind: 'pto',
+        startedAt: a.requestedStartedAt,
+        endedAt: a.requestedEndedAt,
+        minutes: a.minutes,
+        status: 'pending',
+        pendingPto: true,
+      }));
+    return groupMyHours([...entries, ...extra], period.from, period.to);
+  }, [entries, pendingPto, period.from, period.to]);
   const jobChoices = useMemo(
     () => jobs.filter((j) => jobMatches(j, jobQuery)),
     [jobs, jobQuery]
   );
+
+  function defaultPtoDate() {
+    const today = todayISO();
+    if (today >= period.from && today <= period.to) return today;
+    return period.from;
+  }
+
+  function openPto() {
+    setAsk({ mode: 'pto' });
+    setPtoDate(defaultPtoDate());
+    setPtoHours('8');
+    setRipplingAck(false);
+    setReason('');
+    setErr(null);
+  }
 
   function openAdd() {
     const range = defaultAddRange();
@@ -198,17 +247,26 @@ export default function Hours({ boot, initialWhich = 'this' }) {
     setErr(null);
     const job = jobs.find((j) => j.id === jobId);
     try {
-      const { adjustment } = await requestTimeChange({
-        kind: ask.mode === 'change' ? 'change' : 'add',
-        punchId: ask.entry?.id,
-        jobId,
-        jobName: job?.name,
-        activity,
-        startedAt: new Date(start).toISOString(),
-        endedAt: new Date(end).toISOString(),
-        breakMinutes: parseInt(brk, 10) || 0,
-        reason: reason.trim(),
-      });
+      const body = ask.mode === 'pto'
+        ? {
+          kind: 'pto',
+          workDate: ptoDate,
+          hours: Number(ptoHours),
+          reason: reason.trim(),
+          ripplingAcknowledged: ripplingAck,
+        }
+        : {
+          kind: ask.mode === 'change' ? 'change' : 'add',
+          punchId: ask.entry?.id,
+          jobId,
+          jobName: job?.name,
+          activity,
+          startedAt: new Date(start).toISOString(),
+          endedAt: new Date(end).toISOString(),
+          breakMinutes: parseInt(brk, 10) || 0,
+          reason: reason.trim(),
+        };
+      const { adjustment } = await requestTimeChange(body);
       setAdjustments((list) => [adjustment, ...list]);
       setAsk(null);
       setReason('');
@@ -323,7 +381,10 @@ export default function Hours({ boot, initialWhich = 'this' }) {
         </div>
       )}
 
-      <button type="button" className="hrs-add" onClick={openAdd}>Request missing time</button>
+      <div className="hrs-addrow">
+        <button type="button" className="hrs-add" onClick={openAdd}>Request missing time</button>
+        <button type="button" className="hrs-add" onClick={openPto}>Request PTO</button>
+      </div>
       {pendingAdds.length > 0 && (
         <div className="hrs-pendingadds">
           {pendingAdds.map((a) => (
@@ -331,6 +392,17 @@ export default function Hours({ boot, initialWhich = 'this' }) {
               Waiting on the office
               {a.requestedJobName ? ` · ${a.requestedJobName}` : ''}
               {a.requestedStartedAt ? ` · ${fmtWhen(a.requestedStartedAt)} → ${fmtWhen(a.requestedEndedAt)}` : ''}
+            </p>
+          ))}
+        </div>
+      )}
+      {pendingPto.length > 0 && (
+        <div className="hrs-pendingadds">
+          {pendingPto.map((a) => (
+            <p className="hrs-flag" key={a.id}>
+              PTO requested · waiting on the office
+              {a.requestedStartedAt ? ` · ${fmtDay(toISODate(new Date(a.requestedStartedAt)))}` : ''}
+              {a.minutes ? ` · ${fmtHours(a.minutes)} hrs` : ''}
             </p>
           ))}
         </div>
@@ -357,6 +429,18 @@ export default function Hours({ boot, initialWhich = 'this' }) {
               <span>Overtime</span>
               <strong>{fmtHours(report.overtime)}</strong>
             </div>
+            {(report.holiday > 0 || report.pto > 0) && (
+              <>
+                <div className="hrs-stat">
+                  <span>Holiday</span>
+                  <strong>{fmtHours(report.holiday)}</strong>
+                </div>
+                <div className="hrs-stat">
+                  <span>PTO</span>
+                  <strong>{fmtHours(report.pto)}</strong>
+                </div>
+              </>
+            )}
           </div>
           {report.weeks.length > 0 && (
             <p className="hrs-weeknote">
@@ -379,7 +463,11 @@ export default function Hours({ boot, initialWhich = 'this' }) {
                   {fmtDay(day.date)}
                   {day.lunchMinutes > 0 ? <span className="hrs-lunch">30 min lunch out</span> : null}
                 </h2>
-                <strong>{fmtHours(day.minutes)}</strong>
+                <strong>
+                  {fmtHours(day.minutes)}
+                  {day.holidayMinutes > 0 ? ` · ${fmtHours(day.holidayMinutes)} hol` : ''}
+                  {day.ptoMinutes > 0 ? ` · ${fmtHours(day.ptoMinutes)} PTO` : ''}
+                </strong>
               </header>
               {day.entries.map((e) => {
                 const pending = pendingByPunch.get(e.id);
@@ -391,15 +479,16 @@ export default function Hours({ boot, initialWhich = 'this' }) {
                       <p className="hrs-meta">
                         {e.activity || e.costItemName || 'Labor'}
                         {' · '}
-                        {e.entryKind === 'daily' ? 'Daily total' : `${fmtWhen(e.startedAt)} → ${e.endedAt ? fmtWhen(e.endedAt) : 'open'}`}
+                        {entryKindLabel(e.entryKind) || `${fmtWhen(e.startedAt)} → ${e.endedAt ? fmtWhen(e.endedAt) : 'open'}`}
                       </p>
+                      {e.pendingPto && <p className="hrs-flag">PTO requested — office will confirm it is approved in Rippling</p>}
                       {pending && <p className="hrs-flag">Change requested — office will review</p>}
                       {!pending && resolved?.status === 'applied' && <p className="hrs-flag">Office updated this clock</p>}
                       {!pending && resolved?.status === 'reviewed' && <p className="hrs-flag">Office reviewed — no change</p>}
                     </div>
                     <div className="hrs-row-side">
                       <span className="hrs-mins">{e.endedAt ? fmtHours(e.minutes) : '—'}</span>
-                      {e.endedAt && e.status !== 'void' && !pending && e.entryKind !== 'daily' && (
+                      {e.endedAt && e.status !== 'void' && !pending && !e.pendingPto && !isLumpSumKind(e.entryKind) && (
                         <button type="button" className="hrs-ask" onClick={() => openChange(e)}>
                           Wrong?
                         </button>
@@ -415,10 +504,58 @@ export default function Hours({ boot, initialWhich = 'this' }) {
 
       <Sheet
         open={Boolean(ask)}
-        title={ask?.mode === 'change' ? 'Fix this clock' : 'Request missing time'}
+        title={ask?.mode === 'change' ? 'Fix this clock' : ask?.mode === 'pto' ? 'Request PTO' : 'Request missing time'}
         onClose={closeAsk}
       >
-        {ask && (
+        {ask?.mode === 'pto' && (
+          <>
+            <p className="hrs-pto-warn" role="alert">
+              If you have not requested this PTO in Rippling and had it approved there, this PTO will not be approved.
+            </p>
+            <label className="c-label" htmlFor="hrs-pto-date">Date</label>
+            <input id="hrs-pto-date" className="c-input" type="date" value={ptoDate} onChange={(e) => setPtoDate(e.target.value)} />
+            <label className="c-label" htmlFor="hrs-pto-hrs">Hours</label>
+            <input
+              id="hrs-pto-hrs"
+              className="c-input"
+              type="number"
+              min="0.25"
+              max="24"
+              step="0.25"
+              value={ptoHours}
+              onChange={(e) => setPtoHours(e.target.value)}
+            />
+            <label className="c-label" htmlFor="hrs-pto-reason">Note</label>
+            <textarea
+              id="hrs-pto-reason"
+              className="c-textarea"
+              rows={3}
+              maxLength={400}
+              placeholder="Which day and that this is already in Rippling"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+            <label className="hrs-pto-ack">
+              <input
+                type="checkbox"
+                checked={ripplingAck}
+                onChange={(e) => setRipplingAck(e.target.checked)}
+              />
+              I already requested this PTO in Rippling and it is approved there.
+            </label>
+            <button
+              type="button"
+              className="c-btn c-btn-big c-btn-block c-btn-green"
+              style={{ marginTop: 12 }}
+              disabled={busy || reason.trim().length < 8 || !ptoDate || !ripplingAck || Number(ptoHours) < 0.25}
+              onClick={submitAdjust}
+            >
+              {busy ? 'Sending…' : 'Send PTO request'}
+            </button>
+            <p className="hrs-ask-hint">This does not change your hours yet. The office confirms it only if Rippling already approved it.</p>
+          </>
+        )}
+        {ask && ask.mode !== 'pto' && (
           <>
             <div className="hrs-kind" role="tablist" aria-label="Request type">
               <button type="button" className={ask.mode === 'add' ? 'hrs-kind-btn active' : 'hrs-kind-btn'} onClick={openAdd}>

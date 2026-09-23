@@ -248,3 +248,23 @@ test('GET /api/admin/hours.pdf returns a PDF with the same hours', async () => {
   assert.match(text, /Hours report/);
   assert.match(text, /Pushed/);
 });
+
+test('holiday pay shows on the report and does not count as overtime or lunch', () => {
+  const work = punch('user_a', 'Alex', '2026-09-14T07:00:00', '2026-09-14T12:00:00', 'pending'); // 5h
+  const holiday = {
+    ...punch('user_a', 'Alex', '2026-09-14T08:00:00', '2026-09-14T16:00:00', 'pending'),
+    id: 'hol-1',
+    jobId: 'holiday',
+    jobName: 'Holiday pay',
+    activity: 'Holiday pay',
+    entryKind: 'holiday',
+  };
+  assert.equal(dayLunchMinutes([work, holiday]), 0);
+  const report = buildHoursReport([work, holiday], '2026-09-13', '2026-09-19');
+  const alex = report.users[0];
+  assert.equal(alex.totalHours, 5);
+  assert.equal(alex.holidayHours, 8);
+  assert.equal(alex.overtimeHours, 0);
+  assert.equal(alex.days[0].lunchMinutes, 0);
+  assert.equal(alex.days[0].punches.some((p) => p.entryKind === 'holiday'), true);
+});

@@ -497,3 +497,29 @@ test('admin add time rejects clock-out before clock-in', async () => {
   assert.equal(bad.status, 400);
   assert.match(bad.json.error, /after clock-in/i);
 });
+
+test('admin can add holiday pay without a job', async () => {
+  const workDate = new Date().toISOString().slice(0, 10);
+  const added = await api(srv.base, '/api/admin/punches', {
+    method: 'POST',
+    body: {
+      userId: 'user_david',
+      entryKind: 'holiday',
+      workDate,
+      hours: 8,
+      notes: 'Labor Day',
+    },
+  });
+  assert.equal(added.status, 200, added.json?.error);
+  assert.equal(added.json.punch.entryKind, 'holiday');
+  assert.equal(added.json.punch.jobId, 'holiday');
+  assert.equal(added.json.punch.breakMinutes, 0);
+  const mins = Math.round((new Date(added.json.punch.endedAt) - new Date(added.json.punch.startedAt)) / 60000);
+  assert.equal(mins, 480);
+
+  const mine = await authed(`/api/time/entries?from=${added.json.punch.startedAt}`);
+  const hol = mine.json.entries.find((e) => e.id === added.json.punch.id);
+  assert.equal(hol.entryKind, 'holiday');
+  assert.equal(hol.minutes, 480);
+  assert.equal(hol.jobName, 'Holiday pay');
+});

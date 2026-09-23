@@ -234,9 +234,13 @@ export function buildHoursPdf(report, { watermark } = {}) {
           fmtDay(day.date),
           clip(p.jobName, 28),
           clip(p.activity || '-', 20),
-          p.entryKind === 'daily'
-            ? 'Daily total'
-            : `${fmtWhen(p.startedAt)} -> ${p.endedAt ? fmtWhen(p.endedAt) : 'open'}${p.breakMinutes ? ` (${p.breakMinutes}m brk)` : ''}`,
+          p.entryKind === 'holiday'
+            ? 'Holiday pay'
+            : p.entryKind === 'pto'
+              ? 'PTO'
+              : p.entryKind === 'daily'
+                ? 'Daily total'
+                : `${fmtWhen(p.startedAt)} -> ${p.endedAt ? fmtWhen(p.endedAt) : 'open'}${p.breakMinutes ? ` (${p.breakMinutes}m brk)` : ''}`,
           p.endedAt ? fmtHours(p.hours) : '-',
           p.jtTimeEntryId ? `${pushed} ${p.jtTimeEntryId}` : pushed,
         ];

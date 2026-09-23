@@ -222,6 +222,7 @@
   margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit;
 }
 .adm-hours-fold:focus-visible { outline: 2px solid var(--navy); outline-offset: 3px; border-radius: 6px; }
+.adm-hours-headacts { display: flex; gap: 8px; flex-wrap: wrap; }
 .adm-hours-addbtn { flex: none; }
 .adm-hours-add {
   margin: 0 0 16px;

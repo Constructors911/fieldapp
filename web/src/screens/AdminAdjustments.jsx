@@ -54,6 +54,7 @@ function draftFrom(a) {
 
 function kindLabel(a) {
   if (a.reason === 'Office adjustment from Hours') return 'Office adjustment';
+  if (a.kind === 'pto') return 'PTO request';
   return a.kind === 'add' ? 'Add missing time' : 'Change clock';
 }
 
@@ -218,7 +219,7 @@ export default function AdminAdjustments({ adminFetch }) {
       </div>
       <p className="adm-crew-note">
         {tab === 'pending'
-          ? 'Apply the requested times and job, or dismiss with a note. Add-time requests create a new clock. Wrong-job requests can move the existing one.'
+          ? 'Apply the requested times and job, or dismiss with a note. Add-time requests create a new clock. PTO should already be approved in Rippling — dismiss it if it is not.'
           : 'Every office decision — crew change requests and Hours-row adjustments — with the reason note.'}
       </p>
       {tab === 'log' && Array.isArray(items) && items.length > 0 && (
@@ -249,17 +250,20 @@ export default function AdminAdjustments({ adminFetch }) {
                   <span>{kindLabel(a)} · {fmtWhen(tab === 'log' ? a.reviewedAt || a.createdAt : a.createdAt)}</span>
                 </header>
                 <p className="adm-adj-clock">
-                  {a.kind === 'add' ? 'Requested' : 'Current'}
+                  {a.kind === 'pto' ? 'Requested PTO' : a.kind === 'add' ? 'Requested' : 'Current'}
                   {': '}
-                  {a.kind === 'add' ? askedJob : (a.jobName || 'Job')}
+                  {a.kind === 'pto' ? 'PTO' : a.kind === 'add' ? askedJob : (a.jobName || 'Job')}
                   {' · '}
                   {clockLabel(
-                    a.kind === 'add' ? a.requestedStartedAt || a.startedAt : a.startedAt,
-                    a.kind === 'add' ? a.requestedEndedAt || a.endedAt : a.endedAt,
-                    a.kind === 'add' ? (a.requestedStartedAt ? netMinutes(a.requestedStartedAt, a.requestedEndedAt, a.requestedBreakMinutes) : a.minutes) : a.minutes,
-                    a.kind === 'add' ? a.requestedBreakMinutes : undefined
+                    a.kind === 'add' || a.kind === 'pto' ? a.requestedStartedAt || a.startedAt : a.startedAt,
+                    a.kind === 'add' || a.kind === 'pto' ? a.requestedEndedAt || a.endedAt : a.endedAt,
+                    a.kind === 'add' || a.kind === 'pto' ? (a.requestedStartedAt ? netMinutes(a.requestedStartedAt, a.requestedEndedAt, a.requestedBreakMinutes) : a.minutes) : a.minutes,
+                    a.kind === 'pto' ? 0 : a.kind === 'add' ? a.requestedBreakMinutes : undefined
                   )}
                 </p>
+                {a.kind === 'pto' && tab === 'pending' && (
+                  <p className="adm-adj-warn">Only add this PTO if it is already requested and approved in Rippling. Otherwise dismiss it.</p>
+                )}
                 {a.kind !== 'add' && a.requestedJobName && (
                   <p className="adm-adj-clock">
                     Requested: {a.requestedJobName}
@@ -277,7 +281,7 @@ export default function AdminAdjustments({ adminFetch }) {
                     {!locked && a.punch?.status === 'pushed' && (
                       <p className="adm-adj-warn">This clock is already in JobTread. Applying will update that time entry.</p>
                     )}
-                    {!locked && (
+                    {!locked && a.kind !== 'pto' && (
                       <div className="adm-adj-form">
                         <label>
                           Job
@@ -319,7 +323,7 @@ export default function AdminAdjustments({ adminFetch }) {
                     <div className="adm-adj-actions">
                       {!locked && (
                         <button type="button" className="c-btn" disabled={busyId === a.id || (draft.note || '').trim().length < 8} onClick={() => apply(a)}>
-                          {busyId === a.id ? 'Saving…' : (a.kind === 'add' ? 'Add this time' : 'Apply change')}
+                          {busyId === a.id ? 'Saving…' : (a.kind === 'pto' ? 'Add this PTO' : a.kind === 'add' ? 'Add this time' : 'Apply change')}
                         </button>
                       )}
                       <button type="button" className="c-btn c-btn-ghost" disabled={busyId === a.id || (draft.note || '').trim().length < 8} onClick={() => dismiss(a)}>
@@ -331,7 +335,7 @@ export default function AdminAdjustments({ adminFetch }) {
                 {tab === 'log' && (
                   <div className="adm-adj-log">
                     <p className={a.status === 'applied' ? 'adm-adj-outcome is-applied' : 'adm-adj-outcome'}>
-                      {a.status === 'applied' ? (a.kind === 'add' ? 'Time added' : 'Times changed') : 'No change'}
+                      {a.status === 'applied' ? (a.kind === 'pto' ? 'PTO added' : a.kind === 'add' ? 'Time added' : 'Times changed') : 'No change'}
                       {a.reviewedBy ? ` · ${a.reviewedBy}` : ''}
                     </p>
                     {a.status === 'applied' && (

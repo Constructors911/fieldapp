@@ -3,6 +3,7 @@
 // whose clock-in day falls in the selected range.
 import { addDays, sundayOfDateString, toDateString } from './util/dates.js';
 import { dayLunchMinutes } from './util/dailyLunch.js';
+import { isTimeOffKind, normalizeEntryKind } from './util/entryKind.js';
 
 const WEEK_OT_MINUTES = 40 * 60;
 
@@ -51,7 +52,7 @@ function punchRow(p) {
     pushed: p.status === 'pushed',
     jtTimeEntryId: p.jtTimeEntryId || null,
     syncError: p.syncError || null,
-    entryKind: p.entryKind === 'daily' ? 'daily' : 'clock',
+    entryKind: normalizeEntryKind(p.entryKind),
   };
 }
 
@@ -83,6 +84,8 @@ export function buildHoursReport(punches, from, to, { namesByUserId } = {}) {
   const totalMinutes = users.reduce((sum, u) => sum + u.totalMinutes, 0);
   const regularMinutes = users.reduce((sum, u) => sum + u.regularMinutes, 0);
   const overtimeMinutes = users.reduce((sum, u) => sum + u.overtimeMinutes, 0);
+  const holidayMinutes = users.reduce((sum, u) => sum + u.holidayMinutes, 0);
+  const ptoMinutes = users.reduce((sum, u) => sum + u.ptoMinutes, 0);
 
   return {
     from,
@@ -95,6 +98,10 @@ export function buildHoursReport(punches, from, to, { namesByUserId } = {}) {
       regularHours: hoursFromMinutes(regularMinutes),
       overtimeMinutes,
       overtimeHours: hoursFromMinutes(overtimeMinutes),
+      holidayMinutes,
+      holidayHours: hoursFromMinutes(holidayMinutes),
+      ptoMinutes,
+      ptoHours: hoursFromMinutes(ptoMinutes),
     },
   };
 }
@@ -109,12 +116,24 @@ function buildUserReport({ userId, userName, punches }, from, to) {
   }
 
   const days = [...byDay.entries()].map(([date, rows]) => {
-    const punchMinutes = rows.reduce((sum, r) => sum + r.minutes, 0);
+    const workedMinutes = rows.reduce((sum, r) => sum + (isTimeOffKind(r.entryKind) ? 0 : r.minutes), 0);
+    const holidayMinutes = rows.reduce((sum, r) => sum + (r.entryKind === 'holiday' ? r.minutes : 0), 0);
+    const ptoMinutes = rows.reduce((sum, r) => sum + (r.entryKind === 'pto' ? r.minutes : 0), 0);
     const lunchMinutes = dayLunchMinutes(sorted.filter((p) => (
       p.endedAt && toDateString(new Date(p.startedAt)) === date
     )));
-    const minutes = Math.max(0, punchMinutes - lunchMinutes);
-    return { date, minutes, hours: hoursFromMinutes(minutes), lunchMinutes, punches: rows };
+    const minutes = Math.max(0, workedMinutes - lunchMinutes);
+    return {
+      date,
+      minutes,
+      hours: hoursFromMinutes(minutes),
+      holidayMinutes,
+      holidayHours: hoursFromMinutes(holidayMinutes),
+      ptoMinutes,
+      ptoHours: hoursFromMinutes(ptoMinutes),
+      lunchMinutes,
+      punches: rows,
+    };
   });
 
   const weekMap = new Map();
@@ -143,6 +162,8 @@ function buildUserReport({ userId, userName, punches }, from, to) {
   });
 
   const totalMinutes = days.reduce((sum, d) => sum + d.minutes, 0);
+  const holidayMinutes = days.reduce((sum, d) => sum + d.holidayMinutes, 0);
+  const ptoMinutes = days.reduce((sum, d) => sum + d.ptoMinutes, 0);
   const overtimeMinutes = weeks.reduce((sum, w) => sum + w.overtimeMinutes, 0);
   const regularMinutes = totalMinutes - overtimeMinutes;
 
@@ -157,5 +178,9 @@ function buildUserReport({ userId, userName, punches }, from, to) {
     regularHours: hoursFromMinutes(regularMinutes),
     overtimeMinutes,
     overtimeHours: hoursFromMinutes(overtimeMinutes),
+    holidayMinutes,
+    holidayHours: hoursFromMinutes(holidayMinutes),
+    ptoMinutes,
+    ptoHours: hoursFromMinutes(ptoMinutes),
   };
 }

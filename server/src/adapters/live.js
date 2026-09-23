@@ -441,7 +441,7 @@ export function createLiveAdapter({
     if (netEnded <= started) throw new HttpError(400, 'Break exceeds punch duration');
     const notes = [
       p.notes,
-      p.entryKind === 'daily' ? 'Daily total (no clock times)' : '',
+      p.entryKind === 'holiday' ? 'Holiday pay' : p.entryKind === 'pto' ? 'PTO' : p.entryKind === 'daily' ? 'Daily total (no clock times)' : '',
       p.breakMinutes ? `(${p.breakMinutes} min break deducted)` : '',
       p.activity ? `Activity: ${p.activity}` : '',
     ].filter(Boolean).join(' · ');

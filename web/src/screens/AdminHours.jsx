@@ -7,6 +7,8 @@ import { getActivities } from '../api.js';
 import { addDays, parseISODate, payPeriodContaining, payPeriodOffset, toISODate } from '../lib/dates.js';
 import { jobLabel, jobMatches } from '../lib/jobs.js';
 import AdminManualTime from './AdminManualTime.jsx';
+import AdminHolidayPay from './AdminHolidayPay.jsx';
+import { entryKindLabel, isLumpSumKind } from '../lib/entryKind.js';
 
 function sundayOf(d = new Date()) {
   return toISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()));
@@ -49,13 +51,15 @@ function csvRow(cells) {
 }
 
 function pushedLabel(p) {
+  if (p.entryKind === 'holiday' || p.entryKind === 'pto') return 'Timesheet';
   if (p.pushed) return 'Pushed';
   if (p.status === 'open') return 'Open';
   return 'Not pushed';
 }
 
 function inOutLabel(p) {
-  if (p.entryKind === 'daily') return 'Daily total';
+  const kind = entryKindLabel(p.entryKind);
+  if (kind) return kind;
   const times = `${fmtWhen(p.startedAt)} → ${p.endedAt ? fmtWhen(p.endedAt) : 'open'}`;
   return p.breakMinutes ? `${times} · ${p.breakMinutes}m break` : times;
 }
@@ -99,6 +103,8 @@ function emptyHoursUser(emp) {
     totalHours: 0,
     regularHours: 0,
     overtimeHours: 0,
+    holidayHours: 0,
+    ptoHours: 0,
   };
 }
 
@@ -227,6 +233,7 @@ export default function AdminHours({ adminFetch }) {
   });
   const [openUsers, setOpenUsers] = useState(() => new Set());
   const [addingKey, setAddingKey] = useState(null);
+  const [holidayKey, setHolidayKey] = useState(null);
   const [employees, setEmployees] = useState([]);
   useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
   useEffect(() => {
@@ -278,6 +285,7 @@ export default function AdminHours({ adminFetch }) {
     setOpenUsers(new Set());
     setEditingId(null);
     setAddingKey(null);
+    setHolidayKey(null);
     load(nextFrom, nextTo);
   }
 
@@ -320,6 +328,7 @@ export default function AdminHours({ adminFetch }) {
       if (next.has(key)) {
         next.delete(key);
         setAddingKey((cur) => (cur === key ? null : cur));
+        setHolidayKey((cur) => (cur === key ? null : cur));
       } else {
         next.add(key);
       }
@@ -335,6 +344,7 @@ export default function AdminHours({ adminFetch }) {
     setOpenUsers(new Set());
     setEditingId(null);
     setAddingKey(null);
+    setHolidayKey(null);
   }
 
   function startAddTime(event, user) {
@@ -342,11 +352,22 @@ export default function AdminHours({ adminFetch }) {
     if (!user.userId) return;
     const key = userKey(user);
     setOpenUsers((prev) => new Set(prev).add(key));
+    setHolidayKey(null);
     setAddingKey((cur) => (cur === key ? null : key));
+  }
+
+  function startHoliday(event, user) {
+    event.stopPropagation();
+    if (!user.userId) return;
+    const key = userKey(user);
+    setOpenUsers((prev) => new Set(prev).add(key));
+    setAddingKey(null);
+    setHolidayKey((cur) => (cur === key ? null : key));
   }
 
   async function onTimeAdded() {
     setAddingKey(null);
+    setHolidayKey(null);
     await load(from, to);
   }
 
@@ -372,7 +393,7 @@ export default function AdminHours({ adminFetch }) {
   async function saveAdjust(p) {
     if (busy || !canAdjust(p)) return;
     const body = {};
-    if (p.entryKind === 'daily') {
+    if (isLumpSumKind(p.entryKind)) {
       const hrs = Number(editVals.hours);
       const brk = parseInt(editVals.brk, 10);
       if (!Number.isFinite(hrs) || hrs < 0.25 || hrs > 24) {
@@ -663,6 +684,12 @@ export default function AdminHours({ adminFetch }) {
               <Stat label="Total hours" value={fmtHours(report.totals.totalHours)} />
               <Stat label="Regular" value={fmtHours(report.totals.regularHours)} />
               <Stat label="Overtime" value={fmtHours(report.totals.overtimeHours)} warn={report.totals.overtimeHours > 0} />
+              {(report.totals.holidayHours > 0 || report.totals.ptoHours > 0) && (
+                <>
+                  <Stat label="Holiday" value={fmtHours(report.totals.holidayHours)} />
+                  <Stat label="PTO" value={fmtHours(report.totals.ptoHours)} />
+                </>
+              )}
             </div>
           </div>
           <div className="adm-hours-foldbar no-print">
@@ -679,8 +706,10 @@ export default function AdminHours({ adminFetch }) {
             const signedAt = fmtApprovedAt(approval?.updatedAt || approval?.createdAt);
             const key = userKey(user);
             const adding = addingKey === key;
+            const addingHoliday = holidayKey === key;
             const open = openUsers.has(key)
               || adding
+              || addingHoliday
               || Boolean(editingId && user.days.some((day) => day.punches.some((p) => p.id === editingId)));
             return (
             <section className={`adm-hours-user${open ? ' is-open' : ''}`} key={key}>
@@ -718,29 +747,47 @@ export default function AdminHours({ adminFetch }) {
                     </span>
                   </button>
                   {open && (
-                    <button
-                      type="button"
-                      className={`c-btn c-btn-small no-print adm-hours-addbtn${adding ? ' c-btn-green' : ''}`}
-                      disabled={!user.userId}
-                      title={user.userId ? 'Add time for this crew member' : 'This person is not linked to JobTread'}
-                      aria-expanded={adding}
-                      onClick={(e) => startAddTime(e, user)}
-                    >
-                      Add time
-                    </button>
+                    <div className="adm-hours-headacts no-print">
+                      <button
+                        type="button"
+                        className={`c-btn c-btn-small adm-hours-addbtn${adding ? ' c-btn-green' : ''}`}
+                        disabled={!user.userId}
+                        title={user.userId ? 'Add time for this crew member' : 'This person is not linked to JobTread'}
+                        aria-expanded={adding}
+                        onClick={(e) => startAddTime(e, user)}
+                      >
+                        Add time
+                      </button>
+                      <button
+                        type="button"
+                        className={`c-btn c-btn-small adm-hours-addbtn${addingHoliday ? ' c-btn-green' : ''}`}
+                        disabled={!user.userId}
+                        title={user.userId ? 'Add holiday pay for this crew member' : 'This person is not linked to JobTread'}
+                        aria-expanded={addingHoliday}
+                        onClick={(e) => startHoliday(e, user)}
+                      >
+                        Holiday pay
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div className="adm-hours-stats">
                   <Stat label="Total hours" value={fmtHours(user.totalHours)} />
                   <Stat label="Regular" value={fmtHours(user.regularHours)} />
                   <Stat label="Overtime" value={fmtHours(user.overtimeHours)} warn={user.overtimeHours > 0} />
+                  {(user.holidayHours > 0 || user.ptoHours > 0) && (
+                    <>
+                      <Stat label="Holiday" value={fmtHours(user.holidayHours)} />
+                      <Stat label="PTO" value={fmtHours(user.ptoHours)} />
+                    </>
+                  )}
                 </div>
               </header>
 
               <div className="adm-hours-userbody" hidden={!open}>
               {adding && (
                 <AdminManualTime
-                  key={key}
+                  key={`time-${key}`}
                   adminFetch={adminFetch}
                   userId={user.userId}
                   userName={user.userName}
@@ -750,7 +797,19 @@ export default function AdminHours({ adminFetch }) {
                   onSaved={onTimeAdded}
                 />
               )}
-              {user.days.length === 0 && !adding && (
+              {addingHoliday && (
+                <AdminHolidayPay
+                  key={`holiday-${key}`}
+                  adminFetch={adminFetch}
+                  userId={user.userId}
+                  userName={user.userName}
+                  periodFrom={report.from}
+                  periodTo={report.to}
+                  onCancel={() => setHolidayKey(null)}
+                  onSaved={onTimeAdded}
+                />
+              )}
+              {user.days.length === 0 && !adding && !addingHoliday && (
                 <p className="adm-hours-emptyclocks">No punches in this range yet. Use Add time to enter hours.</p>
               )}
               {user.days.length > 0 && (
@@ -815,7 +874,7 @@ export default function AdminHours({ adminFetch }) {
                               <tr className="adm-editrow no-print">
                                 <td colSpan={7}>
                                   <div className="adm-editform">
-                                    {p.entryKind === 'daily' ? (
+                                    {isLumpSumKind(p.entryKind) ? (
                                       <label>Hours
                                         <input
                                           type="number"

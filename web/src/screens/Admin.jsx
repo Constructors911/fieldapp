@@ -358,7 +358,7 @@ export default function Admin() {
   const EDITABLE = ['pending', 'approved', 'error'];
   // Unmapped punches are pushable too: approving auto-adds the activity to
   // the job budget (or reuses a same-named budget line).
-  const pushable = (p) => EDITABLE.includes(p.status) && p.endedAt;
+  const pushable = (p) => EDITABLE.includes(p.status) && p.endedAt && p.entryKind !== 'holiday' && p.entryKind !== 'pto';
   const allPushableSelected = visible.filter(pushable).every((p) => selected.has(p.id)) && visible.some(pushable);
 
   return (
@@ -498,7 +498,7 @@ export default function Admin() {
                     <td className="adm-job" title={p.jobName}>{p.jobName}</td>
                     <td>{p.activity}</td>
                     <td>{fmtDate(p.startedAt)}</td>
-                    <td className="adm-times">{p.entryKind === 'daily' ? 'Daily total' : `${fmtTime(p.startedAt)} → ${p.endedAt ? fmtTime(p.endedAt) : 'now'}`}</td>
+                    <td className="adm-times">{p.entryKind === 'holiday' ? 'Holiday pay' : p.entryKind === 'pto' ? 'PTO' : p.entryKind === 'daily' ? 'Daily total' : `${fmtTime(p.startedAt)} → ${p.endedAt ? fmtTime(p.endedAt) : 'now'}`}</td>
                     <td className="adm-num">{hours === null ? '—' : hours.toFixed(2)}</td>
                     <td className="adm-num">{p.breakMinutes ? `${p.breakMinutes}m` : ''}</td>
                     <td>

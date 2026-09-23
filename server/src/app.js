@@ -22,6 +22,7 @@ import { registerAdminMap } from './routes/adminMap.js';
 import { registerGeofences } from './routes/geofences.js';
 import { onClockInGeofence, onClockOutGeofence, onWakeGeofence } from './geofence.js';
 import { sweepClockOutReminderEmails } from './clockOutEmails.js';
+import { isTimeOffKind, normalizeEntryKind, timeOffJob } from './util/entryKind.js';
 
 export function createApp(adapter, store = createStore(), {
   verifyGoogle = verifyGoogleIdToken,
@@ -202,7 +203,7 @@ export function createApp(adapter, store = createStore(), {
 
   async function pendingAdjustmentsInPeriod(employeeId, from, to) {
     const list = await store.listTimeAdjustments({ employeeId, status: 'pending' });
-    return list.filter((a) => adjustmentInPeriod(a, from, to));
+    return list.filter((a) => a.kind !== 'pto' && adjustmentInPeriod(a, from, to));
   }
 
   async function crewPeriodApprovalState(employee, from, to) {
@@ -557,12 +558,61 @@ export function createApp(adapter, store = createStore(), {
     };
   }
 
+  function parsePaidDayHours(body, { allowFuture = false } = {}) {
+    const workDate = typeof body?.workDate === 'string' ? body.workDate.trim() : '';
+    if (!isValidDateString(workDate)) throw new HttpError(400, 'Pick a date');
+    const minutes = parseDailyHours(body?.hours);
+    const start = isValidISO(body?.startedAt) ? new Date(body.startedAt) : new Date(`${workDate}T08:00:00`);
+    if (Number.isNaN(start.getTime())) throw new HttpError(400, 'Pick a date');
+    if (!allowFuture && workDate > toDateString(new Date())) {
+      throw new HttpError(400, 'That date cannot be in the future');
+    }
+    return {
+      workDate,
+      startedAt: start.toISOString(),
+      endedAt: new Date(start.getTime() + minutes * 60_000).toISOString(),
+      minutes,
+    };
+  }
+
   app.post('/api/time/adjustments', requireSession, wrap(async (req, res) => {
-    const kind = req.body?.kind === 'add' ? 'add' : 'change';
+    const kind = req.body?.kind === 'add' ? 'add' : req.body?.kind === 'pto' ? 'pto' : 'change';
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
     if (reason.length < 8 || reason.length > 400) {
-      throw new HttpError(400, 'Tell us what is wrong (8–400 characters)');
+      throw new HttpError(400, kind === 'pto'
+        ? 'Add a short note (8–400 characters)'
+        : 'Tell us what is wrong (8–400 characters)');
     }
+
+    if (kind === 'pto') {
+      if (req.body?.ripplingAcknowledged !== true) {
+        throw new HttpError(400, 'Confirm you already requested this PTO in Rippling');
+      }
+      const asked = parsePaidDayHours(req.body, { allowFuture: true });
+      const off = timeOffJob('pto');
+      const adjustment = await store.createTimeAdjustment({
+        punchId: null,
+        employeeId: req.employee.id,
+        employeeName: crewName(req.employee),
+        employeeEmail: req.employee.email,
+        jobName: off.jobName,
+        startedAt: asked.startedAt,
+        endedAt: asked.endedAt,
+        minutes: asked.minutes,
+        reason,
+        kind: 'pto',
+        requestedJobId: off.jobId,
+        requestedJobName: off.jobName,
+        requestedActivity: off.activity,
+        requestedStartedAt: asked.startedAt,
+        requestedEndedAt: asked.endedAt,
+        requestedBreakMinutes: 0,
+      });
+      await noteCrewChangeOnPeriod(req.employee, adjustment);
+      res.json({ adjustment });
+      return;
+    }
+
     const asked = parseRequestedClock(req.body);
     const job = await resolveJob(asked.jobId, asked.jobName);
     if (!job) throw new HttpError(404, `Unknown job: ${asked.jobId}`);
@@ -784,22 +834,34 @@ export function createApp(adapter, store = createStore(), {
   app.post('/api/admin/punches', requireAdmin, wrap(async (req, res) => {
     const { userId, jobId, jobName, activity, costItemId, startedAt, endedAt, breakMinutes, notes } = req.body ?? {};
     if (typeof userId !== 'string' || !userId) throw new HttpError(400, 'Pick a crew member');
-    if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'Pick a job');
-    if (typeof activity !== 'string' || !activity.trim()) throw new HttpError(400, 'Pick an activity');
     if (notes !== undefined && typeof notes !== 'string') throw new HttpError(400, 'notes must be a string');
 
-    const daily = req.body?.entryKind === 'daily';
+    const entryKind = normalizeEntryKind(req.body?.entryKind);
+    const timeOff = isTimeOffKind(entryKind);
+    const daily = entryKind === 'daily';
     let start;
     let end;
     let brk = 0;
-    let entryKind = 'clock';
-    if (daily) {
+    let job = null;
+    let resolvedActivity = typeof activity === 'string' ? activity.trim() : '';
+
+    if (timeOff) {
+      const window = parsePaidDayHours(req.body);
+      start = new Date(window.startedAt);
+      end = new Date(window.endedAt);
+      const off = timeOffJob(entryKind);
+      job = off;
+      resolvedActivity = off.activity;
+    } else if (daily) {
+      if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'Pick a job');
+      if (!resolvedActivity) throw new HttpError(400, 'Pick an activity');
       const window = dailyPunchTimes(req.body);
       start = new Date(window.startedAt);
       end = new Date(window.endedAt);
       brk = window.breakMinutes;
-      entryKind = 'daily';
     } else {
+      if (typeof jobId !== 'string' || !jobId) throw new HttpError(400, 'Pick a job');
+      if (!resolvedActivity) throw new HttpError(400, 'Pick an activity');
       if (!isValidISO(startedAt)) throw new HttpError(400, 'Clock-in time is required');
       if (!isValidISO(endedAt)) throw new HttpError(400, 'Clock-out time is required');
       start = new Date(startedAt);
@@ -814,11 +876,13 @@ export function createApp(adapter, store = createStore(), {
     const employees = await store.listEmployees();
     const employee = employees.find((e) => e.jtUserId === userId);
     if (!employee) throw new HttpError(404, 'Crew member not found');
-    const job = await resolveJob(jobId, jobName);
-    if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
+    if (!timeOff) {
+      job = await resolveJob(jobId, jobName);
+      if (!job) throw new HttpError(404, `Unknown job: ${jobId}`);
+    }
 
     let costItem = null;
-    if (costItemId) {
+    if (!timeOff && costItemId) {
       if (typeof costItemId !== 'string') throw new HttpError(400, 'costItemId must be a string');
       costItem = (await jobCostItems(job.id)).find((c) => c.id === costItemId);
       if (!costItem) throw new HttpError(400, "Cost item is not on this job's budget");
@@ -827,9 +891,9 @@ export function createApp(adapter, store = createStore(), {
     const punch = await store.createManualPunch({
       userId: employee.jtUserId,
       userName: crewName(employee),
-      jobId: job.id,
-      jobName: job.name,
-      activity: activity.trim(),
+      jobId: job.jobId || job.id,
+      jobName: job.jobName || job.name,
+      activity: resolvedActivity,
       costItemId: costItem?.id ?? null,
       costItemName: costItem?.name ?? null,
       startedAt: start.toISOString(),
@@ -838,9 +902,9 @@ export function createApp(adapter, store = createStore(), {
       notes: typeof notes === 'string' ? notes.trim() : '',
       entryKind,
     });
-    await store.logAudit(punch.id, 'created-manual', {
+    await store.logAudit(punch.id, timeOff ? `created-${entryKind}` : 'created-manual', {
       by: actorOf(req),
-      ...(daily ? { entryKind: 'daily', hours: Math.round((end - start) / 36_000) / 100 } : {}),
+      ...((daily || timeOff) ? { entryKind, hours: Math.round((end - start) / 36_000) / 100 } : {}),
     });
     res.json({ punch });
   }));
@@ -951,14 +1015,16 @@ export function createApp(adapter, store = createStore(), {
     if (!Number.isFinite(brk) || brk < 0) throw new HttpError(400, 'Break minutes must be zero or more');
     if ((end - start) / 60_000 <= brk) throw new HttpError(400, 'Break exceeds punch duration');
 
+    const pto = current.kind === 'pto';
     const activity = typeof req.body?.activity === 'string' && req.body.activity.trim()
       ? req.body.activity.trim()
-      : (current.requestedActivity || existing?.activity || '');
+      : (current.requestedActivity || existing?.activity || (pto ? 'PTO' : ''));
     const jobId = typeof req.body?.jobId === 'string' && req.body.jobId
       ? req.body.jobId
       : (current.requestedJobId || existing?.jobId);
     const jobName = typeof req.body?.jobName === 'string' ? req.body.jobName : (current.requestedJobName || existing?.jobName);
-    const job = jobId ? await resolveJob(jobId, jobName) : null;
+    const off = pto ? timeOffJob('pto') : null;
+    const job = off || (jobId ? await resolveJob(jobId, jobName) : null);
     if (!job) throw new HttpError(400, 'Pick a job');
     if (!activity) throw new HttpError(400, 'Pick an activity');
 
@@ -970,13 +1036,14 @@ export function createApp(adapter, store = createStore(), {
       updated = await store.createManualPunch({
         userId: employee.jtUserId,
         userName: crewName(employee),
-        jobId: job.id,
-        jobName: job.name,
+        jobId: job.jobId || job.id,
+        jobName: job.jobName || job.name,
         activity,
         startedAt: start.toISOString(),
         endedAt: end.toISOString(),
-        breakMinutes: brk,
+        breakMinutes: pto ? 0 : brk,
         notes: current.reason,
+        entryKind: pto ? 'pto' : 'clock',
       });
       await store.logAudit(updated.id, 'created-manual', {
         by: actorOf(req),
