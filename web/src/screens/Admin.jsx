@@ -9,7 +9,6 @@ import AdminGeofenceEvents from './AdminGeofenceEvents.jsx';
 import AdminCrew from './AdminCrew.jsx';
 import AdminHours from './AdminHours.jsx';
 import AdminAdjustments from './AdminAdjustments.jsx';
-import AdminManualTime from './AdminManualTime.jsx';
 import './admin.css';
 
 const KEY_STORAGE = 'c911_admin_key';
@@ -175,7 +174,7 @@ function SignIn({ onAuthed }) {
 export default function Admin() {
   const [authed, setAuthed] = useState(() =>
     Boolean(localStorage.getItem(SESSION_STORAGE) || localStorage.getItem(KEY_STORAGE)));
-  const [section, setSection] = useState('review'); // review | add | hours | adjust | map | geofence | crew
+  const [section, setSection] = useState('review'); // review | hours | adjust | map | geofence | crew
   const [tab, setTab] = useState('pending');
   const [userFilter, setUserFilter] = useState('');
   const [punches, setPunches] = useState(undefined);
@@ -367,8 +366,7 @@ export default function Admin() {
       <div className="adm-toolbar">
         <div className="adm-toolbar-top">
           <h1 className="adm-title">
-            {section === 'add' ? 'Add time'
-              : section === 'map' ? 'Crew map'
+            {section === 'map' ? 'Crew map'
               : section === 'geofence' ? 'Geofence log'
               : section === 'crew' ? 'Crew'
               : section === 'hours' ? 'Hours'
@@ -382,7 +380,6 @@ export default function Admin() {
             <p className="adm-nav-label">Time</p>
             <div className="adm-sections" role="tablist" aria-label="Time">
               <button type="button" role="tab" aria-selected={section === 'review'} className={section === 'review' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('review')}>Review</button>
-              <button type="button" role="tab" aria-selected={section === 'add'} className={section === 'add' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('add')}>Add time</button>
               <button type="button" role="tab" aria-selected={section === 'hours'} className={section === 'hours' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('hours')}>Hours</button>
               <button type="button" role="tab" aria-selected={section === 'adjust'} className={section === 'adjust' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('adjust')}>ER Adjustments</button>
             </div>
@@ -429,8 +426,6 @@ export default function Admin() {
         <AdminHours adminFetch={adminFetch} />
       ) : section === 'adjust' ? (
         <AdminAdjustments adminFetch={adminFetch} />
-      ) : section === 'add' ? (
-        <AdminManualTime adminFetch={adminFetch} onReview={() => { setTab('pending'); setSection('review'); }} />
       ) : (
       <>
       <ErrorBanner message={err} onDismiss={() => setErr(null)} />

@@ -6,6 +6,7 @@ import ErrorBanner from '../components/ErrorBanner.jsx';
 import { getActivities } from '../api.js';
 import { addDays, parseISODate, payPeriodContaining, payPeriodOffset, toISODate } from '../lib/dates.js';
 import { jobLabel, jobMatches } from '../lib/jobs.js';
+import AdminManualTime from './AdminManualTime.jsx';
 
 function sundayOf(d = new Date()) {
   return toISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()));
@@ -69,6 +70,36 @@ function isoToLocalInput(iso) {
 
 function canAdjust(p) {
   return Boolean(p?.endedAt) && p.status !== 'void' && p.status !== 'open';
+}
+
+const NAME_SUFFIX = /^(jr\.?|sr\.?|ii|iii|iv)$/i;
+
+function lastNameSortKey(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  let last = parts[parts.length - 1];
+  let rest = parts.slice(0, -1);
+  if (rest.length && NAME_SUFFIX.test(last)) {
+    last = rest[rest.length - 1];
+    rest = rest.slice(0, -1);
+  }
+  return `${last}\u0000${rest.join(' ')}`;
+}
+
+function compareByLastName(a, b) {
+  return lastNameSortKey(a).localeCompare(lastNameSortKey(b), undefined, { sensitivity: 'base' });
+}
+
+function emptyHoursUser(emp) {
+  return {
+    userId: emp.jtUserId,
+    userName: emp.name || emp.email,
+    days: [],
+    weeks: [],
+    totalHours: 0,
+    regularHours: 0,
+    overtimeHours: 0,
+  };
 }
 
 function dailyWindow(workDate, hours, breakMinutes) {
@@ -195,11 +226,18 @@ export default function AdminHours({ adminFetch }) {
     start: '', end: '', brk: '0', hours: '', activity: '', jobId: '', jobQuery: '', note: '',
   });
   const [openUsers, setOpenUsers] = useState(() => new Set());
+  const [addingKey, setAddingKey] = useState(null);
+  const [employees, setEmployees] = useState([]);
   useEffect(() => { getActivities().then((r) => setCatalog(r.activities || [])).catch(() => {}); }, []);
   useEffect(() => {
     adminFetch('/api/admin/jobs')
       .then((r) => setJobs(r.jobs || []))
       .catch(() => setJobs([]));
+  }, [adminFetch]);
+  useEffect(() => {
+    adminFetch('/api/admin/employees')
+      .then((r) => setEmployees(r.employees || []))
+      .catch(() => setEmployees([]));
   }, [adminFetch]);
 
   const load = useCallback(async (fromDay = from, toDay = to) => {
@@ -225,11 +263,21 @@ export default function AdminHours({ adminFetch }) {
     return [...extra, ...jobs].filter((j) => jobMatches(j, editVals.jobQuery));
   }, [jobs, editVals.jobId, editVals.jobQuery]);
 
+  const displayUsers = useMemo(() => {
+    const fromReport = report?.users || [];
+    const seen = new Set(fromReport.map((u) => u.userId).filter(Boolean));
+    const extras = employees
+      .filter((e) => e.jtUserId && !seen.has(e.jtUserId))
+      .map(emptyHoursUser);
+    return [...fromReport, ...extras].sort((a, b) => compareByLastName(a.userName, b.userName));
+  }, [report, employees]);
+
   function applyRange(nextFrom, nextTo) {
     setFrom(nextFrom);
     setTo(nextTo);
     setOpenUsers(new Set());
     setEditingId(null);
+    setAddingKey(null);
     load(nextFrom, nextTo);
   }
 
@@ -269,19 +317,37 @@ export default function AdminHours({ adminFetch }) {
     const key = userKey(user);
     setOpenUsers((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+        setAddingKey((cur) => (cur === key ? null : cur));
+      } else {
+        next.add(key);
+      }
       return next;
     });
   }
 
   function expandAllUsers() {
-    setOpenUsers(new Set((report?.users || []).map(userKey)));
+    setOpenUsers(new Set(displayUsers.map(userKey)));
   }
 
   function collapseAllUsers() {
     setOpenUsers(new Set());
     setEditingId(null);
+    setAddingKey(null);
+  }
+
+  function startAddTime(event, user) {
+    event.stopPropagation();
+    if (!user.userId) return;
+    const key = userKey(user);
+    setOpenUsers((prev) => new Set(prev).add(key));
+    setAddingKey((cur) => (cur === key ? null : key));
+  }
+
+  async function onTimeAdded() {
+    setAddingKey(null);
+    await load(from, to);
   }
 
   function startAdjust(p, user) {
@@ -582,11 +648,11 @@ export default function AdminHours({ adminFetch }) {
       )}
 
       {report === undefined && <Spinner label="Loading hours…" />}
-      {report && report.users.length === 0 && (
+      {report && displayUsers.length === 0 && (
         <Card><EmptyState icon="⏱" title="No punches in this range" /></Card>
       )}
 
-      {report && report.users.length > 0 && (
+      {report && displayUsers.length > 0 && (
         <div className="adm-hours-report">
           <div className="adm-hours-banner">
             <div>
@@ -608,46 +674,62 @@ export default function AdminHours({ adminFetch }) {
             </button>
           </div>
 
-          {report.users.map((user) => {
+          {displayUsers.map((user) => {
             const approval = approvalForUser(review, user);
             const signedAt = fmtApprovedAt(approval?.updatedAt || approval?.createdAt);
             const key = userKey(user);
+            const adding = addingKey === key;
             const open = openUsers.has(key)
+              || adding
               || Boolean(editingId && user.days.some((day) => day.punches.some((p) => p.id === editingId)));
             return (
             <section className={`adm-hours-user${open ? ' is-open' : ''}`} key={key}>
               <header className="adm-hours-userhead">
-                <button
-                  type="button"
-                  className="adm-hours-fold"
-                  aria-expanded={open}
-                  onClick={() => toggleUser(user)}
-                >
-                  <span className="adm-hours-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
-                  <span>
-                    <span className="adm-hours-username">
-                      {user.userName}
-                      {review?.requested && (
-                        <span
-                          className={`adm-badge ${
-                            approval?.status === 'approved'
-                              ? 'adm-badge-pushed'
-                              : approval?.status === 'changes_requested'
-                                ? 'adm-badge-pending'
-                                : 'adm-badge-void'
-                          }`}
-                        >
-                          {crewReviewLabel(approval?.status)}
-                        </span>
+                <div className="adm-hours-foldrow">
+                  <button
+                    type="button"
+                    className="adm-hours-fold"
+                    aria-expanded={open}
+                    onClick={() => toggleUser(user)}
+                  >
+                    <span className="adm-hours-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
+                    <span>
+                      <span className="adm-hours-username">
+                        {user.userName}
+                        {review?.requested && (
+                          <span
+                            className={`adm-badge ${
+                              approval?.status === 'approved'
+                                ? 'adm-badge-pushed'
+                                : approval?.status === 'changes_requested'
+                                  ? 'adm-badge-pending'
+                                  : 'adm-badge-void'
+                            }`}
+                          >
+                            {crewReviewLabel(approval?.status)}
+                          </span>
+                        )}
+                      </span>
+                      {approval?.status === 'approved' && (
+                        <p className="adm-hours-signed">
+                          {user.userName} approved{signedAt ? ` ${signedAt}` : ''}
+                        </p>
                       )}
                     </span>
-                    {approval?.status === 'approved' && (
-                      <p className="adm-hours-signed">
-                        {user.userName} approved{signedAt ? ` ${signedAt}` : ''}
-                      </p>
-                    )}
-                  </span>
-                </button>
+                  </button>
+                  {open && (
+                    <button
+                      type="button"
+                      className={`c-btn c-btn-small no-print adm-hours-addbtn${adding ? ' c-btn-green' : ''}`}
+                      disabled={!user.userId}
+                      title={user.userId ? 'Add time for this crew member' : 'This person is not linked to JobTread'}
+                      aria-expanded={adding}
+                      onClick={(e) => startAddTime(e, user)}
+                    >
+                      Add time
+                    </button>
+                  )}
+                </div>
                 <div className="adm-hours-stats">
                   <Stat label="Total hours" value={fmtHours(user.totalHours)} />
                   <Stat label="Regular" value={fmtHours(user.regularHours)} />
@@ -656,6 +738,22 @@ export default function AdminHours({ adminFetch }) {
               </header>
 
               <div className="adm-hours-userbody" hidden={!open}>
+              {adding && (
+                <AdminManualTime
+                  key={key}
+                  adminFetch={adminFetch}
+                  userId={user.userId}
+                  userName={user.userName}
+                  periodFrom={report.from}
+                  periodTo={report.to}
+                  onCancel={() => setAddingKey(null)}
+                  onSaved={onTimeAdded}
+                />
+              )}
+              {user.days.length === 0 && !adding && (
+                <p className="adm-hours-emptyclocks">No punches in this range yet. Use Add time to enter hours.</p>
+              )}
+              {user.days.length > 0 && (
               <div className="adm-tablewrap">
                 <table className="adm-table adm-hours-clocks">
                   <colgroup>
@@ -841,7 +939,9 @@ export default function AdminHours({ adminFetch }) {
                   </tbody>
                 </table>
               </div>
+              )}
 
+              {user.weeks.length > 0 && (
               <div className="adm-hours-weeks">
                 <h4>Weekly overtime (Sun–Sat)</h4>
                 <table className="adm-hours-weektable">
@@ -874,6 +974,7 @@ export default function AdminHours({ adminFetch }) {
                   </tbody>
                 </table>
               </div>
+              )}
               </div>
             </section>
             );
