@@ -93,6 +93,11 @@ test('admin can list and review adjustment requests', async () => {
   assert.equal(reviewed.status, 200);
   assert.equal(reviewed.json.adjustment.status, 'reviewed');
   assert.match(reviewed.json.adjustment.adminNote, /GPS matches/);
+
+  const pending = await api(srv.base, '/api/admin/adjustments?status=pending');
+  assert.ok(!pending.json.adjustments.some((a) => a.id === created.json.adjustment.id));
+  const log = await api(srv.base, '/api/admin/adjustments?status=log');
+  assert.ok(log.json.adjustments.some((a) => a.id === created.json.adjustment.id && a.status === 'reviewed'));
 });
 
 test('admin can apply a time change with a required note', async () => {

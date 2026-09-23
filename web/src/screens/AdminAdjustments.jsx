@@ -66,7 +66,6 @@ export default function AdminAdjustments({ adminFetch }) {
   const [jobs, setJobs] = useState([]);
 
   const load = useCallback(async () => {
-    setItems(undefined);
     setErr(null);
     try {
       const [r, jr] = await Promise.all([
@@ -74,7 +73,7 @@ export default function AdminAdjustments({ adminFetch }) {
         tab === 'pending' ? adminFetch('/api/admin/jobs').catch(() => ({ jobs: [] })) : Promise.resolve({ jobs: [] }),
       ]);
       const list = r.adjustments || [];
-      setItems(list);
+      setItems(tab === 'pending' ? list.filter((a) => a.status === 'pending') : list);
       if (jr.jobs) setJobs(jr.jobs);
       if (tab === 'pending') {
         setDrafts((prev) => {
@@ -91,6 +90,7 @@ export default function AdminAdjustments({ adminFetch }) {
     }
   }, [adminFetch, tab]);
 
+  useEffect(() => { setItems(undefined); }, [tab]);
   useEffect(() => { load(); }, [load]);
 
   function setDraft(id, patch) {
@@ -100,6 +100,10 @@ export default function AdminAdjustments({ adminFetch }) {
   async function apply(a) {
     const draft = drafts[a.id] || draftFrom(a);
     if (busyId) return;
+    if ((draft.note || '').trim().length < 8 || (draft.note || '').trim().length > 400) {
+      setErr('Add a change note (8–400 characters)');
+      return;
+    }
     setBusyId(a.id);
     setErr(null);
     try {
@@ -117,6 +121,11 @@ export default function AdminAdjustments({ adminFetch }) {
         },
       });
       setItems((list) => (list || []).filter((x) => x.id !== a.id));
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[a.id];
+        return next;
+      });
       if (result.jtSync?.ok === false) {
         setErr(result.jtSync.error || 'Saved here, but JobTread was not updated');
       }
@@ -129,15 +138,25 @@ export default function AdminAdjustments({ adminFetch }) {
 
   async function dismiss(a) {
     const draft = drafts[a.id] || draftFrom(a);
+    const note = (draft.note || '').trim();
     if (busyId) return;
+    if (note.length < 8 || note.length > 400) {
+      setErr('Add a change note (8–400 characters) before dismissing');
+      return;
+    }
     setBusyId(a.id);
     setErr(null);
     try {
       await adminFetch(`/api/admin/adjustments/${a.id}/review`, {
         method: 'POST',
-        body: { note: draft.note },
+        body: { note },
       });
       setItems((list) => (list || []).filter((x) => x.id !== a.id));
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[a.id];
+        return next;
+      });
     } catch (e) {
       setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
     } finally {
@@ -299,11 +318,11 @@ export default function AdminAdjustments({ adminFetch }) {
                     </label>
                     <div className="adm-adj-actions">
                       {!locked && (
-                        <button type="button" className="c-btn" disabled={busyId === a.id} onClick={() => apply(a)}>
+                        <button type="button" className="c-btn" disabled={busyId === a.id || (draft.note || '').trim().length < 8} onClick={() => apply(a)}>
                           {busyId === a.id ? 'Saving…' : (a.kind === 'add' ? 'Add this time' : 'Apply change')}
                         </button>
                       )}
-                      <button type="button" className="c-btn c-btn-ghost" disabled={busyId === a.id} onClick={() => dismiss(a)}>
+                      <button type="button" className="c-btn c-btn-ghost" disabled={busyId === a.id || (draft.note || '').trim().length < 8} onClick={() => dismiss(a)}>
                         {busyId === a.id ? 'Saving…' : 'No change — dismiss'}
                       </button>
                     </div>

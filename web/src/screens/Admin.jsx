@@ -372,7 +372,7 @@ export default function Admin() {
               : section === 'geofence' ? 'Geofence log'
               : section === 'crew' ? 'Crew'
               : section === 'hours' ? 'Hours'
-              : section === 'adjust' ? 'Adjustments'
+              : section === 'adjust' ? 'Employee Requested Adjustment'
               : 'Time review'}
           </h1>
           <button type="button" className="adm-linklike" onClick={signOut}>Sign out</button>
@@ -384,7 +384,7 @@ export default function Admin() {
               <button type="button" role="tab" aria-selected={section === 'review'} className={section === 'review' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('review')}>Review</button>
               <button type="button" role="tab" aria-selected={section === 'add'} className={section === 'add' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('add')}>Add time</button>
               <button type="button" role="tab" aria-selected={section === 'hours'} className={section === 'hours' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('hours')}>Hours</button>
-              <button type="button" role="tab" aria-selected={section === 'adjust'} className={section === 'adjust' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('adjust')}>Adjustments</button>
+              <button type="button" role="tab" aria-selected={section === 'adjust'} className={section === 'adjust' ? 'adm-section active' : 'adm-section'} onClick={() => setSection('adjust')}>ER Adjustments</button>
             </div>
           </div>
           <div className="adm-nav-group">
