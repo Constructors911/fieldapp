@@ -525,7 +525,7 @@ export default function Hours({ boot, initialWhich = 'this' }) {
               value={ptoHours}
               onChange={(e) => setPtoHours(e.target.value)}
             />
-            <label className="c-label" htmlFor="hrs-pto-reason">Note</label>
+            <label className="c-label" htmlFor="hrs-pto-reason">Why are you asking off?</label>
             <textarea
               id="hrs-pto-reason"
               className="c-textarea"
