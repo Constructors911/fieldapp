@@ -744,6 +744,19 @@ export function createNeonStore(databaseUrl) {
       return adjustmentRow(rows[0]);
     },
 
+    async reopenTimeAdjustment(id, { adminNote, by } = {}) {
+      await migrate();
+      const rows = await sql`update time_adjustments set
+          status = 'pending',
+          admin_note = ${adminNote ?? null},
+          reviewed_at = null,
+          reviewed_by = ${by ?? null}
+        where id = ${id} and status = 'reviewed'
+        returning *`;
+      if (!rows[0]) throw new HttpError(404, 'Dismissed request not found');
+      return adjustmentRow(rows[0]);
+    },
+
     async resolveTimeAdjustment(id, patch) {
       await migrate();
       const rows = await sql`update time_adjustments set

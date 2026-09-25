@@ -76,15 +76,13 @@ export default function AdminAdjustments({ adminFetch }) {
       const list = r.adjustments || [];
       setItems(tab === 'pending' ? list.filter((a) => a.status === 'pending') : list);
       if (jr.jobs) setJobs(jr.jobs);
-      if (tab === 'pending') {
-        setDrafts((prev) => {
-          const next = { ...prev };
-          for (const a of list) {
-            if (!next[a.id]) next[a.id] = draftFrom(a);
-          }
-          return next;
-        });
-      }
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const a of list) {
+          if (!next[a.id]) next[a.id] = draftFrom(a);
+        }
+        return next;
+      });
     } catch (e) {
       setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
       setItems([]);
@@ -130,6 +128,30 @@ export default function AdminAdjustments({ adminFetch }) {
       if (result.jtSync?.ok === false) {
         setErr(result.jtSync.error || 'Saved here, but JobTread was not updated');
       }
+    } catch (e) {
+      setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reopen(a) {
+    const draft = drafts[a.id] || draftFrom(a);
+    const note = (draft.note || '').trim();
+    if (busyId) return;
+    if (note.length < 8 || note.length > 400) {
+      setErr('Add a change note (8–400 characters) before putting this back on Pending');
+      return;
+    }
+    setBusyId(a.id);
+    setErr(null);
+    try {
+      await adminFetch(`/api/admin/adjustments/${a.id}/reopen`, {
+        method: 'POST',
+        body: { note },
+      });
+      setItems((list) => (list || []).filter((x) => x.id !== a.id));
+      setTab('pending');
     } catch (e) {
       setErr(e.message === 'UNAUTHORIZED' ? 'Session expired — sign in again' : e.message);
     } finally {
@@ -220,7 +242,7 @@ export default function AdminAdjustments({ adminFetch }) {
       <p className="adm-crew-note">
         {tab === 'pending'
           ? 'Apply the requested times and job, or dismiss with a note. Add-time requests create a new clock. PTO should already be approved in Rippling — dismiss it if it is not.'
-          : 'Every office decision — crew change requests and Hours-row adjustments — with the reason note.'}
+          : 'Every office decision — crew change requests and Hours-row adjustments — with the reason note. A dismissed request can be put back on Pending if it should have been applied. Applied time cannot be undone here.'}
       </p>
       {tab === 'log' && Array.isArray(items) && items.length > 0 && (
         <div className="adm-adj-logbar">
@@ -348,6 +370,29 @@ export default function AdminAdjustments({ adminFetch }) {
                         <p className="adm-adj-label">Office note</p>
                         <p className="adm-adj-reason">{a.adminNote}</p>
                       </>
+                    )}
+                    {a.status === 'reviewed' && (
+                      <div className="no-print">
+                        <label className="adm-adj-note">
+                          Why this should go back to Pending
+                          <textarea
+                            rows={3}
+                            value={draft.note}
+                            onChange={(e) => setDraft(a.id, { note: e.target.value })}
+                            placeholder="Dismissed by mistake — apply the requested times"
+                          />
+                        </label>
+                        <div className="adm-adj-actions">
+                          <button
+                            type="button"
+                            className="c-btn"
+                            disabled={busyId === a.id || (draft.note || '').trim().length < 8}
+                            onClick={() => reopen(a)}
+                          >
+                            {busyId === a.id ? 'Saving…' : 'Put back on Pending'}
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}

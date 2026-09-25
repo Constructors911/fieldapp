@@ -521,6 +521,18 @@ export function createMemoryStore() {
       return { ...row };
     },
 
+    async reopenTimeAdjustment(id, { adminNote, by } = {}) {
+      const row = timeAdjustments.find((x) => x.id === id);
+      if (!row || row.status !== 'reviewed') {
+        throw new HttpError(404, 'Dismissed request not found');
+      }
+      row.status = 'pending';
+      row.adminNote = adminNote ?? row.adminNote;
+      row.reviewedAt = null;
+      row.reviewedBy = by ?? null;
+      return { ...row };
+    },
+
     async resolveTimeAdjustment(id, patch) {
       const row = timeAdjustments.find((x) => x.id === id);
       if (!row || row.status !== 'pending') {

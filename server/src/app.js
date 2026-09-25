@@ -992,6 +992,34 @@ export function createApp(adapter, store = createStore(), {
     res.json({ adjustment: await withPunch(adjustment) });
   }));
 
+  app.post('/api/admin/adjustments/:id/reopen', requireAdmin, wrap(async (req, res) => {
+    const note = adminNoteOf(req.body ?? {});
+    const current = await store.getTimeAdjustment(req.params.id);
+    if (!current) throw new HttpError(404, 'Adjustment request not found');
+    if (current.status === 'applied') {
+      throw new HttpError(409, 'Applied requests cannot be undone from the log — add or adjust the clock on Hours');
+    }
+    if (current.status !== 'reviewed') {
+      throw new HttpError(409, 'Only a dismissed request can be put back on Pending');
+    }
+    if (current.punchId) {
+      const punch = await store.getPunch(current.punchId);
+      if (punch?.status === 'void') throw new HttpError(400, 'That clock was voided');
+      if (await store.getPendingTimeAdjustment(current.punchId)) {
+        throw new HttpError(409, 'A change request is already pending for this clock');
+      }
+    }
+    const prior = current.adminNote ? `Earlier dismiss: ${current.adminNote}` : '';
+    const adminNote = prior ? `${note}\n\n${prior}`.slice(0, 400) : note;
+    const adjustment = await store.reopenTimeAdjustment(current.id, {
+      adminNote,
+      by: actorOf(req),
+    });
+    const employee = await store.getEmployee(current.employeeId).catch(() => null);
+    if (employee) await noteCrewChangeOnPeriod(employee, adjustment);
+    res.json({ adjustment: await withPunch(adjustment) });
+  }));
+
   app.post('/api/admin/adjustments/:id/apply', requireAdmin, wrap(async (req, res) => {
     const note = adminNoteOf(req.body ?? {});
     const current = await store.getTimeAdjustment(req.params.id);

@@ -98,6 +98,44 @@ test('admin can list and review adjustment requests', async () => {
   assert.ok(!pending.json.adjustments.some((a) => a.id === created.json.adjustment.id));
   const log = await api(srv.base, '/api/admin/adjustments?status=log');
   assert.ok(log.json.adjustments.some((a) => a.id === created.json.adjustment.id && a.status === 'reviewed'));
+
+  const noReopenNote = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/reopen`, {
+    method: 'POST',
+    body: {},
+  });
+  assert.equal(noReopenNote.status, 400);
+
+  const reopened = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/reopen`, {
+    method: 'POST',
+    body: { note: 'Dismissed by mistake — apply the requested times.' },
+  });
+  assert.equal(reopened.status, 200, reopened.json?.error);
+  assert.equal(reopened.json.adjustment.status, 'pending');
+  assert.match(reopened.json.adjustment.adminNote, /Dismissed by mistake/);
+
+  const pendingAgain = await api(srv.base, '/api/admin/adjustments?status=pending');
+  assert.ok(pendingAgain.json.adjustments.some((a) => a.id === created.json.adjustment.id));
+});
+
+test('applied adjustment cannot be reopened from the log', async () => {
+  const entry = await closedPunch();
+  const created = await api(srv.base, `/api/time/entries/${entry.id}/adjust`, {
+    method: 'POST',
+    headers,
+    body: { reason: 'I stayed later than the clock-out shows.' },
+  });
+  const startedAt = new Date(Date.now() - 8 * 3600_000).toISOString();
+  const endedAt = new Date(Date.now() - 1 * 3600_000).toISOString();
+  const applied = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/apply`, {
+    method: 'POST',
+    body: { startedAt, endedAt, breakMinutes: 0, note: 'Supervisor confirmed the later clock-out.' },
+  });
+  assert.equal(applied.status, 200, applied.json?.error);
+  const undo = await api(srv.base, `/api/admin/adjustments/${created.json.adjustment.id}/reopen`, {
+    method: 'POST',
+    body: { note: 'Trying to undo an applied change from the log.' },
+  });
+  assert.equal(undo.status, 409);
 });
 
 test('admin can apply a time change with a required note', async () => {

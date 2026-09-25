@@ -51,6 +51,7 @@ Registration links the employee to JobTread (required: org membership matched by
 - GET /api/admin/adjustments?status=pending|reviewed|applied|log -> { adjustments } (admin; `log` = applied + reviewed; each row includes current `punch` snapshot)
 - POST /api/admin/adjustments/:id/apply { startedAt?, endedAt?, breakMinutes?, jobId?, jobName?, activity?, note } -> { adjustment, punch, jtSync } (admin; required note 8–400 chars; creates a punch for `add` requests or edits the existing one, including clocks already pushed to JobTread; `jtSync` is the JobTread update result when a pushed clock was edited)
 - POST /api/admin/adjustments/:id/review { note } -> { adjustment } (admin; dismiss with no time change; required note)
+- POST /api/admin/adjustments/:id/reopen { note } -> { adjustment } (admin; only a dismissed `reviewed` row; puts it back on Pending so it can be applied; required note; 409 if already applied or another request is pending for that clock)
 - POST /api/time/location { coordinates: {lat,lng}, at? ISO } -> { ok, ping? | skipped? } (session; wake breadcrumb while clocked in — skipped if no open punch)
 - GET|POST /api/cron/clock-out-reminders -> { sent, skipped? } (Vercel cron / `x-cron-secret` or `Authorization: Bearer CRON_SECRET`; emails 8/12/16h of today’s total time while still clocked in, when Workspace SMTP or Resend is configured)
 
